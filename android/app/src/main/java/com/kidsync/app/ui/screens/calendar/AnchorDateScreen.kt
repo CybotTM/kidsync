@@ -52,7 +52,7 @@ import com.kidsync.app.ui.components.PatternPreview
 import com.kidsync.app.ui.components.TopAppBarWithBack
 import com.kidsync.app.ui.theme.Amber40
 import com.kidsync.app.ui.theme.Blue40
-import com.kidsync.app.ui.viewmodel.CalendarViewModel
+import com.kidsync.app.ui.viewmodel.ScheduleSetupViewModel
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -74,7 +74,7 @@ import java.util.TimeZone
 fun AnchorDateScreen(
     onBack: () -> Unit,
     onScheduleSaved: () -> Unit,
-    viewModel: CalendarViewModel = hiltViewModel(),
+    viewModel: ScheduleSetupViewModel = hiltViewModel(),
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -98,8 +98,8 @@ fun AnchorDateScreen(
     }
 
     // Navigate after save
-    LaunchedEffect(uiState.hasSchedule) {
-        if (uiState.hasSchedule && !uiState.isLoading) {
+    LaunchedEffect(uiState.scheduleSaved) {
+        if (uiState.scheduleSaved && !uiState.isLoading) {
             // Small delay to let state propagate
         }
     }

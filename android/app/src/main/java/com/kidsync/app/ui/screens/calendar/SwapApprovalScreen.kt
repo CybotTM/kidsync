@@ -55,7 +55,7 @@ import com.kidsync.app.domain.model.ScheduleOverride
 import com.kidsync.app.ui.components.TopAppBarWithBack
 import com.kidsync.app.ui.theme.Amber40
 import com.kidsync.app.ui.theme.Blue40
-import com.kidsync.app.ui.viewmodel.CalendarViewModel
+import com.kidsync.app.ui.viewmodel.SwapRequestViewModel
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.UUID
@@ -74,7 +74,7 @@ import java.util.UUID
 @Composable
 fun SwapApprovalScreen(
     onBack: () -> Unit,
-    viewModel: CalendarViewModel = hiltViewModel(),
+    viewModel: SwapRequestViewModel = hiltViewModel(),
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()

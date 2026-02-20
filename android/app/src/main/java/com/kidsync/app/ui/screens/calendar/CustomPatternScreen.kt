@@ -48,7 +48,7 @@ import com.kidsync.app.ui.components.PatternPreview
 import com.kidsync.app.ui.components.TopAppBarWithBack
 import com.kidsync.app.ui.theme.Amber40
 import com.kidsync.app.ui.theme.Blue40
-import com.kidsync.app.ui.viewmodel.CalendarViewModel
+import com.kidsync.app.ui.viewmodel.ScheduleSetupViewModel
 
 /**
  * Custom pattern builder screen.
@@ -63,7 +63,7 @@ import com.kidsync.app.ui.viewmodel.CalendarViewModel
 fun CustomPatternScreen(
     onBack: () -> Unit,
     onContinue: () -> Unit,
-    viewModel: CalendarViewModel = hiltViewModel(),
+    viewModel: ScheduleSetupViewModel = hiltViewModel(),
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()

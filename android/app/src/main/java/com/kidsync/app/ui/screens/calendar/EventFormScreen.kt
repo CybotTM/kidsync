@@ -47,7 +47,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.kidsync.app.R
 import com.kidsync.app.ui.components.LoadingButton
 import com.kidsync.app.ui.components.TopAppBarWithBack
-import com.kidsync.app.ui.viewmodel.CalendarViewModel
+import com.kidsync.app.ui.viewmodel.EventFormViewModel
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -74,7 +74,7 @@ fun EventFormScreen(
     eventId: String?,
     onBack: () -> Unit,
     onSaved: () -> Unit,
-    viewModel: CalendarViewModel = hiltViewModel(),
+    viewModel: EventFormViewModel = hiltViewModel(),
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()

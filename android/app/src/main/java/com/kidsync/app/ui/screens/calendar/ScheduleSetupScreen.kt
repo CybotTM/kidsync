@@ -36,8 +36,8 @@ import com.kidsync.app.ui.components.PatternPreview
 import com.kidsync.app.ui.components.TopAppBarWithBack
 import com.kidsync.app.ui.theme.Amber40
 import com.kidsync.app.ui.theme.Blue40
-import com.kidsync.app.ui.viewmodel.CalendarViewModel
 import com.kidsync.app.ui.viewmodel.PatternPreset
+import com.kidsync.app.ui.viewmodel.ScheduleSetupViewModel
 
 /**
  * Schedule setup screen with visual pattern picker showing common custody presets.
@@ -55,7 +55,7 @@ fun ScheduleSetupScreen(
     onBack: () -> Unit,
     onPresetSelected: () -> Unit,
     onCustomSelected: () -> Unit,
-    viewModel: CalendarViewModel = hiltViewModel(),
+    viewModel: ScheduleSetupViewModel = hiltViewModel(),
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
