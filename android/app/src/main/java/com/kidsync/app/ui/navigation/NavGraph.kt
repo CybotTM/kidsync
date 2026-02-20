@@ -11,7 +11,21 @@ import com.kidsync.app.ui.screens.auth.RecoveryRestoreScreen
 import com.kidsync.app.ui.screens.auth.RegisterScreen
 import com.kidsync.app.ui.screens.auth.TotpSetupScreen
 import com.kidsync.app.ui.screens.auth.WelcomeScreen
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
+import com.kidsync.app.ui.screens.calendar.AnchorDateScreen
+import com.kidsync.app.ui.screens.calendar.CalendarScreen
+import com.kidsync.app.ui.screens.calendar.CustomPatternScreen
+import com.kidsync.app.ui.screens.calendar.DayDetailScreen
+import com.kidsync.app.ui.screens.calendar.EventFormScreen
+import com.kidsync.app.ui.screens.calendar.ScheduleSetupScreen
+import com.kidsync.app.ui.screens.calendar.SwapApprovalScreen
+import com.kidsync.app.ui.screens.calendar.SwapRequestScreen
 import com.kidsync.app.ui.screens.dashboard.DashboardScreen
+import com.kidsync.app.ui.screens.expense.AddExpenseScreen
+import com.kidsync.app.ui.screens.expense.ExpenseDetailScreen
+import com.kidsync.app.ui.screens.expense.ExpenseListScreen
+import com.kidsync.app.ui.screens.expense.ExpenseSummaryScreen
 import com.kidsync.app.ui.screens.family.AddChildrenScreen
 import com.kidsync.app.ui.screens.family.FamilySetupScreen
 import com.kidsync.app.ui.screens.family.InviteCoParentScreen
@@ -192,7 +206,173 @@ fun KidSyncNavGraph(
             DashboardScreen(
                 onNavigateToSettings = {
                     navController.navigate(Routes.Settings.route)
+                },
+                onNavigateToExpenses = {
+                    navController.navigate(Routes.ExpenseList.route)
+                },
+                onNavigateToCalendar = {
+                    navController.navigate(Routes.Calendar.route)
                 }
+            )
+        }
+
+        // Calendar flow
+        composable(Routes.Calendar.route) {
+            CalendarScreen(
+                onBack = { navController.popBackStack() },
+                onDayClick = { date ->
+                    navController.navigate(Routes.DayDetail.createRoute(date))
+                },
+                onRequestSwap = {
+                    navController.navigate(Routes.SwapRequest.createRoute())
+                },
+                onSetupSchedule = {
+                    navController.navigate(Routes.ScheduleSetup.route)
+                }
+            )
+        }
+
+        composable(
+            route = Routes.DayDetail.route,
+            arguments = listOf(
+                navArgument("date") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val date = backStackEntry.arguments?.getString("date") ?: ""
+            DayDetailScreen(
+                date = date,
+                onBack = { navController.popBackStack() },
+                onAddEvent = { eventDate ->
+                    navController.navigate(Routes.EventForm.createRoute(date = eventDate))
+                },
+                onRequestSwap = { swapDate ->
+                    navController.navigate(Routes.SwapRequest.createRoute(startDate = swapDate))
+                }
+            )
+        }
+
+        composable(Routes.ScheduleSetup.route) {
+            ScheduleSetupScreen(
+                onBack = { navController.popBackStack() },
+                onPresetSelected = {
+                    navController.navigate(Routes.AnchorDate.route)
+                },
+                onCustomSelected = {
+                    navController.navigate(Routes.CustomPattern.route)
+                }
+            )
+        }
+
+        composable(Routes.CustomPattern.route) {
+            CustomPatternScreen(
+                onBack = { navController.popBackStack() },
+                onContinue = {
+                    navController.navigate(Routes.AnchorDate.route)
+                }
+            )
+        }
+
+        composable(Routes.AnchorDate.route) {
+            AnchorDateScreen(
+                onBack = { navController.popBackStack() },
+                onScheduleSaved = {
+                    navController.navigate(Routes.Calendar.route) {
+                        popUpTo(Routes.ScheduleSetup.route) { inclusive = true }
+                    }
+                }
+            )
+        }
+
+        composable(
+            route = Routes.SwapRequest.route,
+            arguments = listOf(
+                navArgument("startDate") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) { backStackEntry ->
+            val startDate = backStackEntry.arguments?.getString("startDate")
+            SwapRequestScreen(
+                startDate = startDate,
+                onBack = { navController.popBackStack() },
+                onSwapSubmitted = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        composable(Routes.SwapApproval.route) {
+            SwapApprovalScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(
+            route = Routes.EventForm.route,
+            arguments = listOf(
+                navArgument("date") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument("eventId") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) { backStackEntry ->
+            val date = backStackEntry.arguments?.getString("date")
+            val eventId = backStackEntry.arguments?.getString("eventId")
+            EventFormScreen(
+                date = date,
+                eventId = eventId,
+                onBack = { navController.popBackStack() },
+                onSaved = { navController.popBackStack() }
+            )
+        }
+
+        // Expense flow
+        composable(Routes.ExpenseList.route) {
+            ExpenseListScreen(
+                onNavigateToDetail = { expenseId ->
+                    navController.navigate(Routes.ExpenseDetail.createRoute(expenseId))
+                },
+                onNavigateToAddExpense = {
+                    navController.navigate(Routes.AddExpense.route)
+                },
+                onNavigateToSummary = {
+                    navController.navigate(Routes.ExpenseSummary.route)
+                },
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(
+            route = Routes.ExpenseDetail.route,
+            arguments = listOf(
+                navArgument("expenseId") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val expenseId = backStackEntry.arguments?.getString("expenseId") ?: ""
+            ExpenseDetailScreen(
+                expenseId = expenseId,
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Routes.AddExpense.route) {
+            AddExpenseScreen(
+                onBack = { navController.popBackStack() },
+                onSaved = { navController.popBackStack() }
+            )
+        }
+
+        composable(Routes.ExpenseSummary.route) {
+            ExpenseSummaryScreen(
+                onBack = { navController.popBackStack() }
             )
         }
 

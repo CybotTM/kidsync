@@ -147,6 +147,184 @@
     <string name="password_strength_medium">Medium</string>
     <string name="password_strength_strong">Strong</string>
 
+    <!-- Expense Module -->
+    <string name="expense_list_title">Expenses</string>
+    <string name="expense_list_empty">No expenses yet</string>
+    <string name="expense_list_empty_subtitle">Tap + to add your first shared expense</string>
+    <string name="expense_add_button">Add Expense</string>
+    <string name="expense_add_title">Add Expense</string>
+    <string name="expense_add_amount">Amount</string>
+    <string name="expense_add_category">Category</string>
+    <string name="expense_add_description">Description</string>
+    <string name="expense_add_date">Date</string>
+    <string name="expense_add_child">Child</string>
+    <string name="expense_add_split">Split: %1$d%% / %2$d%%</string>
+    <string name="expense_add_split_description">Adjust how this expense is split between you and your co-parent</string>
+    <string name="expense_add_split_you">You: %1$d%%</string>
+    <string name="expense_add_split_them">Co-parent: %1$d%%</string>
+    <string name="expense_add_currency">Currency</string>
+    <string name="expense_add_receipt">Receipt</string>
+    <string name="expense_add_receipt_camera">Camera</string>
+    <string name="expense_add_receipt_gallery">Gallery</string>
+    <string name="expense_add_receipt_attached">Receipt attached</string>
+    <string name="expense_add_receipt_remove">Remove</string>
+    <string name="expense_add_save">Save Expense</string>
+    <string name="expense_date_confirm">OK</string>
+    <string name="expense_date_cancel">Cancel</string>
+
+    <string name="expense_detail_title">Expense Details</string>
+    <string name="expense_detail_not_found">Expense not found</string>
+    <string name="expense_detail_description">Description</string>
+    <string name="expense_detail_category">Category</string>
+    <string name="expense_detail_date">Date</string>
+    <string name="expense_detail_paid_by">Paid by</string>
+    <string name="expense_detail_split">Split ratio</string>
+    <string name="expense_detail_split_value">%1$d%% / %2$d%%</string>
+    <string name="expense_detail_receipt_attached">Receipt image attached</string>
+    <string name="expense_detail_history">Status History</string>
+    <string name="expense_action_acknowledge">Acknowledge</string>
+    <string name="expense_action_dispute">Dispute</string>
+    <string name="expense_dispute_title">Dispute Expense</string>
+    <string name="expense_dispute_description">Please explain why you are disputing this expense.</string>
+    <string name="expense_dispute_note_label">Reason (optional)</string>
+    <string name="expense_dispute_cancel">Cancel</string>
+
+    <string name="expense_summary_title">Expense Summary</string>
+    <string name="expense_summary_monthly">Monthly</string>
+    <string name="expense_summary_yearly">Yearly</string>
+    <string name="expense_summary_total">Total Expenses</string>
+    <string name="expense_summary_your_share">Your share</string>
+    <string name="expense_summary_their_share">Their share</string>
+    <string name="expense_summary_count">%1$d expenses</string>
+    <string name="expense_summary_by_category">By Category</string>
+    <string name="expense_summary_no_data">No expenses for this period</string>
+
+    <string name="expense_balance_title">Balance</string>
+    <string name="expense_balance_they_owe">They owe you %1$s</string>
+    <string name="expense_balance_you_owe">You owe %1$s</string>
+    <string name="expense_balance_settled">All settled up</string>
+
+    <string name="expense_status_pending">Pending</string>
+    <string name="expense_status_acknowledged">Acknowledged</string>
+    <string name="expense_status_disputed">Disputed</string>
+    <string name="expense_status_resolved">Resolved</string>
+
+    <string name="expense_category_medical">Medical</string>
+    <string name="expense_category_education">Education</string>
+    <string name="expense_category_clothing">Clothing</string>
+    <string name="expense_category_activities">Activities</string>
+    <string name="expense_category_transport">Transport</string>
+    <string name="expense_category_childcare">Childcare</string>
+    <string name="expense_category_other">Other</string>
+
+    <string name="expense_filter_category">Category</string>
+    <string name="expense_filter_status">Status</string>
+    <string name="expense_filter_all">All</string>
+    <string name="expense_filter_clear">Clear</string>
+
+    <!-- Calendar Module -->
+    <string name="calendar_title">Calendar</string>
+    <string name="calendar_select_child">Select child</string>
+    <string name="calendar_today_with">Today\'s custody</string>
+    <string name="calendar_previous_month">Previous month</string>
+    <string name="calendar_next_month">Next month</string>
+    <string name="calendar_request_swap">Request Swap</string>
+    <string name="calendar_no_schedule">No Schedule Set Up</string>
+    <string name="calendar_no_schedule_subtitle">Set up a custody schedule to see parent assignments on the calendar.</string>
+    <string name="calendar_setup_schedule">Set Up Schedule</string>
+    <string name="calendar_unassigned">Unassigned</string>
+    <string name="calendar_assigned_parent">Assigned parent</string>
+    <string name="calendar_override_indicator">Modified from base schedule</string>
+    <string name="calendar_events">Events</string>
+    <string name="calendar_no_events_day">No events for this day</string>
+    <string name="calendar_pending_swaps">Pending Swap Requests</string>
+    <string name="calendar_swap_pending">Swap Pending</string>
+    <string name="calendar_swap_from_to">%1$s requested swap from %2$s to %3$s</string>
+    <string name="calendar_swap_assigned_to">Would assign to %1$s</string>
+    <string name="calendar_add_event">Add Event</string>
+
+    <!-- Schedule Setup -->
+    <string name="calendar_schedule_setup">Schedule Setup</string>
+    <string name="calendar_choose_pattern">Choose a Pattern</string>
+    <string name="calendar_choose_pattern_subtitle">Select a common custody pattern or create your own custom schedule.</string>
+    <string name="calendar_pattern_7_7">Week-on / Week-off</string>
+    <string name="calendar_pattern_7_7_desc">Each parent has the child for 7 consecutive days.</string>
+    <string name="calendar_pattern_2_2_3">2-2-3 Rotation</string>
+    <string name="calendar_pattern_2_2_3_desc">Parent A: 2 days, Parent B: 2 days, Parent A: 3 days, then reversed.</string>
+    <string name="calendar_pattern_2_2_5_5">2-2-5-5 Rotation</string>
+    <string name="calendar_pattern_2_2_5_5_desc">Parent A: 2 days, Parent B: 2 days, Parent A: 5 days, Parent B: 5 days.</string>
+    <string name="calendar_pattern_alt_weekends">Alternating Weekends</string>
+    <string name="calendar_pattern_alt_weekends_desc">Primary parent has weekdays, weekends alternate between parents.</string>
+    <string name="calendar_pattern_custom">Custom Pattern</string>
+    <string name="calendar_pattern_custom_desc">Build your own custody rotation with any cycle length.</string>
+
+    <!-- Custom Pattern -->
+    <string name="calendar_custom_pattern">Custom Pattern</string>
+    <string name="calendar_build_pattern">Build Your Pattern</string>
+    <string name="calendar_build_pattern_subtitle">Tap each day to toggle between parents. The pattern repeats for the chosen cycle length.</string>
+    <string name="calendar_cycle_length">Cycle Length</string>
+    <string name="calendar_days">Days</string>
+    <string name="calendar_tap_to_assign">Tap to Assign</string>
+    <string name="calendar_tap_to_assign_hint">Tap a day to switch the assigned parent</string>
+    <string name="calendar_pattern_preview">Pattern Preview (4 Weeks)</string>
+    <string name="calendar_continue">Continue</string>
+
+    <!-- Anchor Date -->
+    <string name="calendar_anchor_date">Start Date</string>
+    <string name="calendar_anchor_heading">Set Start Date</string>
+    <string name="calendar_anchor_subtitle">Choose the date when this custody pattern starts and the timezone to use.</string>
+    <string name="calendar_anchor_date_label">Anchor Date</string>
+    <string name="calendar_select_date">Select date</string>
+    <string name="calendar_timezone_label">Timezone</string>
+    <string name="calendar_timezone_search">Search timezone</string>
+    <string name="calendar_review_summary">Review</string>
+    <string name="calendar_summary_cycle">Cycle Length</string>
+    <string name="calendar_summary_cycle_value">%1$d days</string>
+    <string name="calendar_summary_anchor">Start Date</string>
+    <string name="calendar_summary_timezone">Timezone</string>
+    <string name="calendar_save_schedule">Save Schedule</string>
+
+    <!-- Swap Request -->
+    <string name="calendar_swap_heading">Request a Swap</string>
+    <string name="calendar_swap_subtitle">Ask your co-parent to swap custody days. They will need to approve the request.</string>
+    <string name="calendar_swap_dates">Date Range</string>
+    <string name="calendar_start_date">Start date</string>
+    <string name="calendar_end_date">End date</string>
+    <string name="calendar_swap_reason">Reason (optional)</string>
+    <string name="calendar_swap_reason_hint">Why are you requesting this swap?</string>
+    <string name="calendar_swap_preview">Preview</string>
+    <string name="calendar_swap_preview_subtitle">These days would change assignment if approved.</string>
+    <string name="calendar_submit_swap">Submit Request</string>
+    <string name="calendar_date_range_error">End date must be on or after start date</string>
+    <string name="calendar_confirm">OK</string>
+    <string name="calendar_cancel">Cancel</string>
+
+    <!-- Swap Approval -->
+    <string name="calendar_swap_approval">Swap Requests</string>
+    <string name="calendar_no_pending_swaps">No Pending Requests</string>
+    <string name="calendar_no_pending_swaps_subtitle">Swap requests from your co-parent will appear here.</string>
+    <string name="calendar_pending_requests">Pending Requests</string>
+    <string name="calendar_swap_from_name">Request from %1$s</string>
+    <string name="calendar_swap_date_range">Date Range</string>
+    <string name="calendar_swap_would_assign">Would assign:</string>
+    <string name="calendar_swap_note_label">Reason</string>
+    <string name="calendar_approve">Approve</string>
+    <string name="calendar_decline">Decline</string>
+
+    <!-- Event Form -->
+    <string name="calendar_add_event_heading">New Event</string>
+    <string name="calendar_edit_event">Edit Event</string>
+    <string name="calendar_edit_event_heading">Edit Event</string>
+    <string name="calendar_event_title">Title</string>
+    <string name="calendar_event_date">Date</string>
+    <string name="calendar_event_time">Time (optional)</string>
+    <string name="calendar_select_time">Select time</string>
+    <string name="calendar_clear">Clear</string>
+    <string name="calendar_event_location">Location (optional)</string>
+    <string name="calendar_event_notes">Notes (optional)</string>
+    <string name="calendar_save">Save</string>
+    <string name="calendar_delete">Delete</string>
+
     <!-- Content Descriptions (Accessibility) -->
     <string name="cd_app_logo">KidSync app logo</string>
     <string name="cd_navigate_back">Navigate back</string>
@@ -170,4 +348,17 @@
     <string name="cd_mnemonic_word">Word %1$d: %2$s</string>
     <string name="cd_mnemonic_input_grid">Recovery word input, %1$d words</string>
     <string name="cd_mnemonic_input_word">Recovery word %1$d</string>
+    <string name="cd_expense_summary">View expense summary</string>
+    <string name="cd_expense_status">Expense status: %1$s</string>
+    <string name="cd_expense_date_picker">Choose date</string>
+    <string name="cd_expense_camera">Take photo of receipt</string>
+    <string name="cd_expense_gallery">Choose receipt from gallery</string>
+    <string name="cd_expense_saving">Saving expense</string>
+    <string name="cd_category_selected">%1$s, selected</string>
+    <string name="cd_balance_they_owe">Balance: your co-parent owes you %1$s</string>
+    <string name="cd_balance_you_owe">Balance: you owe your co-parent %1$s</string>
+    <string name="cd_balance_settled">Balance: all settled up</string>
+    <string name="cd_saving_schedule">Saving schedule</string>
+    <string name="cd_submitting_swap">Submitting swap request</string>
+    <string name="cd_saving_event">Saving event</string>
 </resources>

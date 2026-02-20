@@ -48,6 +48,8 @@ import com.kidsync.app.R
 @Composable
 fun DashboardScreen(
     onNavigateToSettings: () -> Unit,
+    onNavigateToExpenses: () -> Unit = {},
+    onNavigateToCalendar: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Scaffold(
@@ -146,7 +148,7 @@ fun DashboardScreen(
                     icon = Icons.Filled.CalendarMonth,
                     title = stringResource(R.string.dashboard_calendar),
                     description = stringResource(R.string.dashboard_calendar_desc),
-                    onClick = { /* Navigate to calendar */ },
+                    onClick = onNavigateToCalendar,
                     modifier = Modifier.weight(1f)
                 )
 
@@ -154,7 +156,7 @@ fun DashboardScreen(
                     icon = Icons.Filled.Payments,
                     title = stringResource(R.string.dashboard_expenses),
                     description = stringResource(R.string.dashboard_expenses_desc),
-                    onClick = { /* Navigate to expenses */ },
+                    onClick = onNavigateToExpenses,
                     modifier = Modifier.weight(1f)
                 )
             }

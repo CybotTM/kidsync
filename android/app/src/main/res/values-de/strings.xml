@@ -147,6 +147,184 @@
     <string name="password_strength_medium">Mittel</string>
     <string name="password_strength_strong">Stark</string>
 
+    <!-- Expense Module -->
+    <string name="expense_list_title">Ausgaben</string>
+    <string name="expense_list_empty">Noch keine Ausgaben</string>
+    <string name="expense_list_empty_subtitle">Tippen Sie auf +, um Ihre erste geteilte Ausgabe hinzuzuf\u00fcgen</string>
+    <string name="expense_add_button">Ausgabe hinzuf\u00fcgen</string>
+    <string name="expense_add_title">Ausgabe hinzuf\u00fcgen</string>
+    <string name="expense_add_amount">Betrag</string>
+    <string name="expense_add_category">Kategorie</string>
+    <string name="expense_add_description">Beschreibung</string>
+    <string name="expense_add_date">Datum</string>
+    <string name="expense_add_child">Kind</string>
+    <string name="expense_add_split">Aufteilung: %1$d%% / %2$d%%</string>
+    <string name="expense_add_split_description">Passen Sie an, wie diese Ausgabe zwischen Ihnen und dem anderen Elternteil aufgeteilt wird</string>
+    <string name="expense_add_split_you">Sie: %1$d%%</string>
+    <string name="expense_add_split_them">Co-Elternteil: %1$d%%</string>
+    <string name="expense_add_currency">W\u00e4hrung</string>
+    <string name="expense_add_receipt">Beleg</string>
+    <string name="expense_add_receipt_camera">Kamera</string>
+    <string name="expense_add_receipt_gallery">Galerie</string>
+    <string name="expense_add_receipt_attached">Beleg angeh\u00e4ngt</string>
+    <string name="expense_add_receipt_remove">Entfernen</string>
+    <string name="expense_add_save">Ausgabe speichern</string>
+    <string name="expense_date_confirm">OK</string>
+    <string name="expense_date_cancel">Abbrechen</string>
+
+    <string name="expense_detail_title">Ausgabendetails</string>
+    <string name="expense_detail_not_found">Ausgabe nicht gefunden</string>
+    <string name="expense_detail_description">Beschreibung</string>
+    <string name="expense_detail_category">Kategorie</string>
+    <string name="expense_detail_date">Datum</string>
+    <string name="expense_detail_paid_by">Bezahlt von</string>
+    <string name="expense_detail_split">Aufteilungsverh\u00e4ltnis</string>
+    <string name="expense_detail_split_value">%1$d%% / %2$d%%</string>
+    <string name="expense_detail_receipt_attached">Belegbild angeh\u00e4ngt</string>
+    <string name="expense_detail_history">Statusverlauf</string>
+    <string name="expense_action_acknowledge">Best\u00e4tigen</string>
+    <string name="expense_action_dispute">Anfechten</string>
+    <string name="expense_dispute_title">Ausgabe anfechten</string>
+    <string name="expense_dispute_description">Bitte erkl\u00e4ren Sie, warum Sie diese Ausgabe anfechten.</string>
+    <string name="expense_dispute_note_label">Grund (optional)</string>
+    <string name="expense_dispute_cancel">Abbrechen</string>
+
+    <string name="expense_summary_title">Ausgaben\u00fcbersicht</string>
+    <string name="expense_summary_monthly">Monatlich</string>
+    <string name="expense_summary_yearly">J\u00e4hrlich</string>
+    <string name="expense_summary_total">Gesamtausgaben</string>
+    <string name="expense_summary_your_share">Ihr Anteil</string>
+    <string name="expense_summary_their_share">Deren Anteil</string>
+    <string name="expense_summary_count">%1$d Ausgaben</string>
+    <string name="expense_summary_by_category">Nach Kategorie</string>
+    <string name="expense_summary_no_data">Keine Ausgaben f\u00fcr diesen Zeitraum</string>
+
+    <string name="expense_balance_title">Saldo</string>
+    <string name="expense_balance_they_owe">Schuldet Ihnen %1$s</string>
+    <string name="expense_balance_you_owe">Sie schulden %1$s</string>
+    <string name="expense_balance_settled">Alles ausgeglichen</string>
+
+    <string name="expense_status_pending">Ausstehend</string>
+    <string name="expense_status_acknowledged">Best\u00e4tigt</string>
+    <string name="expense_status_disputed">Angefochten</string>
+    <string name="expense_status_resolved">Gel\u00f6st</string>
+
+    <string name="expense_category_medical">Medizin</string>
+    <string name="expense_category_education">Bildung</string>
+    <string name="expense_category_clothing">Kleidung</string>
+    <string name="expense_category_activities">Aktivit\u00e4ten</string>
+    <string name="expense_category_transport">Transport</string>
+    <string name="expense_category_childcare">Kinderbetreuung</string>
+    <string name="expense_category_other">Sonstiges</string>
+
+    <string name="expense_filter_category">Kategorie</string>
+    <string name="expense_filter_status">Status</string>
+    <string name="expense_filter_all">Alle</string>
+    <string name="expense_filter_clear">Zur\u00fccksetzen</string>
+
+    <!-- Calendar Module -->
+    <string name="calendar_title">Kalender</string>
+    <string name="calendar_select_child">Kind ausw\u00e4hlen</string>
+    <string name="calendar_today_with">Heutige Betreuung</string>
+    <string name="calendar_previous_month">Vorheriger Monat</string>
+    <string name="calendar_next_month">N\u00e4chster Monat</string>
+    <string name="calendar_request_swap">Tausch anfragen</string>
+    <string name="calendar_no_schedule">Kein Betreuungsplan</string>
+    <string name="calendar_no_schedule_subtitle">Richten Sie einen Betreuungsplan ein, um die Zuweisung im Kalender zu sehen.</string>
+    <string name="calendar_setup_schedule">Plan einrichten</string>
+    <string name="calendar_unassigned">Nicht zugewiesen</string>
+    <string name="calendar_assigned_parent">Zugewiesener Elternteil</string>
+    <string name="calendar_override_indicator">Ge\u00e4ndert gegen\u00fcber Basisplan</string>
+    <string name="calendar_events">Termine</string>
+    <string name="calendar_no_events_day">Keine Termine f\u00fcr diesen Tag</string>
+    <string name="calendar_pending_swaps">Ausstehende Tausch-Anfragen</string>
+    <string name="calendar_swap_pending">Tausch ausstehend</string>
+    <string name="calendar_swap_from_to">%1$s hat einen Tausch vom %2$s bis %3$s angefragt</string>
+    <string name="calendar_swap_assigned_to">W\u00fcrde %1$s zugewiesen</string>
+    <string name="calendar_add_event">Termin hinzuf\u00fcgen</string>
+
+    <!-- Schedule Setup -->
+    <string name="calendar_schedule_setup">Plan einrichten</string>
+    <string name="calendar_choose_pattern">Muster ausw\u00e4hlen</string>
+    <string name="calendar_choose_pattern_subtitle">W\u00e4hlen Sie ein g\u00e4ngiges Betreuungsmuster oder erstellen Sie Ihren eigenen Plan.</string>
+    <string name="calendar_pattern_7_7">Woche um Woche</string>
+    <string name="calendar_pattern_7_7_desc">Jeder Elternteil hat das Kind 7 aufeinanderfolgende Tage.</string>
+    <string name="calendar_pattern_2_2_3">2-2-3-Rotation</string>
+    <string name="calendar_pattern_2_2_3_desc">Elternteil A: 2 Tage, Elternteil B: 2 Tage, Elternteil A: 3 Tage, dann umgekehrt.</string>
+    <string name="calendar_pattern_2_2_5_5">2-2-5-5-Rotation</string>
+    <string name="calendar_pattern_2_2_5_5_desc">Elternteil A: 2 Tage, Elternteil B: 2 Tage, Elternteil A: 5 Tage, Elternteil B: 5 Tage.</string>
+    <string name="calendar_pattern_alt_weekends">Abwechselnde Wochenenden</string>
+    <string name="calendar_pattern_alt_weekends_desc">Hauptelternteil hat Wochentage, Wochenenden wechseln sich ab.</string>
+    <string name="calendar_pattern_custom">Eigenes Muster</string>
+    <string name="calendar_pattern_custom_desc">Erstellen Sie Ihre eigene Betreuungsrotation mit beliebiger Zyklusl\u00e4nge.</string>
+
+    <!-- Custom Pattern -->
+    <string name="calendar_custom_pattern">Eigenes Muster</string>
+    <string name="calendar_build_pattern">Muster erstellen</string>
+    <string name="calendar_build_pattern_subtitle">Tippen Sie auf jeden Tag, um zwischen den Elternteilen zu wechseln. Das Muster wiederholt sich.</string>
+    <string name="calendar_cycle_length">Zyklusl\u00e4nge</string>
+    <string name="calendar_days">Tage</string>
+    <string name="calendar_tap_to_assign">Zum Zuweisen tippen</string>
+    <string name="calendar_tap_to_assign_hint">Tippen Sie auf einen Tag, um den zugewiesenen Elternteil zu wechseln</string>
+    <string name="calendar_pattern_preview">Mustervorschau (4 Wochen)</string>
+    <string name="calendar_continue">Weiter</string>
+
+    <!-- Anchor Date -->
+    <string name="calendar_anchor_date">Startdatum</string>
+    <string name="calendar_anchor_heading">Startdatum festlegen</string>
+    <string name="calendar_anchor_subtitle">W\u00e4hlen Sie das Datum, ab dem das Betreuungsmuster beginnt, und die zu verwendende Zeitzone.</string>
+    <string name="calendar_anchor_date_label">Ankerdatum</string>
+    <string name="calendar_select_date">Datum w\u00e4hlen</string>
+    <string name="calendar_timezone_label">Zeitzone</string>
+    <string name="calendar_timezone_search">Zeitzone suchen</string>
+    <string name="calendar_review_summary">\u00dcbersicht</string>
+    <string name="calendar_summary_cycle">Zyklusl\u00e4nge</string>
+    <string name="calendar_summary_cycle_value">%1$d Tage</string>
+    <string name="calendar_summary_anchor">Startdatum</string>
+    <string name="calendar_summary_timezone">Zeitzone</string>
+    <string name="calendar_save_schedule">Plan speichern</string>
+
+    <!-- Swap Request -->
+    <string name="calendar_swap_heading">Tausch anfragen</string>
+    <string name="calendar_swap_subtitle">Bitten Sie den anderen Elternteil um einen Tausch der Betreuungstage. Die Anfrage muss genehmigt werden.</string>
+    <string name="calendar_swap_dates">Zeitraum</string>
+    <string name="calendar_start_date">Startdatum</string>
+    <string name="calendar_end_date">Enddatum</string>
+    <string name="calendar_swap_reason">Grund (optional)</string>
+    <string name="calendar_swap_reason_hint">Warum m\u00f6chten Sie diesen Tausch?</string>
+    <string name="calendar_swap_preview">Vorschau</string>
+    <string name="calendar_swap_preview_subtitle">Diese Tage w\u00fcrden bei Genehmigung die Zuweisung \u00e4ndern.</string>
+    <string name="calendar_submit_swap">Anfrage senden</string>
+    <string name="calendar_date_range_error">Das Enddatum muss auf oder nach dem Startdatum liegen</string>
+    <string name="calendar_confirm">OK</string>
+    <string name="calendar_cancel">Abbrechen</string>
+
+    <!-- Swap Approval -->
+    <string name="calendar_swap_approval">Tausch-Anfragen</string>
+    <string name="calendar_no_pending_swaps">Keine ausstehenden Anfragen</string>
+    <string name="calendar_no_pending_swaps_subtitle">Tausch-Anfragen vom anderen Elternteil erscheinen hier.</string>
+    <string name="calendar_pending_requests">Ausstehende Anfragen</string>
+    <string name="calendar_swap_from_name">Anfrage von %1$s</string>
+    <string name="calendar_swap_date_range">Zeitraum</string>
+    <string name="calendar_swap_would_assign">W\u00fcrde zuweisen:</string>
+    <string name="calendar_swap_note_label">Grund</string>
+    <string name="calendar_approve">Genehmigen</string>
+    <string name="calendar_decline">Ablehnen</string>
+
+    <!-- Event Form -->
+    <string name="calendar_add_event_heading">Neuer Termin</string>
+    <string name="calendar_edit_event">Termin bearbeiten</string>
+    <string name="calendar_edit_event_heading">Termin bearbeiten</string>
+    <string name="calendar_event_title">Titel</string>
+    <string name="calendar_event_date">Datum</string>
+    <string name="calendar_event_time">Uhrzeit (optional)</string>
+    <string name="calendar_select_time">Uhrzeit w\u00e4hlen</string>
+    <string name="calendar_clear">L\u00f6schen</string>
+    <string name="calendar_event_location">Ort (optional)</string>
+    <string name="calendar_event_notes">Notizen (optional)</string>
+    <string name="calendar_save">Speichern</string>
+    <string name="calendar_delete">L\u00f6schen</string>
+
     <!-- Content Descriptions (Accessibility) -->
     <string name="cd_app_logo">KidSync App-Logo</string>
     <string name="cd_navigate_back">Zur\u00fcck navigieren</string>
@@ -170,4 +348,17 @@
     <string name="cd_mnemonic_word">Wort %1$d: %2$s</string>
     <string name="cd_mnemonic_input_grid">Wiederherstellungsw\u00f6rter-Eingabe, %1$d W\u00f6rter</string>
     <string name="cd_mnemonic_input_word">Wiederherstellungswort %1$d</string>
+    <string name="cd_expense_summary">Ausgaben\u00fcbersicht anzeigen</string>
+    <string name="cd_expense_status">Ausgabenstatus: %1$s</string>
+    <string name="cd_expense_date_picker">Datum w\u00e4hlen</string>
+    <string name="cd_expense_camera">Beleg fotografieren</string>
+    <string name="cd_expense_gallery">Beleg aus Galerie w\u00e4hlen</string>
+    <string name="cd_expense_saving">Ausgabe wird gespeichert</string>
+    <string name="cd_category_selected">%1$s, ausgew\u00e4hlt</string>
+    <string name="cd_balance_they_owe">Saldo: Co-Elternteil schuldet Ihnen %1$s</string>
+    <string name="cd_balance_you_owe">Saldo: Sie schulden dem Co-Elternteil %1$s</string>
+    <string name="cd_balance_settled">Saldo: alles ausgeglichen</string>
+    <string name="cd_saving_schedule">Plan wird gespeichert</string>
+    <string name="cd_submitting_swap">Tausch-Anfrage wird gesendet</string>
+    <string name="cd_saving_event">Termin wird gespeichert</string>
 </resources>
