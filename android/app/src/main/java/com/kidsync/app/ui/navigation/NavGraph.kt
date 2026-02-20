@@ -33,8 +33,12 @@ import com.kidsync.app.ui.screens.expense.ExpenseListScreen
 import com.kidsync.app.ui.screens.expense.ExpenseSummaryScreen
 import com.kidsync.app.ui.screens.family.AddChildrenScreen
 import com.kidsync.app.ui.screens.family.FamilySetupScreen
+import com.kidsync.app.ui.viewmodel.FamilyViewModel
 import com.kidsync.app.ui.screens.family.InviteCoParentScreen
 import com.kidsync.app.ui.screens.family.JoinFamilyScreen
+import com.kidsync.app.ui.screens.infobank.InfoBankDetailScreen
+import com.kidsync.app.ui.screens.infobank.InfoBankFormScreen
+import com.kidsync.app.ui.screens.infobank.InfoBankScreen
 import com.kidsync.app.ui.screens.settings.DeviceListScreen
 import com.kidsync.app.ui.screens.settings.ServerConfigScreen
 import com.kidsync.app.ui.screens.settings.SettingsScreen
@@ -193,18 +197,34 @@ fun KidSyncNavGraph(
         }
 
         composable(Routes.FamilySetup.route) {
+            val familyViewModel: FamilyViewModel = hiltViewModel()
             FamilySetupScreen(
                 onFamilyCreated = {
+                    // Store solo flag for downstream navigation decisions
+                    val isSolo = familyViewModel.uiState.value.isSolo
+                    navController.currentBackStackEntry
+                        ?.savedStateHandle?.set("isSolo", isSolo)
                     navController.navigate(Routes.AddChildren.route)
                 },
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                viewModel = familyViewModel
             )
         }
 
         composable(Routes.AddChildren.route) {
             AddChildrenScreen(
                 onContinue = {
-                    navController.navigate(Routes.InviteCoParent.route)
+                    // Check if the previous entry stored solo mode flag
+                    val isSolo = navController.previousBackStackEntry
+                        ?.savedStateHandle?.get<Boolean>("isSolo") ?: false
+                    if (isSolo) {
+                        // Solo mode: skip invite and go straight to dashboard
+                        navController.navigate(Routes.Dashboard.route) {
+                            popUpTo(Routes.FamilySetup.route) { inclusive = true }
+                        }
+                    } else {
+                        navController.navigate(Routes.InviteCoParent.route)
+                    }
                 },
                 onBack = { navController.popBackStack() }
             )
@@ -243,6 +263,12 @@ fun KidSyncNavGraph(
                     },
                     onNavigateToCalendar = {
                         navController.navigate(Routes.Calendar.route)
+                    },
+                    onNavigateToInfoBank = {
+                        navController.navigate(Routes.InfoBankList.route)
+                    },
+                    onInviteCoParent = {
+                        navController.navigate(Routes.InviteCoParent.route)
                     }
                 )
             }
@@ -432,6 +458,65 @@ fun KidSyncNavGraph(
             }
         }
 
+        // Info Bank flow
+        composable(Routes.InfoBankList.route) {
+            AuthenticatedRoute(authViewModel, navController) {
+                InfoBankScreen(
+                    onNavigateToDetail = { entryId ->
+                        navController.navigate(Routes.InfoBankDetail.createRoute(entryId))
+                    },
+                    onNavigateToAddEntry = {
+                        navController.navigate(Routes.InfoBankAdd.route)
+                    },
+                    onBack = { navController.popBackStack() }
+                )
+            }
+        }
+
+        composable(
+            route = Routes.InfoBankDetail.route,
+            arguments = listOf(
+                navArgument("entryId") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            AuthenticatedRoute(authViewModel, navController) {
+                val entryId = backStackEntry.arguments?.getString("entryId") ?: ""
+                InfoBankDetailScreen(
+                    entryId = entryId,
+                    onBack = { navController.popBackStack() },
+                    onEdit = { id ->
+                        navController.navigate(Routes.InfoBankEdit.createRoute(id))
+                    }
+                )
+            }
+        }
+
+        composable(Routes.InfoBankAdd.route) {
+            AuthenticatedRoute(authViewModel, navController) {
+                InfoBankFormScreen(
+                    entryId = null,
+                    onBack = { navController.popBackStack() },
+                    onSaved = { navController.popBackStack() }
+                )
+            }
+        }
+
+        composable(
+            route = Routes.InfoBankEdit.route,
+            arguments = listOf(
+                navArgument("entryId") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            AuthenticatedRoute(authViewModel, navController) {
+                val entryId = backStackEntry.arguments?.getString("entryId") ?: ""
+                InfoBankFormScreen(
+                    entryId = entryId,
+                    onBack = { navController.popBackStack() },
+                    onSaved = { navController.popBackStack() }
+                )
+            }
+        }
+
         composable(Routes.Settings.route) {
             AuthenticatedRoute(authViewModel, navController) {
                 SettingsScreen(
@@ -440,6 +525,9 @@ fun KidSyncNavGraph(
                     },
                     onNavigateToServerConfig = {
                         navController.navigate(Routes.ServerConfig.route)
+                    },
+                    onInviteCoParent = {
+                        navController.navigate(Routes.InviteCoParent.route)
                     },
                     onLogout = {
                         navController.navigate(Routes.Welcome.route) {

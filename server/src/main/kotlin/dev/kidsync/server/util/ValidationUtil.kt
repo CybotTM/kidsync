@@ -18,7 +18,7 @@ object ValidationUtil {
     fun isValidSha256Hex(value: String): Boolean =
         SHA256_HEX_REGEX.matches(value)
 
-    val VALID_ENTITY_TYPES = setOf("CustodySchedule", "ScheduleOverride", "Expense", "ExpenseStatus")
+    val VALID_ENTITY_TYPES = setOf("CustodySchedule", "ScheduleOverride", "Expense", "ExpenseStatus", "InfoBank")
     val VALID_OPERATIONS = setOf("CREATE", "UPDATE", "DELETE")
     val VALID_TRANSITION_STATES = setOf("APPROVED", "DECLINED", "CANCELLED", "SUPERSEDED", "EXPIRED")
 }

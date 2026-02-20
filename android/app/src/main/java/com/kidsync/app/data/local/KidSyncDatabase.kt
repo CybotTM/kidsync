@@ -18,9 +18,10 @@ import com.kidsync.app.data.local.entity.*
         OpLogEntryEntity::class,
         SyncStateEntity::class,
         KeyEpochEntity::class,
-        DeviceEntity::class
+        DeviceEntity::class,
+        InfoBankEntryEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -32,6 +33,7 @@ abstract class KidSyncDatabase : RoomDatabase() {
     abstract fun opLogDao(): OpLogDao
     abstract fun syncStateDao(): SyncStateDao
     abstract fun keyEpochDao(): KeyEpochDao
+    abstract fun infoBankDao(): InfoBankDao
 
     companion object {
         const val DATABASE_NAME = "kidsync_db"

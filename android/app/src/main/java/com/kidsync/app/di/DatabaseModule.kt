@@ -64,4 +64,9 @@ object DatabaseModule {
     fun provideKeyEpochDao(database: KidSyncDatabase): KeyEpochDao {
         return database.keyEpochDao()
     }
+
+    @Provides
+    fun provideInfoBankDao(database: KidSyncDatabase): InfoBankDao {
+        return database.infoBankDao()
+    }
 }

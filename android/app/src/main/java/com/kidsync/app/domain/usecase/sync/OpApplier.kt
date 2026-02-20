@@ -19,6 +19,7 @@ class OpApplier @Inject constructor(
     private val custodyScheduleDao: CustodyScheduleDao,
     private val overrideDao: OverrideDao,
     private val expenseDao: ExpenseDao,
+    private val infoBankDao: InfoBankDao,
     private val opLogDao: OpLogDao,
     private val conflictResolver: ConflictResolver,
     private val json: Json
@@ -44,6 +45,9 @@ class OpApplier @Inject constructor(
             "CreateEvent" -> applyEvent(op, payload)
             "UpdateEvent" -> applyEvent(op, payload)
             "CancelEvent" -> applyCancelEvent(op, payload)
+            "CreateInfoBankEntry" -> applyInfoBankEntry(op, payload)
+            "UpdateInfoBankEntry" -> applyInfoBankEntry(op, payload)
+            "DeleteInfoBankEntry" -> applyDeleteInfoBankEntry(op, payload)
             else -> ApplyResult()
         }
     }
@@ -200,6 +204,53 @@ class OpApplier @Inject constructor(
         payload: JsonObject
     ): ApplyResult {
         // CancelEvent marks an event as cancelled in the oplog
+        return ApplyResult()
+    }
+
+    private suspend fun applyInfoBankEntry(
+        op: OpLogEntry,
+        payload: JsonObject
+    ): ApplyResult {
+        val entity = InfoBankEntryEntity(
+            entryId = UUID.fromString(payload["entryId"]!!.jsonPrimitive.content),
+            childId = UUID.fromString(payload["childId"]!!.jsonPrimitive.content),
+            category = payload["category"]!!.jsonPrimitive.content,
+            allergies = payload["allergies"]?.jsonPrimitive?.content,
+            medicationName = payload["medicationName"]?.jsonPrimitive?.content,
+            medicationDosage = payload["medicationDosage"]?.jsonPrimitive?.content,
+            medicationSchedule = payload["medicationSchedule"]?.jsonPrimitive?.content,
+            doctorName = payload["doctorName"]?.jsonPrimitive?.content,
+            doctorPhone = payload["doctorPhone"]?.jsonPrimitive?.content,
+            insuranceInfo = payload["insuranceInfo"]?.jsonPrimitive?.content,
+            bloodType = payload["bloodType"]?.jsonPrimitive?.content,
+            schoolName = payload["schoolName"]?.jsonPrimitive?.content,
+            teacherNames = payload["teacherNames"]?.jsonPrimitive?.content,
+            gradeClass = payload["gradeClass"]?.jsonPrimitive?.content,
+            schoolPhone = payload["schoolPhone"]?.jsonPrimitive?.content,
+            scheduleNotes = payload["scheduleNotes"]?.jsonPrimitive?.content,
+            contactName = payload["contactName"]?.jsonPrimitive?.content,
+            relationship = payload["relationship"]?.jsonPrimitive?.content,
+            phone = payload["phone"]?.jsonPrimitive?.content,
+            email = payload["email"]?.jsonPrimitive?.content,
+            title = payload["title"]?.jsonPrimitive?.content,
+            content = payload["content"]?.jsonPrimitive?.content,
+            tag = payload["tag"]?.jsonPrimitive?.content,
+            notes = payload["notes"]?.jsonPrimitive?.content,
+            clientTimestamp = op.clientTimestamp.toString(),
+            updatedTimestamp = op.clientTimestamp.toString()
+        )
+
+        // Last-write-wins via REPLACE
+        infoBankDao.insertEntry(entity)
+        return ApplyResult()
+    }
+
+    private suspend fun applyDeleteInfoBankEntry(
+        op: OpLogEntry,
+        payload: JsonObject
+    ): ApplyResult {
+        val entryId = UUID.fromString(payload["entryId"]!!.jsonPrimitive.content)
+        infoBankDao.markDeleted(entryId)
         return ApplyResult()
     }
 

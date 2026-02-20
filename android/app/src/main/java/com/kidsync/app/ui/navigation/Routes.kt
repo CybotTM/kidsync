@@ -56,6 +56,16 @@ sealed class Routes(val route: String) {
     data object AddExpense : Routes("add_expense")
     data object ExpenseSummary : Routes("expense_summary")
 
+    // Info Bank
+    data object InfoBankList : Routes("info_bank_list")
+    data object InfoBankDetail : Routes("info_bank_detail/{entryId}") {
+        fun createRoute(entryId: String) = "info_bank_detail/$entryId"
+    }
+    data object InfoBankAdd : Routes("info_bank_add")
+    data object InfoBankEdit : Routes("info_bank_edit/{entryId}") {
+        fun createRoute(entryId: String) = "info_bank_edit/$entryId"
+    }
+
     // Settings
     data object Settings : Routes("settings")
     data object DeviceList : Routes("device_list")

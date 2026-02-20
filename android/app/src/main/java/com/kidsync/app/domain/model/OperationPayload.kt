@@ -127,6 +127,82 @@ data class CancelEventPayload(
 ) : OperationPayload()
 
 @Serializable
+@SerialName("CreateInfoBankEntry")
+data class CreateInfoBankEntryPayload(
+    override val payloadType: String = "CreateInfoBankEntry",
+    override val entityId: String,
+    override val timestamp: String,
+    override val operationType: String,
+    val entryId: String,
+    val childId: String,
+    val category: String,
+    val allergies: String? = null,
+    val medicationName: String? = null,
+    val medicationDosage: String? = null,
+    val medicationSchedule: String? = null,
+    val doctorName: String? = null,
+    val doctorPhone: String? = null,
+    val insuranceInfo: String? = null,
+    val bloodType: String? = null,
+    val schoolName: String? = null,
+    val teacherNames: String? = null,
+    val gradeClass: String? = null,
+    val schoolPhone: String? = null,
+    val scheduleNotes: String? = null,
+    val contactName: String? = null,
+    val relationship: String? = null,
+    val phone: String? = null,
+    val email: String? = null,
+    val title: String? = null,
+    val content: String? = null,
+    val tag: String? = null,
+    val notes: String? = null
+) : OperationPayload()
+
+@Serializable
+@SerialName("UpdateInfoBankEntry")
+data class UpdateInfoBankEntryPayload(
+    override val payloadType: String = "UpdateInfoBankEntry",
+    override val entityId: String,
+    override val timestamp: String,
+    override val operationType: String,
+    val entryId: String,
+    val childId: String,
+    val category: String,
+    val allergies: String? = null,
+    val medicationName: String? = null,
+    val medicationDosage: String? = null,
+    val medicationSchedule: String? = null,
+    val doctorName: String? = null,
+    val doctorPhone: String? = null,
+    val insuranceInfo: String? = null,
+    val bloodType: String? = null,
+    val schoolName: String? = null,
+    val teacherNames: String? = null,
+    val gradeClass: String? = null,
+    val schoolPhone: String? = null,
+    val scheduleNotes: String? = null,
+    val contactName: String? = null,
+    val relationship: String? = null,
+    val phone: String? = null,
+    val email: String? = null,
+    val title: String? = null,
+    val content: String? = null,
+    val tag: String? = null,
+    val notes: String? = null
+) : OperationPayload()
+
+@Serializable
+@SerialName("DeleteInfoBankEntry")
+data class DeleteInfoBankEntryPayload(
+    override val payloadType: String = "DeleteInfoBankEntry",
+    override val entityId: String,
+    override val timestamp: String,
+    override val operationType: String,
+    val entryId: String
+) : OperationPayload()
+
+@Serializable
 @SerialName("DeviceSnapshot")
 data class DeviceSnapshotPayload(
     override val payloadType: String = "DeviceSnapshot",
