@@ -1,14 +1,12 @@
 package dev.kidsync.server
 
+import dev.kidsync.server.TestHelper.computeHash
+import dev.kidsync.server.TestHelper.createJsonClient
 import dev.kidsync.server.models.*
-import dev.kidsync.server.util.HashUtil
 import io.ktor.client.call.*
-import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
 import io.ktor.http.*
-import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.testing.*
-import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.Test
 import java.util.Base64
 import kotlin.test.assertEquals
@@ -18,63 +16,12 @@ import kotlin.test.assertTrue
 
 class SyncTest {
 
-    private fun ApplicationTestBuilder.createJsonClient() = createClient {
-        install(ContentNegotiation) {
-            json(Json { ignoreUnknownKeys = true; encodeDefaults = true; explicitNulls = false })
-        }
-    }
-
-    /**
-     * Helper: register a user, create a family, return (token, userId, deviceId, familyId).
-     */
-    private suspend fun setupUserWithFamily(
-        client: io.ktor.client.HttpClient,
-        email: String = "sync-${System.nanoTime()}@example.com",
-    ): TestUser {
-        val regResponse = client.post("/auth/register") {
-            contentType(ContentType.Application.Json)
-            setBody(RegisterRequest(email = email, password = "strong-password-12345"))
-        }
-        assertEquals(HttpStatusCode.Created, regResponse.status,
-            "Register failed: ${regResponse.status}")
-        val reg = regResponse.body<RegisterResponse>()
-
-        val familyResponse = client.post("/families") {
-            contentType(ContentType.Application.Json)
-            header(HttpHeaders.Authorization, "Bearer ${reg.token}")
-            setBody(CreateFamilyRequest(name = "Test Family"))
-        }
-        assertEquals(HttpStatusCode.Created, familyResponse.status,
-            "Family creation failed: ${familyResponse.status}")
-        val family = familyResponse.body<CreateFamilyResponse>()
-
-        // Need to re-login to get updated familyIds in JWT
-        val loginResponse = client.post("/auth/login") {
-            contentType(ContentType.Application.Json)
-            setBody(LoginRequest(email = email, password = "strong-password-12345"))
-        }
-        assertEquals(HttpStatusCode.OK, loginResponse.status,
-            "Login failed: ${loginResponse.status}")
-        val login = loginResponse.body<LoginResponse>()
-
-        return TestUser(login.token, reg.userId, reg.deviceId, family.familyId)
-    }
-
-    data class TestUser(val token: String, val userId: String, val deviceId: String, val familyId: String)
-
-    /** Compute currentHash = SHA256(hexDecode(prevHash) + base64Decode(encryptedPayload)) */
-    private fun computeHash(devicePrevHash: String, encryptedPayload: String): String {
-        val prevBytes = HashUtil.hexToBytes(devicePrevHash)
-        val payloadBytes = Base64.getDecoder().decode(encryptedPayload)
-        return HashUtil.sha256Hex(prevBytes, payloadBytes)
-    }
-
     @Test
     fun `upload and pull ops`() = testApplication {
         application { module(testConfig()) }
         val client = createJsonClient()
 
-        val user = setupUserWithFamily(client)
+        val user = TestHelper.setupUserWithFamily(client)
 
         // Upload ops
         val prevHash1 = "0".repeat(64)
@@ -121,7 +68,7 @@ class SyncTest {
         application { module(testConfig()) }
         val client = createJsonClient()
 
-        val user = setupUserWithFamily(client)
+        val user = TestHelper.setupUserWithFamily(client)
 
         val prevHash1 = "0".repeat(64)
         val payload1 = "cGF5bG9hZDE="
@@ -167,7 +114,7 @@ class SyncTest {
         application { module(testConfig()) }
         val client = createJsonClient()
 
-        val user = setupUserWithFamily(client)
+        val user = TestHelper.setupUserWithFamily(client)
 
         // Upload 5 ops with valid hash chain
         var prevHash = "0".repeat(64)
@@ -227,7 +174,7 @@ class SyncTest {
         application { module(testConfig()) }
         val client = createJsonClient()
 
-        val user = setupUserWithFamily(client)
+        val user = TestHelper.setupUserWithFamily(client)
 
         val response = client.post("/sync/ops") {
             contentType(ContentType.Application.Json)
@@ -243,7 +190,7 @@ class SyncTest {
         application { module(testConfig()) }
         val client = createJsonClient()
 
-        val user = setupUserWithFamily(client)
+        val user = TestHelper.setupUserWithFamily(client)
 
         val response = client.post("/sync/handshake") {
             contentType(ContentType.Application.Json)
@@ -263,7 +210,7 @@ class SyncTest {
         application { module(testConfig()) }
         val client = createJsonClient()
 
-        val user = setupUserWithFamily(client)
+        val user = TestHelper.setupUserWithFamily(client)
 
         // Upload an op first
         val prevHash = "0".repeat(64)
@@ -305,7 +252,7 @@ class SyncTest {
         application { module(testConfig()) }
         val client = createJsonClient()
 
-        val user = setupUserWithFamily(client)
+        val user = TestHelper.setupUserWithFamily(client)
 
         val response = client.get("/sync/checkpoint") {
             header(HttpHeaders.Authorization, "Bearer ${user.token}")

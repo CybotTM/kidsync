@@ -1,14 +1,14 @@
 package dev.kidsync.server
 
+import dev.kidsync.server.TestHelper.computeHash
+import dev.kidsync.server.TestHelper.createJsonClient
 import dev.kidsync.server.models.*
 import dev.kidsync.server.util.HashUtil
 import io.ktor.client.call.*
-import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
 import io.ktor.client.request.forms.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
-import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.testing.*
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -23,183 +23,6 @@ import kotlin.test.assertTrue
  * Phase 7 End-to-End test suite covering full co-parenting workflows.
  */
 class E2ETest {
-
-    private fun ApplicationTestBuilder.createJsonClient() = createClient {
-        install(ContentNegotiation) {
-            json(Json { ignoreUnknownKeys = true; encodeDefaults = true; explicitNulls = false })
-        }
-    }
-
-    // ---- Shared helpers ----
-
-    data class TestUser(val token: String, val userId: String, val deviceId: String, val familyId: String)
-
-    /** Compute currentHash = SHA256(hexDecode(prevHash) + base64Decode(encryptedPayload)) */
-    private fun computeHash(devicePrevHash: String, encryptedPayload: String): String {
-        val prevBytes = HashUtil.hexToBytes(devicePrevHash)
-        val payloadBytes = Base64.getDecoder().decode(encryptedPayload)
-        return HashUtil.sha256Hex(prevBytes, payloadBytes)
-    }
-
-    /** Register a user, create a family, re-login to get familyIds in JWT. */
-    private suspend fun setupUserWithFamily(
-        client: io.ktor.client.HttpClient,
-        email: String = "e2e-setup-${System.nanoTime()}@example.com",
-        familyName: String = "E2E Family",
-    ): TestUser {
-        val reg = client.post("/auth/register") {
-            contentType(ContentType.Application.Json)
-            setBody(RegisterRequest(email = email, password = "strong-password-12345"))
-        }.also { assertEquals(HttpStatusCode.Created, it.status, "Register failed") }
-            .body<RegisterResponse>()
-
-        val family = client.post("/families") {
-            contentType(ContentType.Application.Json)
-            header(HttpHeaders.Authorization, "Bearer ${reg.token}")
-            setBody(CreateFamilyRequest(name = familyName))
-        }.also { assertEquals(HttpStatusCode.Created, it.status, "Family creation failed") }
-            .body<CreateFamilyResponse>()
-
-        val login = client.post("/auth/login") {
-            contentType(ContentType.Application.Json)
-            setBody(LoginRequest(email = email, password = "strong-password-12345"))
-        }.also { assertEquals(HttpStatusCode.OK, it.status, "Re-login failed") }
-            .body<LoginResponse>()
-
-        return TestUser(login.token, reg.userId, reg.deviceId, family.familyId)
-    }
-
-    /** Setup two users in the same family. Returns (parentA, parentB). */
-    private suspend fun setupTwoUserFamily(
-        client: io.ktor.client.HttpClient,
-    ): Pair<TestUser, TestUser> {
-        val emailA = "e2e-parentA-${System.nanoTime()}@example.com"
-        val emailB = "e2e-parentB-${System.nanoTime()}@example.com"
-
-        // Register parent A and create family
-        val regA = client.post("/auth/register") {
-            contentType(ContentType.Application.Json)
-            setBody(RegisterRequest(email = emailA, password = "strong-password-12345"))
-        }.also { assertEquals(HttpStatusCode.Created, it.status) }
-            .body<RegisterResponse>()
-
-        val family = client.post("/families") {
-            contentType(ContentType.Application.Json)
-            header(HttpHeaders.Authorization, "Bearer ${regA.token}")
-            setBody(CreateFamilyRequest(name = "E2E Two-Parent Family"))
-        }.also { assertEquals(HttpStatusCode.Created, it.status) }
-            .body<CreateFamilyResponse>()
-
-        // Create invite
-        val invite = client.post("/families/${family.familyId}/invite") {
-            header(HttpHeaders.Authorization, "Bearer ${regA.token}")
-        }.also { assertEquals(HttpStatusCode.Created, it.status) }
-            .body<InviteResponse>()
-
-        // Register parent B
-        val regB = client.post("/auth/register") {
-            contentType(ContentType.Application.Json)
-            setBody(RegisterRequest(email = emailB, password = "strong-password-12345"))
-        }.also { assertEquals(HttpStatusCode.Created, it.status) }
-            .body<RegisterResponse>()
-
-        // Parent B joins family
-        client.post("/families/${family.familyId}/join") {
-            contentType(ContentType.Application.Json)
-            header(HttpHeaders.Authorization, "Bearer ${regB.token}")
-            setBody(JoinFamilyRequest(inviteToken = invite.inviteToken, devicePublicKey = "parentB-key"))
-        }.also { assertEquals(HttpStatusCode.OK, it.status) }
-
-        // Re-login both to get updated JWT with familyIds
-        val loginA = client.post("/auth/login") {
-            contentType(ContentType.Application.Json)
-            setBody(LoginRequest(email = emailA, password = "strong-password-12345"))
-        }.also { assertEquals(HttpStatusCode.OK, it.status) }
-            .body<LoginResponse>()
-
-        val loginB = client.post("/auth/login") {
-            contentType(ContentType.Application.Json)
-            setBody(LoginRequest(email = emailB, password = "strong-password-12345"))
-        }.also { assertEquals(HttpStatusCode.OK, it.status) }
-            .body<LoginResponse>()
-
-        return Pair(
-            TestUser(loginA.token, regA.userId, regA.deviceId, family.familyId),
-            TestUser(loginB.token, regB.userId, regB.deviceId, family.familyId),
-        )
-    }
-
-    /** Upload a batch of ops with a valid hash chain. Returns the last currentHash. */
-    private suspend fun uploadOpsChain(
-        client: io.ktor.client.HttpClient,
-        user: TestUser,
-        count: Int,
-        startPrevHash: String = "0".repeat(64),
-        localIdPrefix: String = "op",
-    ): String {
-        var prevHash = startPrevHash
-        for (i in 1..count) {
-            val payload = Base64.getEncoder().encodeToString("payload-$localIdPrefix-$i".toByteArray())
-            val curHash = computeHash(prevHash, payload)
-            val response = client.post("/sync/ops") {
-                contentType(ContentType.Application.Json)
-                header(HttpHeaders.Authorization, "Bearer ${user.token}")
-                setBody(
-                    UploadOpsRequest(
-                        ops = listOf(
-                            OpInput(
-                                deviceId = user.deviceId,
-                                encryptedPayload = payload,
-                                devicePrevHash = prevHash,
-                                currentHash = curHash,
-                                keyEpoch = 1,
-                                localId = "$localIdPrefix-$i",
-                            )
-                        )
-                    )
-                )
-            }
-            assertEquals(HttpStatusCode.OK, response.status, "Upload op $localIdPrefix-$i failed: ${response.bodyAsText()}")
-            prevHash = curHash
-        }
-        return prevHash
-    }
-
-    /** Upload a batch of ops in a single request with valid hash chain. Returns the last currentHash. */
-    private suspend fun uploadOpsBatch(
-        client: io.ktor.client.HttpClient,
-        user: TestUser,
-        count: Int,
-        startPrevHash: String = "0".repeat(64),
-        localIdPrefix: String = "op",
-    ): String {
-        val ops = mutableListOf<OpInput>()
-        var prevHash = startPrevHash
-        for (i in 1..count) {
-            val payload = Base64.getEncoder().encodeToString("payload-$localIdPrefix-$i".toByteArray())
-            val curHash = computeHash(prevHash, payload)
-            ops.add(
-                OpInput(
-                    deviceId = user.deviceId,
-                    encryptedPayload = payload,
-                    devicePrevHash = prevHash,
-                    currentHash = curHash,
-                    keyEpoch = 1,
-                    localId = "$localIdPrefix-$i",
-                )
-            )
-            prevHash = curHash
-        }
-        val response = client.post("/sync/ops") {
-            contentType(ContentType.Application.Json)
-            header(HttpHeaders.Authorization, "Bearer ${user.token}")
-            setBody(UploadOpsRequest(ops = ops))
-        }
-        assertEquals(HttpStatusCode.OK, response.status, "Batch upload failed: ${response.bodyAsText()}")
-        val body = response.body<UploadOpsResponse>()
-        assertEquals(count, body.accepted.size, "Expected $count accepted ops")
-        return prevHash
-    }
 
     // ================================================================
     // Test 1: Full co-parent lifecycle
@@ -496,7 +319,7 @@ class E2ETest {
         application { module(testConfig()) }
         val client = createJsonClient()
 
-        val user = setupUserWithFamily(client)
+        val user = TestHelper.setupUserWithFamily(client)
 
         // Upload first op with correct hash chain
         val prevHash1 = "0".repeat(64)
@@ -635,13 +458,13 @@ class E2ETest {
         application { module(testConfig()) }
         val client = createJsonClient()
 
-        val (userA, userB) = setupTwoUserFamily(client)
+        val (userA, userB) = TestHelper.setupTwoUserFamily(client)
 
         // User A uploads 5 ops with valid hash chain
-        uploadOpsChain(client, userA, 5, localIdPrefix = "userA")
+        TestHelper.uploadOpsChain(client, userA, 5, localIdPrefix = "userA")
 
         // User B uploads 5 ops with valid hash chain (different deviceId, own chain)
-        uploadOpsChain(client, userB, 5, localIdPrefix = "userB")
+        TestHelper.uploadOpsChain(client, userB, 5, localIdPrefix = "userB")
 
         // Both users pull all ops
         val pullA = client.get("/sync/ops?since=0&limit=100") {
@@ -688,10 +511,10 @@ class E2ETest {
         application { module(config) }
         val client = createJsonClient()
 
-        val user = setupUserWithFamily(client, familyName = "Checkpoint Family")
+        val user = TestHelper.setupUserWithFamily(client, familyName = "Checkpoint Family")
 
         // Upload 10 ops (should trigger at least 1 checkpoint at interval=5)
-        uploadOpsChain(client, user, 10, localIdPrefix = "chk")
+        TestHelper.uploadOpsChain(client, user, 10, localIdPrefix = "chk")
 
         // GET /sync/checkpoint
         val checkpointResp = client.get("/sync/checkpoint") {
@@ -721,12 +544,12 @@ class E2ETest {
         application { module(testConfig()) }
         val client = createJsonClient()
 
-        val user = setupUserWithFamily(client, familyName = "Pagination Family")
+        val user = TestHelper.setupUserWithFamily(client, familyName = "Pagination Family")
 
         // Upload 100 ops in batches of 10 (maintain hash chain)
         var prevHash = "0".repeat(64)
         for (batch in 1..10) {
-            prevHash = uploadOpsBatch(
+            prevHash = TestHelper.uploadOpsBatch(
                 client, user,
                 count = 10,
                 startPrevHash = prevHash,
@@ -777,10 +600,10 @@ class E2ETest {
         application { module(testConfig()) }
         val client = createJsonClient()
 
-        val user = setupUserWithFamily(client, familyName = "Snapshot Family")
+        val user = TestHelper.setupUserWithFamily(client, familyName = "Snapshot Family")
 
         // Upload some ops first
-        uploadOpsChain(client, user, 5, localIdPrefix = "snap")
+        TestHelper.uploadOpsChain(client, user, 5, localIdPrefix = "snap")
 
         // Upload a snapshot via multipart
         val snapshotData = "encrypted-snapshot-data-for-testing".toByteArray()

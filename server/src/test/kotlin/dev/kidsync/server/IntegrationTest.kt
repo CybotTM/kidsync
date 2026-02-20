@@ -1,27 +1,17 @@
 package dev.kidsync.server
 
+import dev.kidsync.server.TestHelper.createJsonClient
 import dev.kidsync.server.models.*
 import io.ktor.client.call.*
-import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
-import io.ktor.client.request.forms.*
-import io.ktor.client.statement.*
 import io.ktor.http.*
-import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.testing.*
-import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class IntegrationTest {
-
-    private fun ApplicationTestBuilder.createJsonClient() = createClient {
-        install(ContentNegotiation) {
-            json(Json { ignoreUnknownKeys = true; encodeDefaults = true; explicitNulls = false })
-        }
-    }
 
     @Test
     fun `full registration and family creation flow`() = testApplication {

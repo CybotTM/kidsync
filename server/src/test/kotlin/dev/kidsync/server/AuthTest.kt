@@ -1,25 +1,17 @@
 package dev.kidsync.server
 
+import dev.kidsync.server.TestHelper.createJsonClient
 import dev.kidsync.server.models.*
 import io.ktor.client.call.*
-import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
 import io.ktor.http.*
-import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.testing.*
-import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class AuthTest {
-
-    private fun ApplicationTestBuilder.createJsonClient() = createClient {
-        install(ContentNegotiation) {
-            json(Json { ignoreUnknownKeys = true; encodeDefaults = true; explicitNulls = false })
-        }
-    }
 
     @Test
     fun `register creates new user and returns tokens`() = testApplication {
@@ -175,14 +167,4 @@ class AuthTest {
 
         assertEquals(HttpStatusCode.Unauthorized, response2.status)
     }
-}
-
-fun testConfig(): AppConfig {
-    val dbPath = "data/test-${System.nanoTime()}.db"
-    return AppConfig(
-        dbPath = dbPath,
-        jwtSecret = "test-secret-that-is-at-least-32-characters-long!!",
-        blobStoragePath = "data/test-blobs-${System.nanoTime()}",
-        snapshotStoragePath = "data/test-snapshots-${System.nanoTime()}",
-    )
 }
