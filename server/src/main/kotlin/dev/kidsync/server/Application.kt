@@ -34,6 +34,8 @@ fun Application.module(config: AppConfig = AppConfig()) {
     // Initialize utilities and services
     val jwtUtil = JwtUtil(config)
     val authService = AuthService(config, jwtUtil)
+    val familyService = FamilyService(config)
+    val keyService = KeyService(config)
     val syncService = SyncService(config)
     val blobService = BlobService(config)
     val pushService = PushService()
@@ -65,11 +67,11 @@ fun Application.module(config: AppConfig = AppConfig()) {
         }
 
         authRoutes(authService)
-        familyRoutes()
+        familyRoutes(familyService)
         deviceRoutes()
         syncRoutes(config, syncService, pushService, wsManager, jwtUtil)
         blobRoutes(blobService)
         pushRoutes(pushService)
-        keyRoutes()
+        keyRoutes(keyService)
     }
 }
