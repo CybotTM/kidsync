@@ -30,3 +30,29 @@
 -keepattributes Signature
 -keepattributes Exceptions
 -keep class com.kidsync.app.data.remote.dto.** { *; }
+
+# Room
+-keep class * extends androidx.room.RoomDatabase { *; }
+-keep @androidx.room.Entity class * { *; }
+-keep @androidx.room.Dao interface * { *; }
+-dontwarn androidx.room.paging.**
+
+# Hilt / Dagger
+-keep class dagger.hilt.** { *; }
+-keep class javax.inject.** { *; }
+-keep class * extends dagger.hilt.android.internal.managers.ViewComponentManager$FragmentContextWrapper { *; }
+-keepnames @dagger.hilt.android.lifecycle.HiltViewModel class * { *; }
+-keep,allowobfuscation,allowshrinking @dagger.hilt.EntryPoint interface * { *; }
+
+# OkHttp
+-dontwarn okhttp3.internal.platform.**
+-dontwarn org.conscrypt.**
+-dontwarn org.bouncycastle.**
+-dontwarn org.openjsse.**
+-keep class okhttp3.internal.platform.** { *; }
+
+# Ktor / WebSocket
+-keep class io.ktor.** { *; }
+-dontwarn io.ktor.**
+-keep class kotlinx.coroutines.** { *; }
+-dontwarn kotlinx.coroutines.**

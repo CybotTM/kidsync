@@ -6,6 +6,16 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+val localProperties = java.util.Properties().apply {
+    val localPropsFile = rootProject.file("local.properties")
+    if (localPropsFile.exists()) {
+        localPropsFile.inputStream().use { load(it) }
+    }
+}
+
+fun signingProp(envVar: String, propKey: String): String? =
+    System.getenv(envVar) ?: localProperties.getProperty(propKey)
+
 android {
     namespace = "com.kidsync.app"
     compileSdk = 35
@@ -30,6 +40,22 @@ android {
         }
     }
 
+    val keystorePath = signingProp("KIDSYNC_KEYSTORE_PATH", "keystore.path")
+    val keystorePassword = signingProp("KIDSYNC_KEYSTORE_PASSWORD", "keystore.password")
+    val keyAlias = signingProp("KIDSYNC_KEY_ALIAS", "key.alias")
+    val keyPassword = signingProp("KIDSYNC_KEY_PASSWORD", "key.password")
+
+    if (keystorePath != null && keystorePassword != null && keyAlias != null && keyPassword != null) {
+        signingConfigs {
+            create("release") {
+                storeFile = file(keystorePath)
+                storePassword = keystorePassword
+                this.keyAlias = keyAlias
+                this.keyPassword = keyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -37,6 +63,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (keystorePath != null && keystorePassword != null && keyAlias != null && keyPassword != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
         debug {
             isMinifyEnabled = false
