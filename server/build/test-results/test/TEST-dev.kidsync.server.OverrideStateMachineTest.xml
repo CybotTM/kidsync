@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="dev.kidsync.server.OverrideStateMachineTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-02-20T16:14:54" hostname="bigone" time="3.869">
+  <properties/>
+  <testcase name="override CREATE sets state to PROPOSED()" classname="dev.kidsync.server.OverrideStateMachineTest" time="0.776"/>
+  <testcase name="proposer cannot approve own override()" classname="dev.kidsync.server.OverrideStateMachineTest" time="0.761"/>
+  <testcase name="proposer can cancel own override()" classname="dev.kidsync.server.OverrideStateMachineTest" time="0.776"/>
+  <testcase name="non-proposer can approve override()" classname="dev.kidsync.server.OverrideStateMachineTest" time="0.774"/>
+  <testcase name="transition from terminal state is rejected()" classname="dev.kidsync.server.OverrideStateMachineTest" time="0.78"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

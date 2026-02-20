@@ -1,0 +1,47 @@
+package dev.kidsync.server.plugins
+
+import dev.kidsync.server.models.ErrorResponse
+import dev.kidsync.server.services.ApiException
+import io.ktor.http.*
+import io.ktor.server.application.*
+import io.ktor.server.plugins.statuspages.*
+import io.ktor.server.response.*
+import org.slf4j.LoggerFactory
+
+fun Application.configureStatusPages() {
+    val logger = LoggerFactory.getLogger("StatusPages")
+
+    install(StatusPages) {
+        exception<ApiException> { call, cause ->
+            val status = HttpStatusCode.fromValue(cause.statusCode)
+            call.respond(
+                status,
+                ErrorResponse(
+                    error = cause.errorCode,
+                    message = cause.message,
+                )
+            )
+        }
+
+        exception<Throwable> { call, cause ->
+            logger.error("Unhandled exception", cause)
+            call.respond(
+                HttpStatusCode.InternalServerError,
+                ErrorResponse(
+                    error = "INTERNAL_ERROR",
+                    message = "An unexpected error occurred",
+                )
+            )
+        }
+
+        status(HttpStatusCode.NotFound) { call, _ ->
+            call.respond(
+                HttpStatusCode.NotFound,
+                ErrorResponse(
+                    error = "NOT_FOUND",
+                    message = "Resource not found",
+                )
+            )
+        }
+    }
+}

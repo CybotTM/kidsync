@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="dev.kidsync.server.AuthTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-02-20T16:14:49" hostname="bigone" time="2.481">
+  <properties/>
+  <testcase name="login fails with wrong password()" classname="dev.kidsync.server.AuthTest" time="1.128"/>
+  <testcase name="refresh token flow works()" classname="dev.kidsync.server.AuthTest" time="0.244"/>
+  <testcase name="register rejects duplicate email()" classname="dev.kidsync.server.AuthTest" time="0.214"/>
+  <testcase name="register rejects weak password()" classname="dev.kidsync.server.AuthTest" time="0.037"/>
+  <testcase name="refresh token cannot be reused()" classname="dev.kidsync.server.AuthTest" time="0.23"/>
+  <testcase name="register rejects invalid email()" classname="dev.kidsync.server.AuthTest" time="0.04"/>
+  <testcase name="register creates new user and returns tokens()" classname="dev.kidsync.server.AuthTest" time="0.206"/>
+  <testcase name="login succeeds with correct credentials()" classname="dev.kidsync.server.AuthTest" time="0.378"/>
+  <system-out><![CDATA[17:14:49,335 |-INFO in ch.qos.logback.classic.LoggerContext[default] - This is logback-classic version 1.5.15
+17:14:49,336 |-INFO in ch.qos.logback.classic.util.ContextInitializer@61ff7979 - No custom configurators were discovered as a service.
+17:14:49,336 |-INFO in ch.qos.logback.classic.util.ContextInitializer@61ff7979 - Trying to configure with ch.qos.logback.classic.joran.SerializedModelConfigurator
+17:14:49,336 |-INFO in ch.qos.logback.classic.util.ContextInitializer@61ff7979 - Constructed configurator of type class ch.qos.logback.classic.joran.SerializedModelConfigurator
+17:14:49,339 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Could NOT find resource [logback-test.scmo]
+17:14:49,339 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Could NOT find resource [logback.scmo]
+17:14:49,343 |-INFO in ch.qos.logback.classic.util.ContextInitializer@61ff7979 - ch.qos.logback.classic.joran.SerializedModelConfigurator.configure() call lasted 3 milliseconds. ExecutionStatus=INVOKE_NEXT_IF_ANY
+17:14:49,343 |-INFO in ch.qos.logback.classic.util.ContextInitializer@61ff7979 - Trying to configure with ch.qos.logback.classic.util.DefaultJoranConfigurator
+17:14:49,343 |-INFO in ch.qos.logback.classic.util.ContextInitializer@61ff7979 - Constructed configurator of type class ch.qos.logback.classic.util.DefaultJoranConfigurator
+17:14:49,344 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Could NOT find resource [logback-test.xml]
+17:14:49,345 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Found resource [logback.xml] at [file:/home/cybot/projects/co-parenting/server/build/resources/main/logback.xml]
+17:14:49,383 |-WARN in ch.qos.logback.core.model.processor.AppenderModelHandler - Appender named [STDOUT] not referenced. Skipping further processing.
+17:14:49,383 |-INFO in ch.qos.logback.core.model.processor.AppenderModelHandler - Processing appender named [STDOUT_TEXT]
+17:14:49,383 |-INFO in ch.qos.logback.core.model.processor.AppenderModelHandler - About to instantiate appender of type [ch.qos.logback.core.ConsoleAppender]
+17:14:49,387 |-INFO in ch.qos.logback.core.model.processor.ImplicitModelHandler - Assuming default type [ch.qos.logback.classic.encoder.PatternLayoutEncoder] for [encoder] property
+17:14:49,402 |-INFO in ch.qos.logback.core.ConsoleAppender[STDOUT_TEXT] - BEWARE: Writing to the console can be very slow. Avoid logging to the 
+17:14:49,402 |-INFO in ch.qos.logback.core.ConsoleAppender[STDOUT_TEXT] - console in production environments, especially in high volume systems.
+17:14:49,402 |-INFO in ch.qos.logback.core.ConsoleAppender[STDOUT_TEXT] - See also https://logback.qos.ch/codes.html#slowConsole
+17:14:49,402 |-INFO in ch.qos.logback.classic.model.processor.RootLoggerModelHandler - Setting level of ROOT logger to INFO
+17:14:49,402 |-INFO in ch.qos.logback.core.model.processor.AppenderRefModelHandler - Attaching appender named [STDOUT_TEXT] to Logger[ROOT]
+17:14:49,403 |-INFO in ch.qos.logback.classic.model.processor.LoggerModelHandler - Setting level of logger [io.ktor] to INFO
+17:14:49,403 |-INFO in ch.qos.logback.classic.model.processor.LoggerModelHandler - Setting level of logger [org.jetbrains.exposed] to INFO
+17:14:49,403 |-INFO in ch.qos.logback.classic.model.processor.LoggerModelHandler - Setting level of logger [dev.kidsync] to DEBUG
+17:14:49,403 |-INFO in ch.qos.logback.core.model.processor.DefaultProcessor@f6f3939 - End of configuration.
+17:14:49,403 |-INFO in ch.qos.logback.classic.joran.JoranConfigurator@65743672 - Registering current configuration as safe fallback point
+17:14:49,403 |-INFO in ch.qos.logback.classic.util.ContextInitializer@61ff7979 - ch.qos.logback.classic.util.DefaultJoranConfigurator.configure() call lasted 60 milliseconds. ExecutionStatus=DO_NOT_INVOKE_NEXT_IF_ANY
+
+17:14:49.618 [DefaultDispatcher-worker-2 @call-context#3] INFO  io.ktor.test - No ktor.deployment.watch patterns specified, automatic reload is not active.
+17:14:49.894 [DefaultDispatcher-worker-2 @call-context#3] INFO  io.ktor.test - Application started in 0.283 seconds.
+17:14:49.894 [DefaultDispatcher-worker-2 @call-context#3] INFO  io.ktor.test - Application started: io.ktor.server.application.Application@219b50b4
+17:14:49.895 [DefaultDispatcher-worker-3 @coroutine#4] INFO  io.ktor.test - Responding at http://localhost:80
+17:14:49.896 [DefaultDispatcher-worker-3 @coroutine#4] INFO  io.ktor.test - Responding at https://localhost:443
+]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

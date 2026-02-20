@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="dev.kidsync.server.SyncTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-02-20T16:14:58" hostname="bigone" time="3.492">
+  <properties/>
+  <testcase name="checkpoint returns null when no ops()" classname="dev.kidsync.server.SyncTest" time="0.388"/>
+  <testcase name="upload rejects empty ops()" classname="dev.kidsync.server.SyncTest" time="1.084"/>
+  <testcase name="upload multiple ops assigns contiguous sequences()" classname="dev.kidsync.server.SyncTest" time="0.395"/>
+  <testcase name="pull with pagination()" classname="dev.kidsync.server.SyncTest" time="0.461"/>
+  <testcase name="upload and pull ops()" classname="dev.kidsync.server.SyncTest" time="0.396"/>
+  <testcase name="handshake returns server info()" classname="dev.kidsync.server.SyncTest" time="0.385"/>
+  <testcase name="handshake rejects unsupported protocol version()" classname="dev.kidsync.server.SyncTest" time="0.382"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

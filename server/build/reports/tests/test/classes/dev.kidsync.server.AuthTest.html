@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+<meta http-equiv="x-ua-compatible" content="IE=edge"/>
+<title>Test results - AuthTest</title>
+<link href="../css/base-style.css" rel="stylesheet" type="text/css"/>
+<link href="../css/style.css" rel="stylesheet" type="text/css"/>
+<script src="../js/report.js" type="text/javascript"></script>
+</head>
+<body>
+<div id="content">
+<h1>AuthTest</h1>
+<div class="breadcrumbs">
+<a href="../index.html">all</a> &gt; 
+<a href="../packages/dev.kidsync.server.html">dev.kidsync.server</a> &gt; AuthTest</div>
+<div id="summary">
+<table>
+<tr>
+<td>
+<div class="summaryGroup">
+<table>
+<tr>
+<td>
+<div class="infoBox" id="tests">
+<div class="counter">8</div>
+<p>tests</p>
+</div>
+</td>
+<td>
+<div class="infoBox" id="failures">
+<div class="counter">0</div>
+<p>failures</p>
+</div>
+</td>
+<td>
+<div class="infoBox" id="ignored">
+<div class="counter">0</div>
+<p>ignored</p>
+</div>
+</td>
+<td>
+<div class="infoBox" id="duration">
+<div class="counter">2.477s</div>
+<p>duration</p>
+</div>
+</td>
+</tr>
+</table>
+</div>
+</td>
+<td>
+<div class="infoBox success" id="successRate">
+<div class="percent">100%</div>
+<p>successful</p>
+</div>
+</td>
+</tr>
+</table>
+</div>
+<div id="tabs">
+<ul class="tabLinks">
+<li>
+<a href="#tab0">Tests</a>
+</li>
+<li>
+<a href="#tab1">Standard output</a>
+</li>
+</ul>
+<div id="tab0" class="tab">
+<h2>Tests</h2>
+<table>
+<thead>
+<tr>
+<th>Test</th>
+<th>Duration</th>
+<th>Result</th>
+</tr>
+</thead>
+<tr>
+<td class="success">login fails with wrong password()</td>
+<td class="success">1.128s</td>
+<td class="success">passed</td>
+</tr>
+<tr>
+<td class="success">login succeeds with correct credentials()</td>
+<td class="success">0.378s</td>
+<td class="success">passed</td>
+</tr>
+<tr>
+<td class="success">refresh token cannot be reused()</td>
+<td class="success">0.230s</td>
+<td class="success">passed</td>
+</tr>
+<tr>
+<td class="success">refresh token flow works()</td>
+<td class="success">0.244s</td>
+<td class="success">passed</td>
+</tr>
+<tr>
+<td class="success">register creates new user and returns tokens()</td>
+<td class="success">0.206s</td>
+<td class="success">passed</td>
+</tr>
+<tr>
+<td class="success">register rejects duplicate email()</td>
+<td class="success">0.214s</td>
+<td class="success">passed</td>
+</tr>
+<tr>
+<td class="success">register rejects invalid email()</td>
+<td class="success">0.040s</td>
+<td class="success">passed</td>
+</tr>
+<tr>
+<td class="success">register rejects weak password()</td>
+<td class="success">0.037s</td>
+<td class="success">passed</td>
+</tr>
+</table>
+</div>
+<div id="tab1" class="tab">
+<h2>Standard output</h2>
+<span class="code">
+<pre>17:14:49,335 |-INFO in ch.qos.logback.classic.LoggerContext[default] - This is logback-classic version 1.5.15
+17:14:49,336 |-INFO in ch.qos.logback.classic.util.ContextInitializer@61ff7979 - No custom configurators were discovered as a service.
+17:14:49,336 |-INFO in ch.qos.logback.classic.util.ContextInitializer@61ff7979 - Trying to configure with ch.qos.logback.classic.joran.SerializedModelConfigurator
+17:14:49,336 |-INFO in ch.qos.logback.classic.util.ContextInitializer@61ff7979 - Constructed configurator of type class ch.qos.logback.classic.joran.SerializedModelConfigurator
+17:14:49,339 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Could NOT find resource [logback-test.scmo]
+17:14:49,339 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Could NOT find resource [logback.scmo]
+17:14:49,343 |-INFO in ch.qos.logback.classic.util.ContextInitializer@61ff7979 - ch.qos.logback.classic.joran.SerializedModelConfigurator.configure() call lasted 3 milliseconds. ExecutionStatus=INVOKE_NEXT_IF_ANY
+17:14:49,343 |-INFO in ch.qos.logback.classic.util.ContextInitializer@61ff7979 - Trying to configure with ch.qos.logback.classic.util.DefaultJoranConfigurator
+17:14:49,343 |-INFO in ch.qos.logback.classic.util.ContextInitializer@61ff7979 - Constructed configurator of type class ch.qos.logback.classic.util.DefaultJoranConfigurator
+17:14:49,344 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Could NOT find resource [logback-test.xml]
+17:14:49,345 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Found resource [logback.xml] at [file:/home/cybot/projects/co-parenting/server/build/resources/main/logback.xml]
+17:14:49,383 |-WARN in ch.qos.logback.core.model.processor.AppenderModelHandler - Appender named [STDOUT] not referenced. Skipping further processing.
+17:14:49,383 |-INFO in ch.qos.logback.core.model.processor.AppenderModelHandler - Processing appender named [STDOUT_TEXT]
+17:14:49,383 |-INFO in ch.qos.logback.core.model.processor.AppenderModelHandler - About to instantiate appender of type [ch.qos.logback.core.ConsoleAppender]
+17:14:49,387 |-INFO in ch.qos.logback.core.model.processor.ImplicitModelHandler - Assuming default type [ch.qos.logback.classic.encoder.PatternLayoutEncoder] for [encoder] property
+17:14:49,402 |-INFO in ch.qos.logback.core.ConsoleAppender[STDOUT_TEXT] - BEWARE: Writing to the console can be very slow. Avoid logging to the 
+17:14:49,402 |-INFO in ch.qos.logback.core.ConsoleAppender[STDOUT_TEXT] - console in production environments, especially in high volume systems.
+17:14:49,402 |-INFO in ch.qos.logback.core.ConsoleAppender[STDOUT_TEXT] - See also https://logback.qos.ch/codes.html#slowConsole
+17:14:49,402 |-INFO in ch.qos.logback.classic.model.processor.RootLoggerModelHandler - Setting level of ROOT logger to INFO
+17:14:49,402 |-INFO in ch.qos.logback.core.model.processor.AppenderRefModelHandler - Attaching appender named [STDOUT_TEXT] to Logger[ROOT]
+17:14:49,403 |-INFO in ch.qos.logback.classic.model.processor.LoggerModelHandler - Setting level of logger [io.ktor] to INFO
+17:14:49,403 |-INFO in ch.qos.logback.classic.model.processor.LoggerModelHandler - Setting level of logger [org.jetbrains.exposed] to INFO
+17:14:49,403 |-INFO in ch.qos.logback.classic.model.processor.LoggerModelHandler - Setting level of logger [dev.kidsync] to DEBUG
+17:14:49,403 |-INFO in ch.qos.logback.core.model.processor.DefaultProcessor@f6f3939 - End of configuration.
+17:14:49,403 |-INFO in ch.qos.logback.classic.joran.JoranConfigurator@65743672 - Registering current configuration as safe fallback point
+17:14:49,403 |-INFO in ch.qos.logback.classic.util.ContextInitializer@61ff7979 - ch.qos.logback.classic.util.DefaultJoranConfigurator.configure() call lasted 60 milliseconds. ExecutionStatus=DO_NOT_INVOKE_NEXT_IF_ANY
+
+17:14:49.618 [DefaultDispatcher-worker-2 @call-context#3] INFO  io.ktor.test - No ktor.deployment.watch patterns specified, automatic reload is not active.
+17:14:49.894 [DefaultDispatcher-worker-2 @call-context#3] INFO  io.ktor.test - Application started in 0.283 seconds.
+17:14:49.894 [DefaultDispatcher-worker-2 @call-context#3] INFO  io.ktor.test - Application started: io.ktor.server.application.Application@219b50b4
+17:14:49.895 [DefaultDispatcher-worker-3 @coroutine#4] INFO  io.ktor.test - Responding at http://localhost:80
+17:14:49.896 [DefaultDispatcher-worker-3 @coroutine#4] INFO  io.ktor.test - Responding at https://localhost:443
+</pre>
+</span>
+</div>
+</div>
+<div id="footer">
+<p>
+<div>
+<label class="hidden" id="label-for-line-wrapping-toggle" for="line-wrapping-toggle">Wrap lines
+<input id="line-wrapping-toggle" type="checkbox" autocomplete="off"/>
+</label>
+</div>Generated by 
+<a href="http://www.gradle.org">Gradle 8.12</a> at Feb 20, 2026, 5:15:01 PM</p>
+</div>
+</div>
+</body>
+</html>
