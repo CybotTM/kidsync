@@ -113,14 +113,24 @@ data class DeviceDto(
 
 @Serializable
 data class UploadOpsResponse(
-    val assignedSequences: List<AssignedSequence>,
+    val accepted: List<AcceptedOp>,
+    val rejected: List<RejectedOp> = emptyList(),
 )
 
 @Serializable
-data class AssignedSequence(
-    val localId: String,
+data class AcceptedOp(
+    val localId: String? = null,
+    val deviceSequence: Int? = null,
     val globalSequence: Long,
     val serverTimestamp: String,
+)
+
+@Serializable
+data class RejectedOp(
+    val localId: String? = null,
+    val deviceSequence: Int? = null,
+    val error: String,
+    val message: String,
 )
 
 @Serializable
@@ -132,19 +142,22 @@ data class PullOpsResponse(
 
 @Serializable
 data class OpOutput(
-    val globalSequence: Long,
     val deviceId: String,
     val deviceSequence: Int? = null,
     val entityType: String? = null,
     val entityId: String? = null,
     val operation: String? = null,
+    val keyEpoch: Int,
     val encryptedPayload: String,
     val devicePrevHash: String,
-    val currentHash: String? = null,
-    val keyEpoch: Int,
+    val currentHash: String,
     val clientTimestamp: String? = null,
-    val serverTimestamp: String,
+    val protocolVersion: Int = 1,
+    val signature: String? = null,
     val transitionTo: String? = null,
+    val globalSequence: Long,
+    val serverTimestamp: String,
+    val checkpointHash: String? = null,
 )
 
 @Serializable
@@ -188,16 +201,12 @@ data class CheckpointDto(
 
 @Serializable
 data class HandshakeResponse(
-    val ok: Boolean,
-    val serverVersion: String? = null,
-    val protocolVersion: Int? = null,
-    val minProtocolVersion: Int? = null,
-    val maxProtocolVersion: Int? = null,
-    val latestSequence: Long? = null,
-    val serverTime: String? = null,
+    val serverVersion: Int = 1,
+    val currentGlobalSequence: Long = 0,
+    val pendingOpsCount: Long = 0,
+    val keyEpoch: Int = 1,
     val error: String? = null,
     val message: String? = null,
-    val upgradeUrl: String? = null,
 )
 
 // ---- Blobs ----

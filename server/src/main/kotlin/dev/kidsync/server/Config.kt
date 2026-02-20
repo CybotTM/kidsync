@@ -12,8 +12,6 @@ data class AppConfig(
     val maxBlobSizeBytes: Long = 10 * 1024 * 1024, // 10 MB
     val maxSnapshotSizeBytes: Long = 50 * 1024 * 1024, // 50 MB
     val serverVersion: String = "0.1.0",
-    val minProtocolVersion: Int = 1,
-    val maxProtocolVersion: Int = 1,
     val checkpointInterval: Int = 100,
     val host: String = System.getenv("KIDSYNC_HOST") ?: "0.0.0.0",
     val port: Int = System.getenv("KIDSYNC_PORT")?.toIntOrNull() ?: 8080,

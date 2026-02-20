@@ -41,20 +41,27 @@ class CreateOperationUseCase @Inject constructor(
             val dek = keyManager.getDek(familyId, currentEpoch)
                 ?: return Result.failure(IllegalStateException("No DEK available for epoch $currentEpoch"))
 
-            // 3. Encrypt: canonical JSON -> gzip -> AES-256-GCM
+            // 3. Compute device sequence (needed for AAD)
+            val lastOp = opLogDao.getLastOpForDevice(deviceId)
+            val deviceSequence = (lastOp?.deviceSequence ?: 0L) + 1
+
+            // 4. Encrypt: canonical JSON -> gzip -> AES-256-GCM
+            //    AAD = "familyId|deviceId|deviceSequence|keyEpoch"
+            val aad = CryptoManager.buildPayloadAad(
+                familyId = familyId.toString(),
+                deviceId = deviceId.toString(),
+                deviceSequence = deviceSequence,
+                keyEpoch = currentEpoch
+            )
             val encryptedPayload = cryptoManager.encryptPayload(
                 plaintext = canonicalJson,
                 dek = dek,
-                aad = deviceId.toString()
+                aad = aad
             )
 
-            // 4. Compute hash chain
-            val lastOp = opLogDao.getLastOpForDevice(deviceId)
+            // 5. Compute hash chain
             val devicePrevHash = lastOp?.currentHash ?: HashChainVerifier.GENESIS_HASH
             val currentHash = hashChainVerifier.computeHash(devicePrevHash, encryptedPayload)
-
-            // 5. Get next device sequence
-            val deviceSequence = (lastOp?.deviceSequence ?: 0L) + 1
 
             // 6. Create OpLogEntry
             val entry = OpLogEntryEntity(

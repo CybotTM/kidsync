@@ -12,6 +12,22 @@ import java.security.PublicKey
  * - SHA-256 hashing
  */
 interface CryptoManager {
+
+    companion object {
+        /**
+         * Build the Additional Authenticated Data string for AES-256-GCM payload encryption.
+         *
+         * Format: "familyId|deviceId|deviceSequence|keyEpoch"
+         * All components are UTF-8 encoded.
+         */
+        fun buildPayloadAad(
+            familyId: String,
+            deviceId: String,
+            deviceSequence: Long,
+            keyEpoch: Int
+        ): String = "$familyId|$deviceId|$deviceSequence|$keyEpoch"
+    }
+
     /**
      * Generate a new X25519 key pair for DEK wrapping (ECDH key agreement).
      */
@@ -40,7 +56,7 @@ interface CryptoManager {
      *
      * @param plaintext The canonical JSON string to encrypt
      * @param dek The 256-bit Data Encryption Key
-     * @param aad Additional Authenticated Data (deviceId)
+     * @param aad Additional Authenticated Data: "familyId|deviceId|deviceSequence|keyEpoch"
      * @return Base64-encoded string: nonce (12 bytes) || ciphertext || tag (16 bytes)
      */
     fun encryptPayload(plaintext: String, dek: ByteArray, aad: String): String
@@ -52,7 +68,7 @@ interface CryptoManager {
      *
      * @param encryptedPayload Base64-encoded string: nonce || ciphertext || tag
      * @param dek The 256-bit Data Encryption Key
-     * @param aad Additional Authenticated Data (deviceId)
+     * @param aad Additional Authenticated Data: "familyId|deviceId|deviceSequence|keyEpoch"
      * @return The decrypted canonical JSON string
      */
     fun decryptPayload(encryptedPayload: String, dek: ByteArray, aad: String): String

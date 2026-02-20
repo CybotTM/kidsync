@@ -37,7 +37,7 @@ class SyncService(private val config: AppConfig) {
         return dbQuery {
             val now = Instant.now()
             val serverTimestamp = isoFormatter.format(now)
-            val assignedSequences = mutableListOf<AssignedSequence>()
+            val accepted = mutableListOf<AcceptedOp>()
 
             for (op in request.ops) {
                 // Validate device belongs to user and family
@@ -83,7 +83,7 @@ class SyncService(private val config: AppConfig) {
                     if (op.devicePrevHash != expectedPrevHash) {
                         return@dbQuery Result.failure(
                             ApiException(
-                                400,
+                                409,
                                 "HASH_CHAIN_BREAK",
                                 "Expected devicePrevHash '$expectedPrevHash' but got '${op.devicePrevHash}'"
                             )
@@ -110,7 +110,7 @@ class SyncService(private val config: AppConfig) {
                     if (op.devicePrevHash != sentinel && op.deviceSequence == 1) {
                         return@dbQuery Result.failure(
                             ApiException(
-                                400,
+                                409,
                                 "HASH_CHAIN_BREAK",
                                 "First op from device must have devicePrevHash of 64 zeros"
                             )
@@ -118,13 +118,11 @@ class SyncService(private val config: AppConfig) {
                     }
                 }
 
-                // Validate hash correctness if currentHash is provided
-                if (op.currentHash != null) {
-                    if (!HashUtil.verifyHashChain(op.devicePrevHash, op.encryptedPayload, op.currentHash)) {
-                        return@dbQuery Result.failure(
-                            ApiException(400, "HASH_MISMATCH", "currentHash does not match computed hash")
-                        )
-                    }
+                // Validate hash correctness: currentHash is now required
+                if (!HashUtil.verifyHashChain(op.devicePrevHash, op.encryptedPayload, op.currentHash)) {
+                    return@dbQuery Result.failure(
+                        ApiException(409, "HASH_MISMATCH", "currentHash does not match computed hash")
+                    )
                 }
 
                 // Validate ScheduleOverride state transitions
@@ -154,6 +152,7 @@ class SyncService(private val config: AppConfig) {
                     it[keyEpoch] = op.keyEpoch
                     it[clientTimestamp] = op.clientTimestamp
                     it[OpLog.serverTimestamp] = serverTimestamp
+                    it[protocolVersion] = op.protocolVersion
                     it[transitionTo] = op.transitionTo
                 } get OpLog.globalSequence
 
@@ -173,9 +172,10 @@ class SyncService(private val config: AppConfig) {
                     }
                 }
 
-                assignedSequences.add(
-                    AssignedSequence(
+                accepted.add(
+                    AcceptedOp(
                         localId = op.localId,
+                        deviceSequence = op.deviceSequence,
                         globalSequence = globalSeq,
                         serverTimestamp = serverTimestamp,
                     )
@@ -185,7 +185,7 @@ class SyncService(private val config: AppConfig) {
             // Check if we crossed a checkpoint boundary
             maybeCreateCheckpoint(familyId)
 
-            Result.success(UploadOpsResponse(assignedSequences = assignedSequences))
+            Result.success(UploadOpsResponse(accepted = accepted))
         }
     }
 
@@ -215,19 +215,20 @@ class SyncService(private val config: AppConfig) {
             PullOpsResponse(
                 ops = resultOps.map { row ->
                     OpOutput(
-                        globalSequence = row[OpLog.globalSequence],
                         deviceId = row[OpLog.deviceId],
                         deviceSequence = row[OpLog.deviceSequence],
                         entityType = row[OpLog.entityType],
                         entityId = row[OpLog.entityId],
                         operation = row[OpLog.operation],
+                        keyEpoch = row[OpLog.keyEpoch],
                         encryptedPayload = row[OpLog.encryptedPayload],
                         devicePrevHash = row[OpLog.devicePrevHash],
-                        currentHash = row[OpLog.currentHash],
-                        keyEpoch = row[OpLog.keyEpoch],
+                        currentHash = row[OpLog.currentHash] ?: "",
                         clientTimestamp = row[OpLog.clientTimestamp],
-                        serverTimestamp = row[OpLog.serverTimestamp],
+                        protocolVersion = row[OpLog.protocolVersion],
                         transitionTo = row[OpLog.transitionTo],
+                        globalSequence = row[OpLog.globalSequence],
+                        serverTimestamp = row[OpLog.serverTimestamp],
                     )
                 },
                 hasMore = hasMore,

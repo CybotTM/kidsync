@@ -1,6 +1,7 @@
 package dev.kidsync.server
 
 import dev.kidsync.server.models.*
+import dev.kidsync.server.util.HashUtil
 import io.ktor.client.call.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
@@ -9,6 +10,7 @@ import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.testing.*
 import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.Test
+import java.util.Base64
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
@@ -73,6 +75,13 @@ class OverrideStateMachineTest {
 
     data class TestUserFull(val token: String, val userId: String, val deviceId: String, val familyId: String)
 
+    /** Compute currentHash = SHA256(hexDecode(prevHash) + base64Decode(encryptedPayload)) */
+    private fun computeHash(devicePrevHash: String, encryptedPayload: String): String {
+        val prevBytes = HashUtil.hexToBytes(devicePrevHash)
+        val payloadBytes = Base64.getDecoder().decode(encryptedPayload)
+        return HashUtil.sha256Hex(prevBytes, payloadBytes)
+    }
+
     @Test
     fun `override CREATE sets state to PROPOSED`() = testApplication {
         application { module(testConfig()) }
@@ -80,6 +89,8 @@ class OverrideStateMachineTest {
         val (user1, _) = setupTwoUserFamily(client)
 
         val entityId = "11111111-1111-1111-1111-111111111111"
+        val prevHash = "0".repeat(64)
+        val payload = "dGVzdA=="
 
         val response = client.post("/sync/ops") {
             contentType(ContentType.Application.Json)
@@ -88,14 +99,15 @@ class OverrideStateMachineTest {
                 UploadOpsRequest(
                     ops = listOf(
                         OpInput(
-                            localId = "create-override",
                             deviceId = user1.deviceId,
                             entityType = "ScheduleOverride",
                             entityId = entityId,
                             operation = "CREATE",
-                            encryptedPayload = "dGVzdA==",
-                            devicePrevHash = "0".repeat(64),
+                            encryptedPayload = payload,
+                            devicePrevHash = prevHash,
+                            currentHash = computeHash(prevHash, payload),
                             keyEpoch = 1,
+                            localId = "create-override",
                         )
                     )
                 )
@@ -112,6 +124,8 @@ class OverrideStateMachineTest {
         val (user1, user2) = setupTwoUserFamily(client)
 
         val entityId = "22222222-2222-2222-2222-222222222222"
+        val sentinel = "0".repeat(64)
+        val payload = "dGVzdA=="
 
         // User1 creates override (becomes proposer)
         client.post("/sync/ops") {
@@ -121,21 +135,22 @@ class OverrideStateMachineTest {
                 UploadOpsRequest(
                     ops = listOf(
                         OpInput(
-                            localId = "create",
                             deviceId = user1.deviceId,
                             entityType = "ScheduleOverride",
                             entityId = entityId,
                             operation = "CREATE",
-                            encryptedPayload = "dGVzdA==",
-                            devicePrevHash = "0".repeat(64),
+                            encryptedPayload = payload,
+                            devicePrevHash = sentinel,
+                            currentHash = computeHash(sentinel, payload),
                             keyEpoch = 1,
+                            localId = "create",
                         )
                     )
                 )
             )
         }
 
-        // User2 (non-proposer) approves
+        // User2 (non-proposer) approves (different device, own hash chain)
         val response = client.post("/sync/ops") {
             contentType(ContentType.Application.Json)
             header(HttpHeaders.Authorization, "Bearer ${user2.token}")
@@ -143,15 +158,16 @@ class OverrideStateMachineTest {
                 UploadOpsRequest(
                     ops = listOf(
                         OpInput(
-                            localId = "approve",
                             deviceId = user2.deviceId,
                             entityType = "ScheduleOverride",
                             entityId = entityId,
                             operation = "UPDATE",
                             transitionTo = "APPROVED",
-                            encryptedPayload = "dGVzdA==",
-                            devicePrevHash = "0".repeat(64),
+                            encryptedPayload = payload,
+                            devicePrevHash = sentinel,
+                            currentHash = computeHash(sentinel, payload),
                             keyEpoch = 1,
+                            localId = "approve",
                         )
                     )
                 )
@@ -168,6 +184,9 @@ class OverrideStateMachineTest {
         val (user1, _) = setupTwoUserFamily(client)
 
         val entityId = "33333333-3333-3333-3333-333333333333"
+        val sentinel = "0".repeat(64)
+        val payload1 = "dGVzdA=="
+        val hash1 = computeHash(sentinel, payload1)
 
         // Create
         client.post("/sync/ops") {
@@ -177,14 +196,15 @@ class OverrideStateMachineTest {
                 UploadOpsRequest(
                     ops = listOf(
                         OpInput(
-                            localId = "create",
                             deviceId = user1.deviceId,
                             entityType = "ScheduleOverride",
                             entityId = entityId,
                             operation = "CREATE",
-                            encryptedPayload = "dGVzdA==",
-                            devicePrevHash = "0".repeat(64),
+                            encryptedPayload = payload1,
+                            devicePrevHash = sentinel,
+                            currentHash = hash1,
                             keyEpoch = 1,
+                            localId = "create",
                         )
                     )
                 )
@@ -192,6 +212,8 @@ class OverrideStateMachineTest {
         }
 
         // Proposer tries to approve -> should fail
+        val payload2 = "YXBwcm92ZQ=="
+        val hash2 = computeHash(hash1, payload2)
         val response = client.post("/sync/ops") {
             contentType(ContentType.Application.Json)
             header(HttpHeaders.Authorization, "Bearer ${user1.token}")
@@ -199,15 +221,16 @@ class OverrideStateMachineTest {
                 UploadOpsRequest(
                     ops = listOf(
                         OpInput(
-                            localId = "self-approve",
                             deviceId = user1.deviceId,
                             entityType = "ScheduleOverride",
                             entityId = entityId,
                             operation = "UPDATE",
                             transitionTo = "APPROVED",
-                            encryptedPayload = "dGVzdA==",
-                            devicePrevHash = "0".repeat(64),
+                            encryptedPayload = payload2,
+                            devicePrevHash = hash1,
+                            currentHash = hash2,
                             keyEpoch = 1,
+                            localId = "self-approve",
                         )
                     )
                 )
@@ -224,6 +247,9 @@ class OverrideStateMachineTest {
         val (user1, _) = setupTwoUserFamily(client)
 
         val entityId = "44444444-4444-4444-4444-444444444444"
+        val sentinel = "0".repeat(64)
+        val payload1 = "dGVzdA=="
+        val hash1 = computeHash(sentinel, payload1)
 
         // Create
         client.post("/sync/ops") {
@@ -233,14 +259,15 @@ class OverrideStateMachineTest {
                 UploadOpsRequest(
                     ops = listOf(
                         OpInput(
-                            localId = "create",
                             deviceId = user1.deviceId,
                             entityType = "ScheduleOverride",
                             entityId = entityId,
                             operation = "CREATE",
-                            encryptedPayload = "dGVzdA==",
-                            devicePrevHash = "0".repeat(64),
+                            encryptedPayload = payload1,
+                            devicePrevHash = sentinel,
+                            currentHash = hash1,
                             keyEpoch = 1,
+                            localId = "create",
                         )
                     )
                 )
@@ -248,6 +275,8 @@ class OverrideStateMachineTest {
         }
 
         // Proposer cancels
+        val payload2 = "Y2FuY2Vs"
+        val hash2 = computeHash(hash1, payload2)
         val response = client.post("/sync/ops") {
             contentType(ContentType.Application.Json)
             header(HttpHeaders.Authorization, "Bearer ${user1.token}")
@@ -255,15 +284,16 @@ class OverrideStateMachineTest {
                 UploadOpsRequest(
                     ops = listOf(
                         OpInput(
-                            localId = "cancel",
                             deviceId = user1.deviceId,
                             entityType = "ScheduleOverride",
                             entityId = entityId,
                             operation = "UPDATE",
                             transitionTo = "CANCELLED",
-                            encryptedPayload = "dGVzdA==",
-                            devicePrevHash = "0".repeat(64),
+                            encryptedPayload = payload2,
+                            devicePrevHash = hash1,
+                            currentHash = hash2,
                             keyEpoch = 1,
+                            localId = "cancel",
                         )
                     )
                 )
@@ -280,8 +310,11 @@ class OverrideStateMachineTest {
         val (user1, user2) = setupTwoUserFamily(client)
 
         val entityId = "55555555-5555-5555-5555-555555555555"
+        val sentinel = "0".repeat(64)
+        val payload = "dGVzdA=="
 
-        // Create
+        // Create (user1's device hash chain)
+        val u1Hash1 = computeHash(sentinel, payload)
         client.post("/sync/ops") {
             contentType(ContentType.Application.Json)
             header(HttpHeaders.Authorization, "Bearer ${user1.token}")
@@ -289,21 +322,23 @@ class OverrideStateMachineTest {
                 UploadOpsRequest(
                     ops = listOf(
                         OpInput(
-                            localId = "create",
                             deviceId = user1.deviceId,
                             entityType = "ScheduleOverride",
                             entityId = entityId,
                             operation = "CREATE",
-                            encryptedPayload = "dGVzdA==",
-                            devicePrevHash = "0".repeat(64),
+                            encryptedPayload = payload,
+                            devicePrevHash = sentinel,
+                            currentHash = u1Hash1,
                             keyEpoch = 1,
+                            localId = "create",
                         )
                     )
                 )
             )
         }
 
-        // Decline (by non-proposer)
+        // Decline (by non-proposer, user2's device hash chain)
+        val u2Hash1 = computeHash(sentinel, payload)
         client.post("/sync/ops") {
             contentType(ContentType.Application.Json)
             header(HttpHeaders.Authorization, "Bearer ${user2.token}")
@@ -311,15 +346,16 @@ class OverrideStateMachineTest {
                 UploadOpsRequest(
                     ops = listOf(
                         OpInput(
-                            localId = "decline",
                             deviceId = user2.deviceId,
                             entityType = "ScheduleOverride",
                             entityId = entityId,
                             operation = "UPDATE",
                             transitionTo = "DECLINED",
-                            encryptedPayload = "dGVzdA==",
-                            devicePrevHash = "0".repeat(64),
+                            encryptedPayload = payload,
+                            devicePrevHash = sentinel,
+                            currentHash = u2Hash1,
                             keyEpoch = 1,
+                            localId = "decline",
                         )
                     )
                 )
@@ -327,6 +363,8 @@ class OverrideStateMachineTest {
         }
 
         // Try to approve after decline -> should fail
+        val payload2 = "YXBwcm92ZQ=="
+        val u2Hash2 = computeHash(u2Hash1, payload2)
         val response = client.post("/sync/ops") {
             contentType(ContentType.Application.Json)
             header(HttpHeaders.Authorization, "Bearer ${user2.token}")
@@ -334,15 +372,16 @@ class OverrideStateMachineTest {
                 UploadOpsRequest(
                     ops = listOf(
                         OpInput(
-                            localId = "approve-after-decline",
                             deviceId = user2.deviceId,
                             entityType = "ScheduleOverride",
                             entityId = entityId,
                             operation = "UPDATE",
                             transitionTo = "APPROVED",
-                            encryptedPayload = "dGVzdA==",
-                            devicePrevHash = "0".repeat(64),
+                            encryptedPayload = payload2,
+                            devicePrevHash = u2Hash1,
+                            currentHash = u2Hash2,
                             keyEpoch = 1,
+                            localId = "approve-after-decline",
                         )
                     )
                 )

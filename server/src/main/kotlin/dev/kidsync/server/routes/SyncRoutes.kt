@@ -41,24 +41,6 @@ fun Route.syncRoutes(
                     val principal = call.userPrincipal()
                     val request = call.receive<HandshakeRequest>()
 
-                    // Check protocol version
-                    if (request.protocolVersion < config.minProtocolVersion ||
-                        request.protocolVersion > config.maxProtocolVersion
-                    ) {
-                        call.respond(
-                            HttpStatusCode.UpgradeRequired,
-                            HandshakeResponse(
-                                ok = false,
-                                error = "PROTOCOL_MISMATCH",
-                                message = "Client protocol version ${request.protocolVersion} is not supported. " +
-                                    "Supported: ${config.minProtocolVersion}-${config.maxProtocolVersion}",
-                                minProtocolVersion = config.minProtocolVersion,
-                                maxProtocolVersion = config.maxProtocolVersion,
-                            )
-                        )
-                        return@post
-                    }
-
                     // Check device exists and is not revoked
                     val deviceOk = dbQuery {
                         val device = Devices.selectAll().where { Devices.id eq request.deviceId }.firstOrNull()
@@ -72,7 +54,6 @@ fun Route.syncRoutes(
                         call.respond(
                             status,
                             HandshakeResponse(
-                                ok = false,
                                 error = deviceOk,
                                 message = if (deviceOk == "DEVICE_REVOKED") "Device has been revoked" else "Device not found",
                             )
@@ -80,19 +61,31 @@ fun Route.syncRoutes(
                         return@post
                     }
 
-                    val familyId = principal.familyIds.firstOrNull()
-                    val latestSeq = if (familyId != null) syncService.getLatestSequence(familyId) else 0L
+                    val familyId = request.familyId
+                    val currentGlobalSeq = syncService.getLatestSequence(familyId)
+                    val pendingOps = if (request.lastGlobalSequence < currentGlobalSeq) {
+                        currentGlobalSeq - request.lastGlobalSequence
+                    } else {
+                        0L
+                    }
+
+                    // Get the latest key epoch for this family
+                    val latestKeyEpoch = dbQuery {
+                        OpLog.selectAll()
+                            .where { OpLog.familyId eq familyId }
+                            .orderBy(OpLog.globalSequence, SortOrder.DESC)
+                            .limit(1)
+                            .firstOrNull()
+                            ?.get(OpLog.keyEpoch) ?: 1
+                    }
 
                     call.respond(
                         HttpStatusCode.OK,
                         HandshakeResponse(
-                            ok = true,
-                            serverVersion = config.serverVersion,
-                            protocolVersion = minOf(request.protocolVersion, config.maxProtocolVersion),
-                            minProtocolVersion = config.minProtocolVersion,
-                            maxProtocolVersion = config.maxProtocolVersion,
-                            latestSequence = latestSeq,
-                            serverTime = Instant.now().toString(),
+                            serverVersion = 1,
+                            currentGlobalSequence = currentGlobalSeq,
+                            pendingOpsCount = pendingOps,
+                            keyEpoch = latestKeyEpoch,
                         )
                     )
                 }
@@ -113,7 +106,7 @@ fun Route.syncRoutes(
                             call.respond(HttpStatusCode.OK, response)
 
                             // Notify via WebSocket and push
-                            val latestSeq = response.assignedSequences.lastOrNull()?.globalSequence ?: 0L
+                            val latestSeq = response.accepted.lastOrNull()?.globalSequence ?: 0L
                             val sourceDeviceId = request.ops.firstOrNull()?.deviceId ?: principal.deviceId
 
                             wsManager.notifyOpsAvailable(familyId, latestSeq, sourceDeviceId)

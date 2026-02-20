@@ -1,6 +1,7 @@
 package dev.kidsync.server
 
 import dev.kidsync.server.models.*
+import dev.kidsync.server.util.HashUtil
 import io.ktor.client.call.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
@@ -9,6 +10,7 @@ import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.testing.*
 import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.Test
+import java.util.Base64
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
@@ -54,6 +56,13 @@ class SyncTest {
 
     data class TestUser(val token: String, val userId: String, val deviceId: String, val familyId: String)
 
+    /** Compute currentHash = SHA256(hexDecode(prevHash) + base64Decode(encryptedPayload)) */
+    private fun computeHash(devicePrevHash: String, encryptedPayload: String): String {
+        val prevBytes = HashUtil.hexToBytes(devicePrevHash)
+        val payloadBytes = Base64.getDecoder().decode(encryptedPayload)
+        return HashUtil.sha256Hex(prevBytes, payloadBytes)
+    }
+
     @Test
     fun `upload and pull ops`() = testApplication {
         application { module(testConfig()) }
@@ -62,6 +71,8 @@ class SyncTest {
         val user = setupUserWithFamily(client)
 
         // Upload ops
+        val prevHash1 = "0".repeat(64)
+        val payload1 = "dGVzdCBwYXlsb2Fk"
         val uploadResponse = client.post("/sync/ops") {
             contentType(ContentType.Application.Json)
             header(HttpHeaders.Authorization, "Bearer ${user.token}")
@@ -69,11 +80,12 @@ class SyncTest {
                 UploadOpsRequest(
                     ops = listOf(
                         OpInput(
-                            localId = "op-1",
                             deviceId = user.deviceId,
-                            encryptedPayload = "dGVzdCBwYXlsb2Fk",
-                            devicePrevHash = "0".repeat(64),
+                            encryptedPayload = payload1,
+                            devicePrevHash = prevHash1,
+                            currentHash = computeHash(prevHash1, payload1),
                             keyEpoch = 1,
+                            localId = "op-1",
                         )
                     )
                 )
@@ -82,9 +94,9 @@ class SyncTest {
 
         assertEquals(HttpStatusCode.OK, uploadResponse.status)
         val uploadBody = uploadResponse.body<UploadOpsResponse>()
-        assertEquals(1, uploadBody.assignedSequences.size)
-        assertEquals("op-1", uploadBody.assignedSequences[0].localId)
-        assertTrue(uploadBody.assignedSequences[0].globalSequence > 0)
+        assertEquals(1, uploadBody.accepted.size)
+        assertEquals("op-1", uploadBody.accepted[0].localId)
+        assertTrue(uploadBody.accepted[0].globalSequence > 0)
 
         // Pull ops
         val pullResponse = client.get("/sync/ops?since=0&limit=100") {
@@ -105,6 +117,12 @@ class SyncTest {
 
         val user = setupUserWithFamily(client)
 
+        val prevHash1 = "0".repeat(64)
+        val payload1 = "cGF5bG9hZDE="
+        val hash1 = computeHash(prevHash1, payload1)
+        val payload2 = "cGF5bG9hZDI="
+        val hash2 = computeHash(hash1, payload2)
+
         val uploadResponse = client.post("/sync/ops") {
             contentType(ContentType.Application.Json)
             header(HttpHeaders.Authorization, "Bearer ${user.token}")
@@ -112,18 +130,20 @@ class SyncTest {
                 UploadOpsRequest(
                     ops = listOf(
                         OpInput(
-                            localId = "op-1",
                             deviceId = user.deviceId,
-                            encryptedPayload = "cGF5bG9hZDE=",
-                            devicePrevHash = "0".repeat(64),
+                            encryptedPayload = payload1,
+                            devicePrevHash = prevHash1,
+                            currentHash = hash1,
                             keyEpoch = 1,
+                            localId = "op-1",
                         ),
                         OpInput(
-                            localId = "op-2",
                             deviceId = user.deviceId,
-                            encryptedPayload = "cGF5bG9hZDI=",
-                            devicePrevHash = "0".repeat(64), // simplified for test
+                            encryptedPayload = payload2,
+                            devicePrevHash = hash1,
+                            currentHash = hash2,
                             keyEpoch = 1,
+                            localId = "op-2",
                         ),
                     )
                 )
@@ -132,8 +152,8 @@ class SyncTest {
 
         assertEquals(HttpStatusCode.OK, uploadResponse.status)
         val body = uploadResponse.body<UploadOpsResponse>()
-        assertEquals(2, body.assignedSequences.size)
-        assertEquals(body.assignedSequences[0].globalSequence + 1, body.assignedSequences[1].globalSequence)
+        assertEquals(2, body.accepted.size)
+        assertEquals(body.accepted[0].globalSequence + 1, body.accepted[1].globalSequence)
     }
 
     @Test
@@ -143,8 +163,11 @@ class SyncTest {
 
         val user = setupUserWithFamily(client)
 
-        // Upload 5 ops
+        // Upload 5 ops with valid hash chain
+        var prevHash = "0".repeat(64)
         for (i in 1..5) {
+            val payload = Base64.getEncoder().encodeToString("payload-$i".toByteArray())
+            val curHash = computeHash(prevHash, payload)
             client.post("/sync/ops") {
                 contentType(ContentType.Application.Json)
                 header(HttpHeaders.Authorization, "Bearer ${user.token}")
@@ -152,16 +175,18 @@ class SyncTest {
                     UploadOpsRequest(
                         ops = listOf(
                             OpInput(
-                                localId = "op-$i",
                                 deviceId = user.deviceId,
-                                encryptedPayload = "cGF5bG9hZA==",
-                                devicePrevHash = "0".repeat(64),
+                                encryptedPayload = payload,
+                                devicePrevHash = prevHash,
+                                currentHash = curHash,
                                 keyEpoch = 1,
+                                localId = "op-$i",
                             )
                         )
                     )
                 )
             }
+            prevHash = curHash
         }
 
         // Pull with limit 2
@@ -217,30 +242,56 @@ class SyncTest {
         val response = client.post("/sync/handshake") {
             contentType(ContentType.Application.Json)
             header(HttpHeaders.Authorization, "Bearer ${user.token}")
-            setBody(HandshakeRequest(protocolVersion = 1, appVersion = "0.1.0", deviceId = user.deviceId))
+            setBody(HandshakeRequest(familyId = user.familyId, deviceId = user.deviceId, protocolVersion = 1))
         }
 
         assertEquals(HttpStatusCode.OK, response.status)
         val body = response.body<HandshakeResponse>()
-        assertTrue(body.ok)
-        assertEquals(1, body.protocolVersion)
-        assertNotNull(body.serverTime)
+        assertEquals(1, body.serverVersion)
+        assertEquals(0L, body.currentGlobalSequence)
+        assertEquals(0L, body.pendingOpsCount)
     }
 
     @Test
-    fun `handshake rejects unsupported protocol version`() = testApplication {
+    fun `handshake returns pending ops count`() = testApplication {
         application { module(testConfig()) }
         val client = createJsonClient()
 
         val user = setupUserWithFamily(client)
 
+        // Upload an op first
+        val prevHash = "0".repeat(64)
+        val payload = "dGVzdA=="
+        client.post("/sync/ops") {
+            contentType(ContentType.Application.Json)
+            header(HttpHeaders.Authorization, "Bearer ${user.token}")
+            setBody(
+                UploadOpsRequest(
+                    ops = listOf(
+                        OpInput(
+                            deviceId = user.deviceId,
+                            encryptedPayload = payload,
+                            devicePrevHash = prevHash,
+                            currentHash = computeHash(prevHash, payload),
+                            keyEpoch = 1,
+                            localId = "op-1",
+                        )
+                    )
+                )
+            )
+        }
+
         val response = client.post("/sync/handshake") {
             contentType(ContentType.Application.Json)
             header(HttpHeaders.Authorization, "Bearer ${user.token}")
-            setBody(HandshakeRequest(protocolVersion = 99, appVersion = "0.1.0", deviceId = user.deviceId))
+            setBody(HandshakeRequest(familyId = user.familyId, deviceId = user.deviceId, protocolVersion = 1, lastGlobalSequence = 0))
         }
 
-        assertEquals(HttpStatusCode.UpgradeRequired, response.status)
+        assertEquals(HttpStatusCode.OK, response.status)
+        val body = response.body<HandshakeResponse>()
+        assertEquals(1, body.serverVersion)
+        assertTrue(body.currentGlobalSequence > 0)
+        assertEquals(body.currentGlobalSequence, body.pendingOpsCount)
     }
 
     @Test

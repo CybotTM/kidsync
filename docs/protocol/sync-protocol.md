@@ -1476,13 +1476,13 @@ The following changes require a protocol version bump:
 
 ### 12.5 Migration During Version Transition
 
-When the server supports both version N and N-1:
+Because the server is a dumb relay with no access to plaintext payloads, it **cannot** translate between protocol versions. Version compatibility is handled entirely on the client side:
 
-1. Ops uploaded by version N clients include version-specific fields.
-2. Ops downloaded by version N-1 clients have version-specific fields stripped.
-3. The server translates between versions at the API boundary.
-4. The stored op format is always the latest version.
-5. Conflict resolution uses the rules of the op's protocol version.
+1. **Newer clients understand older formats (forward compatibility).** A version N client MUST be able to deserialize and process ops written by version N-1 clients. Unknown fields are ignored; missing fields use documented defaults.
+2. **Older clients reject unknown versions and prompt upgrade.** A version N-1 client that encounters an op with `protocolVersion: N` and unrecognized structural changes MUST skip the op, preserve it in the local log, and prompt the user to upgrade.
+3. **Newer clients MAY dual-write during transition.** During the period when both version N and N-1 clients are active in a family, a version N client MAY emit ops that are compatible with both versions (e.g., including both old and new field representations in the encrypted payload) to minimize disruption.
+4. The stored op format is whatever the creating client wrote. The server does not normalize or transform it.
+5. Conflict resolution uses the rules of the op's `protocolVersion` field. Each client applies the resolution algorithm matching the version declared in the op.
 
 ---
 
@@ -1573,7 +1573,7 @@ The server implements rate limiting on all endpoints. Per-device and per-family 
 | Code | HTTP Status | Description |
 |------|-----------|-------------|
 | `INVALID_REQUEST` | 400 | Malformed request body or invalid parameters |
-| `HASH_CHAIN_BREAK` | 400 | `devicePrevHash` does not match expected value |
+| `HASH_CHAIN_BREAK` | 409 | `devicePrevHash` does not match expected value |
 | `HASH_MISMATCH` | 400 | Recomputed `currentHash` does not match provided value |
 | `SEQUENCE_GAP` | 400 | `deviceSequence` is not contiguous with previous op |
 | `SEQUENCE_DUPLICATE` | 409 | `deviceSequence` has already been used by this device |

@@ -810,10 +810,26 @@ historical access.
                                            ┌───────────┴───────────┐
                                            │ DEK[currentEpoch]     │
                                            │ Nonce: random 12 bytes│
-                                           │ AAD: deviceId +       │
-                                           │      globalSequence   │
+                                           │ AAD: see Section 12.3 │
                                            └───────────────────────┘
 ```
+
+#### 12.1.1 Plaintext vs Encrypted Field Boundary
+
+The following table defines which OpLogEntry fields are **plaintext** (visible to the
+server as the envelope) versus **encrypted** (inside the `encryptedPayload` ciphertext,
+visible only to clients with the DEK):
+
+| Category | Fields | Server Visibility |
+|----------|--------|-------------------|
+| **Plaintext envelope** | `globalSequence`, `deviceId`, `deviceSequence`, `entityType`, `entityId`, `operation`, `devicePrevHash`, `currentHash`, `keyEpoch`, `clientTimestamp`, `serverTimestamp`, `protocolVersion`, `transitionTo` | Yes -- server stores and may use for routing, validation, and state tracking |
+| **Encrypted payload** | All `OperationPayload` fields (`payloadType`, `entityId`, `timestamp`, `operationType`, and all type-specific fields like `pattern`, `amountCents`, `description`, etc.) | No -- opaque ciphertext to the server |
+
+**Rationale:** The envelope fields `entityType`, `entityId`, and `operation` are
+visible to the server to enable ScheduleOverride state-machine validation without
+decryption. The `entityId` in the envelope duplicates the one inside the encrypted
+payload for this purpose. All sensitive business data (amounts, descriptions,
+custody patterns, names) is inside the encrypted payload.
 
 **Detailed steps:**
 
@@ -826,16 +842,15 @@ historical access.
 
 3. Generate nonce:
    nonce = CSRNG(12)
+   // 96-bit random nonce, generated per encryption operation.
+   // See Section 12.5 for nonce management details.
 
 4. Construct AAD (Additional Authenticated Data):
    // AAD is NOT encrypted but IS authenticated.
    // It binds the ciphertext to its context, preventing replay.
-   // For new ops (pre-upload), use deviceId only.
-   // globalSequence is not yet assigned by server.
-   AAD = deviceId
-   // After server assigns sequence, receiving clients verify
-   // against deviceId in the op header (which is authenticated
-   // by the server's TLS and the hash chain).
+   // AAD MUST only include fields known BEFORE encryption.
+   AAD = UTF-8(familyId + "|" + deviceId + "|" + str(deviceSequence) + "|" + str(keyEpoch))
+   // See Section 12.3 for the full AAD construction specification.
 
 5. Encrypt:
    ciphertext || tag = AES-256-GCM-Encrypt(
@@ -847,14 +862,17 @@ historical access.
 
 6. Encode for transport:
    encryptedPayload = Base64Encode(nonce || ciphertext || tag)
-   // nonce (12 bytes) is prepended to the ciphertext for self-describing decryption
+   // The first 12 bytes of the decoded encryptedPayload are ALWAYS the nonce.
+   // This makes the encryptedPayload self-describing for decryption.
 
 7. Construct OpLogEntry:
    {
      "deviceId": "<this device's UUID>",
+     "deviceSequence": <monotonic counter>,
      "keyEpoch": currentEpoch,
      "encryptedPayload": "<base64 string from step 6>",
-     "prevHash": "<base64, 32 bytes, see Section 14>"
+     "devicePrevHash": "<hex, 64 chars, see Section 14>",
+     "currentHash": "<hex, 64 chars, see Section 14>"
    }
 ```
 

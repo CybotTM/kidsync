@@ -57,27 +57,30 @@ data class UploadOpsRequest(
 
 @Serializable
 data class OpInput(
-    val localId: String,
     val deviceId: String,
     val deviceSequence: Int? = null,
     val entityType: String? = null,
     val entityId: String? = null,
     val operation: String? = null,
+    val keyEpoch: Int,
     val encryptedPayload: String,
     val devicePrevHash: String,
-    val currentHash: String? = null,
-    val keyEpoch: Int,
+    val currentHash: String,
     val clientTimestamp: String? = null,
+    val protocolVersion: Int = 1,
+    val signature: String? = null,
     val transitionTo: String? = null,
+    val localId: String? = null, // transient, not persisted
 )
 
 // ---- Sync Handshake ----
 
 @Serializable
 data class HandshakeRequest(
-    val protocolVersion: Int,
-    val appVersion: String,
+    val familyId: String,
     val deviceId: String,
+    val protocolVersion: Int,
+    val lastGlobalSequence: Long = 0,
 )
 
 // ---- Blobs ----

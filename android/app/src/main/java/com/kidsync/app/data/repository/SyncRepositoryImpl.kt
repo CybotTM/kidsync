@@ -32,11 +32,18 @@ class SyncRepositoryImpl @Inject constructor(
             val request = UploadOpsRequest(
                 ops = ops.map { op ->
                     OpInputDto(
-                        localId = op.globalSequence.toString(),
-                        deviceId = op.deviceId.toString(),
+                        deviceSequence = op.deviceSequence,
+                        entityType = op.entityType.name,
+                        entityId = op.entityId.toString(),
+                        operation = op.operation.name,
                         encryptedPayload = op.encryptedPayload,
                         devicePrevHash = op.devicePrevHash,
-                        keyEpoch = op.keyEpoch
+                        currentHash = op.currentHash,
+                        keyEpoch = op.keyEpoch,
+                        clientTimestamp = op.clientTimestamp.toString(),
+                        protocolVersion = 1,
+                        transitionTo = op.transitionTo,
+                        localId = op.globalSequence.toString()
                     )
                 }
             )
@@ -49,22 +56,25 @@ class SyncRepositoryImpl @Inject constructor(
             val body = response.body()
                 ?: return Result.failure(ApiException(500, "Empty response body"))
 
+            // Build lookup of accepted ops by deviceSequence
+            val acceptedBySeq = body.accepted.associateBy { it.deviceSequence }
+
             // Update local ops with server-assigned sequences
-            val updatedOps = ops.mapIndexed { index, op ->
-                val assigned = body.assignedSequences.getOrNull(index)
-                if (assigned != null) {
+            val updatedOps = ops.map { op ->
+                val accepted = acceptedBySeq[op.deviceSequence]
+                if (accepted != null) {
                     val entity = opLogDao.getPendingOps(familyId)
                         .firstOrNull { it.currentHash == op.currentHash }
                     if (entity != null) {
                         opLogDao.markAsSynced(
                             id = entity.id,
-                            globalSequence = assigned.globalSequence,
-                            serverTimestamp = assigned.serverTimestamp
+                            globalSequence = accepted.globalSequence,
+                            serverTimestamp = accepted.serverTimestamp
                         )
                     }
                     op.copy(
-                        globalSequence = assigned.globalSequence,
-                        serverTimestamp = Instant.parse(assigned.serverTimestamp)
+                        globalSequence = accepted.globalSequence,
+                        serverTimestamp = Instant.parse(accepted.serverTimestamp)
                     )
                 } else {
                     op
@@ -96,15 +106,19 @@ class SyncRepositoryImpl @Inject constructor(
                     globalSequence = dto.globalSequence,
                     familyId = familyId,
                     deviceId = UUID.fromString(dto.deviceId),
-                    deviceSequence = 0, // Not provided by pull endpoint
-                    entityType = EntityType.CustodySchedule, // Determined after decryption
-                    entityId = UUID(0, 0), // Determined after decryption
-                    operation = OperationType.CREATE, // Determined after decryption
+                    deviceSequence = dto.deviceSequence,
+                    entityType = dto.entityType?.let { runCatching { EntityType.valueOf(it) }.getOrNull() }
+                        ?: EntityType.CustodySchedule,
+                    entityId = dto.entityId?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+                        ?: UUID(0, 0),
+                    operation = dto.operation?.let { runCatching { OperationType.valueOf(it) }.getOrNull() }
+                        ?: OperationType.CREATE,
                     keyEpoch = dto.keyEpoch,
                     encryptedPayload = dto.encryptedPayload,
                     devicePrevHash = dto.devicePrevHash,
-                    currentHash = "", // Computed locally during verification
-                    clientTimestamp = Instant.now(), // Populated after decryption
+                    currentHash = dto.currentHash ?: "",
+                    clientTimestamp = dto.clientTimestamp?.let { runCatching { Instant.parse(it) }.getOrNull() }
+                        ?: Instant.now(),
                     serverTimestamp = Instant.parse(dto.serverTimestamp)
                 )
             }

@@ -137,9 +137,8 @@ All temporal values follow ISO 8601 with the following specific rules:
 
 ### 3.7 Canonical Serialization for Hashing
 
-When computing the device hash chain (`SHA256(devicePrevHash + currentPayloadBytes)`),
-the `currentPayloadBytes` MUST be the **canonical serialization** of the `OperationPayload`
-before encryption:
+The **canonical serialization** of the `OperationPayload` is used as the plaintext
+for compression and subsequent AES-256-GCM encryption:
 
 1. Serialize the `OperationPayload` as JSON.
 2. Object keys MUST be sorted lexicographically (Unicode code point order) at every
@@ -148,8 +147,10 @@ before encryption:
 4. Null/absent fields MUST be omitted (not serialized as `null`).
 5. The resulting UTF-8 byte sequence is the canonical form.
 
-This canonical form is used as input to hash computation and as the plaintext for
-compression and subsequent AES-256-GCM encryption.
+**Note on the hash chain:** The per-device hash chain is computed over the
+**encrypted payload bytes** (ciphertext), NOT the plaintext. See Section 4.2
+(`devicePrevHash`) for the formula. This allows the server to verify hash chain
+integrity without decrypting.
 
 ### 3.8 Compression
 
@@ -221,7 +222,7 @@ can read the envelope fields but cannot decrypt the payload.
     "currentHash": {
       "type": "string",
       "pattern": "^[0-9a-f]{64}$",
-      "description": "SHA256(bytes(devicePrevHash) + rawEncryptedPayloadBytes). Allows the server and other clients to verify hash chain integrity without decrypting."
+      "description": "SHA256(hexDecode(devicePrevHash) + base64Decode(encryptedPayload)). Computed over ciphertext bytes, allowing the server and other clients to verify hash chain integrity without decrypting."
     },
     "serverTimestamp": {
       "type": "string",
@@ -293,13 +294,21 @@ can read the envelope fields but cannot decrypt the payload.
 #### `devicePrevHash`
 
 - Forms a per-device hash chain for tamper detection.
-- Computed as: `SHA256(hex(previousDevicePrevHash) + canonicalPayloadBytes)` where `+`
-  denotes byte concatenation.
-- For the very first operation from a device, `previousDevicePrevHash` is 64 hex zeros
+- The `currentHash` is computed as:
+  `SHA256(bytes(devicePrevHash) + base64Decode(encryptedPayload))` where:
+  - `bytes(devicePrevHash)` is the 32-byte binary representation of the hex-encoded
+    previous hash (i.e., hex decode the 64-character string to 32 raw bytes).
+  - `base64Decode(encryptedPayload)` is the raw encrypted payload bytes after Base64
+    decoding.
+  - `+` denotes byte concatenation.
+- The hash chain uses the **encrypted payload** (ciphertext), not the plaintext. This
+  allows the server and other clients to verify chain integrity without decrypting.
+- For the very first operation from a device, `devicePrevHash` is 64 hex zeros
   (`"0000000000000000000000000000000000000000000000000000000000000000"`),
   representing 32 zero bytes.
-- The server stores but does not validate this field (it cannot decrypt payloads). Clients
-  MUST validate the chain on sync pull.
+- The server validates `currentHash` by recomputing
+  `SHA256(hexDecode(devicePrevHash) + base64Decode(encryptedPayload))` and comparing.
+  Clients MUST also validate the chain on sync pull.
 
 #### `encryptedPayload` Binary Layout
 

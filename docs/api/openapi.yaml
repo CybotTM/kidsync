@@ -508,6 +508,111 @@ paths:
   # ---------------------------------------------------------------------------
   # Sync
   # ---------------------------------------------------------------------------
+  /sync/handshake:
+    post:
+      operationId: syncHandshake
+      tags: [Sync]
+      summary: Protocol handshake and state synchronization
+      description: |
+        Initiates a sync session by negotiating protocol version compatibility
+        and returning the current server state. Must be the first request in a
+        sync session. The server validates the device is active and the protocol
+        version is supported.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - familyId
+                - deviceId
+                - protocolVersion
+                - lastGlobalSequence
+              properties:
+                familyId:
+                  type: string
+                  format: uuid
+                  description: The family to sync with
+                deviceId:
+                  type: string
+                  format: uuid
+                  description: The device initiating the handshake
+                protocolVersion:
+                  type: integer
+                  format: int32
+                  minimum: 1
+                  description: Protocol version the client implements
+                lastGlobalSequence:
+                  type: integer
+                  format: int64
+                  minimum: 0
+                  description: |
+                    The highest global sequence number the client has seen.
+                    Use 0 if this is a fresh device with no prior sync.
+      responses:
+        "200":
+          description: Handshake successful
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/X-RateLimit-Limit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/X-RateLimit-Remaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/X-RateLimit-Reset"
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - serverVersion
+                  - currentGlobalSequence
+                  - pendingOpsCount
+                  - keyEpoch
+                properties:
+                  serverVersion:
+                    type: integer
+                    format: int32
+                    description: The negotiated protocol version (highest mutually supported)
+                  currentGlobalSequence:
+                    type: integer
+                    format: int64
+                    description: The highest global sequence number for this family
+                  pendingOpsCount:
+                    type: integer
+                    format: int64
+                    description: |
+                      Number of ops the client has not yet seen
+                      (currentGlobalSequence - lastGlobalSequence).
+                  keyEpoch:
+                    type: integer
+                    format: int32
+                    description: The current DEK key epoch for this family
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "426":
+          description: Client protocol version is not supported
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: PROTOCOL_MISMATCH
+                message: "Client protocol version 0 is below minimum supported version 1"
+                details:
+                  minProtocolVersion: 1
+                  maxProtocolVersion: 1
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /sync/ops:
     post:
       operationId: uploadOps
@@ -532,8 +637,8 @@ paths:
             schema:
               $ref: "#/components/schemas/UploadOpsRequest"
       responses:
-        "200":
-          description: Operations accepted and sequenced
+        "201":
+          description: All operations accepted and sequenced
           headers:
             X-RateLimit-Limit:
               $ref: "#/components/headers/X-RateLimit-Limit"
@@ -545,10 +650,20 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/UploadOpsResponse"
+        "207":
+          description: |
+            Partial success -- some ops accepted, some rejected.
+            The `rejected` array contains details for each failed op.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadOpsResponse"
         "400":
           $ref: "#/components/responses/InvalidRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "409":
           $ref: "#/components/responses/Conflict"
         "429":
@@ -1313,14 +1428,17 @@ components:
             details: {}
 
     Conflict:
-      description: Resource conflict (e.g., duplicate email, hash chain break)
+      description: |
+        Resource conflict. Causes include duplicate email registration,
+        hash chain break (HASH_CHAIN_BREAK -- devicePrevHash mismatch),
+        sequence duplicate, or invalid state transition.
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
           example:
-            error: CONFLICT
-            message: "Email already registered"
+            error: HASH_CHAIN_BREAK
+            message: "Expected devicePrevHash 'abc123...' but got 'def456...'"
             details: {}
 
     RateLimited:
@@ -1382,6 +1500,15 @@ components:
             - INVALID_REQUEST
             - PROTOCOL_MISMATCH
             - INTERNAL_ERROR
+            - HASH_CHAIN_BREAK
+            - HASH_MISMATCH
+            - SEQUENCE_GAP
+            - SEQUENCE_DUPLICATE
+            - INVALID_KEY_EPOCH
+            - INVALID_ENTITY_TYPE
+            - INVALID_STATE_TRANSITION
+            - TRANSITION_NOT_AUTHORIZED
+            - DEVICE_REVOKED
         message:
           type: string
           description: Human-readable error description
@@ -1783,24 +1910,59 @@ components:
     OpInput:
       type: object
       required:
-        - localId
         - deviceId
+        - deviceSequence
+        - entityType
+        - entityId
+        - operation
         - encryptedPayload
         - devicePrevHash
+        - currentHash
         - keyEpoch
+        - clientTimestamp
+        - protocolVersion
+        - signature
       properties:
         localId:
           type: string
           description: |
             Client-generated local identifier for correlation. Returned
-            in `assignedSequences` so the client can map local ops to
-            global sequence numbers.
+            in the response so the client can map local ops to global
+            sequence numbers. Not persisted server-side.
           examples:
             - "local-op-001"
         deviceId:
           type: string
           format: uuid
           description: Device that created this operation
+        deviceSequence:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Monotonically increasing per-device counter, starting at 1
+        entityType:
+          type: string
+          enum:
+            - CustodySchedule
+            - ScheduleOverride
+            - Expense
+            - ExpenseStatus
+          description: |
+            The type of entity this operation targets. KeyRotation events
+            also flow through the OpLog; the encrypted payload contains
+            key rotation metadata, while wrapped DEKs are distributed
+            via the `/keys` endpoint.
+        entityId:
+          type: string
+          format: uuid
+          description: The entity this operation targets
+        operation:
+          type: string
+          enum:
+            - CREATE
+            - UPDATE
+            - DELETE
+          description: The mutation type
         encryptedPayload:
           type: string
           description: |
@@ -1810,50 +1972,97 @@ components:
             - "dGhpcyBpcyBlbmNyeXB0ZWQ..."
         devicePrevHash:
           type: string
+          pattern: "^[0-9a-f]{64}$"
           description: |
-            Hex-encoded SHA-256 hash forming the per-device hash chain.
-            Computed as `SHA-256(previousHash + currentPayloadBytes)`.
-            Use all zeros for the first operation from a device.
+            Hex-encoded SHA-256 hash of the previous op from this device.
+            Use 64 hex zeros for the first operation from a device.
           examples:
             - "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        currentHash:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+          description: |
+            SHA-256(bytes(devicePrevHash) + rawEncryptedPayloadBytes).
+            Forms the per-device hash chain.
         keyEpoch:
           type: integer
           format: int32
           minimum: 1
           description: DEK epoch used to encrypt this payload
+        clientTimestamp:
+          type: string
+          format: date-time
+          description: Client's local UTC time when the op was created
+        protocolVersion:
+          type: integer
+          format: int32
+          minimum: 1
+          description: Protocol version this op was created with
+        transitionTo:
+          type: string
+          enum:
+            - APPROVED
+            - DECLINED
+            - CANCELLED
+            - SUPERSEDED
+            - EXPIRED
+          description: |
+            Target state for ScheduleOverride UPDATE operations only.
+            Required when entityType is ScheduleOverride and operation
+            is UPDATE. Omit for all other operation types.
+        signature:
+          type: string
+          description: |
+            Base64-encoded Ed25519 signature of the op envelope,
+            created with the device's signing key.
 
     UploadOpsResponse:
       type: object
       required:
-        - assignedSequences
+        - accepted
       properties:
-        assignedSequences:
+        accepted:
           type: array
           items:
-            $ref: "#/components/schemas/AssignedSequence"
-
-    AssignedSequence:
-      type: object
-      required:
-        - localId
-        - globalSequence
-        - serverTimestamp
-      properties:
-        localId:
-          type: string
-          description: The `localId` from the corresponding `OpInput`
-        globalSequence:
-          type: integer
-          format: int64
-          description: Server-assigned monotonically increasing sequence number
-          examples:
-            - 42
-        serverTimestamp:
-          type: string
-          format: date-time
-          description: Server UTC timestamp when the op was persisted
-          examples:
-            - "2026-02-20T10:30:00.123Z"
+            type: object
+            required:
+              - localId
+              - globalSequence
+              - serverTimestamp
+            properties:
+              localId:
+                type: string
+                description: The `localId` from the corresponding `OpInput`
+              globalSequence:
+                type: integer
+                format: int64
+                description: Server-assigned monotonically increasing sequence number
+                examples:
+                  - 42
+              serverTimestamp:
+                type: string
+                format: date-time
+                description: Server UTC timestamp when the op was persisted
+                examples:
+                  - "2026-02-20T10:30:00.123Z"
+        rejected:
+          type: array
+          items:
+            type: object
+            required:
+              - localId
+              - reason
+              - code
+            properties:
+              localId:
+                type: string
+                description: The `localId` from the corresponding `OpInput`
+              reason:
+                type: string
+                description: Human-readable rejection reason
+              code:
+                type: string
+                description: Machine-readable error code (e.g., HASH_CHAIN_BREAK, SEQUENCE_GAP)
 
     PullOpsResponse:
       type: object
@@ -1886,10 +2095,17 @@ components:
       required:
         - globalSequence
         - deviceId
+        - deviceSequence
+        - entityType
+        - entityId
+        - operation
         - encryptedPayload
         - devicePrevHash
+        - currentHash
         - keyEpoch
+        - clientTimestamp
         - serverTimestamp
+        - protocolVersion
       properties:
         globalSequence:
           type: integer
@@ -1899,20 +2115,76 @@ components:
           type: string
           format: uuid
           description: Device that created this operation
+        deviceSequence:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Per-device monotonic counter
+        entityType:
+          type: string
+          enum:
+            - CustodySchedule
+            - ScheduleOverride
+            - Expense
+            - ExpenseStatus
+          description: |
+            The type of entity this operation targets. KeyRotation events
+            also flow through the OpLog; the encrypted payload contains
+            key rotation metadata, while wrapped DEKs are distributed
+            via the `/keys` endpoint.
+        entityId:
+          type: string
+          format: uuid
+          description: The entity this operation targets
+        operation:
+          type: string
+          enum:
+            - CREATE
+            - UPDATE
+            - DELETE
+          description: The mutation type
         encryptedPayload:
           type: string
           description: Base64-encoded AES-256-GCM encrypted payload
         devicePrevHash:
           type: string
+          pattern: "^[0-9a-f]{64}$"
           description: Hex-encoded SHA-256 per-device hash chain value
+        currentHash:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+          description: SHA-256 hash forming the per-device hash chain
         keyEpoch:
           type: integer
           format: int32
           description: DEK epoch used to encrypt this payload
+        clientTimestamp:
+          type: string
+          format: date-time
+          description: Client's local UTC time when the op was created
         serverTimestamp:
           type: string
           format: date-time
-          description: Server UTC timestamp
+          description: Server UTC timestamp when the op was persisted
+        protocolVersion:
+          type: integer
+          format: int32
+          minimum: 1
+          description: Protocol version this op was created with
+        transitionTo:
+          type: string
+          enum:
+            - APPROVED
+            - DECLINED
+            - CANCELLED
+            - SUPERSEDED
+            - EXPIRED
+          description: |
+            Present only for ScheduleOverride UPDATE operations.
+            Indicates the target state transition.
+        signature:
+          type: string
+          description: Base64-encoded Ed25519 signature of the op envelope
 
     UploadSnapshotResponse:
       type: object

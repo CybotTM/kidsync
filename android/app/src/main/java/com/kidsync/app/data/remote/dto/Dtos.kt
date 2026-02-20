@@ -1,6 +1,5 @@
 package com.kidsync.app.data.remote.dto
 
-import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 // ---- Auth ----
@@ -150,23 +149,39 @@ data class UploadOpsRequest(
 
 @Serializable
 data class OpInputDto(
-    val localId: String,
-    val deviceId: String,
+    val deviceSequence: Long,
+    val entityType: String,
+    val entityId: String,
+    val operation: String,
     val encryptedPayload: String,
     val devicePrevHash: String,
-    val keyEpoch: Int
+    val currentHash: String,
+    val keyEpoch: Int,
+    val clientTimestamp: String,
+    val protocolVersion: Int = 1,
+    val signature: String = "",
+    val transitionTo: String? = null,
+    val localId: String? = null
 )
 
 @Serializable
 data class UploadOpsResponse(
-    val assignedSequences: List<AssignedSequenceDto>
+    val accepted: List<AcceptedOpDto>,
+    val rejected: List<RejectedOpDto> = emptyList()
 )
 
 @Serializable
-data class AssignedSequenceDto(
-    val localId: String,
+data class AcceptedOpDto(
+    val deviceSequence: Long,
     val globalSequence: Long,
     val serverTimestamp: String
+)
+
+@Serializable
+data class RejectedOpDto(
+    val deviceSequence: Long,
+    val error: String,
+    val code: String? = null
 )
 
 @Serializable
@@ -180,9 +195,15 @@ data class PullOpsResponse(
 data class OpOutputDto(
     val globalSequence: Long,
     val deviceId: String,
+    val deviceSequence: Long,
+    val entityType: String? = null,
+    val entityId: String? = null,
+    val operation: String? = null,
     val encryptedPayload: String,
     val devicePrevHash: String,
+    val currentHash: String? = null,
     val keyEpoch: Int,
+    val clientTimestamp: String? = null,
     val serverTimestamp: String
 )
 
@@ -206,6 +227,23 @@ data class LatestSnapshotResponse(
     val sequence: Long,
     val downloadUrl: String,
     val createdAt: String
+)
+
+// ---- Handshake ----
+
+@Serializable
+data class HandshakeRequest(
+    val deviceId: String,
+    val lastKnownSequence: Long,
+    val protocolVersion: Int = 1
+)
+
+@Serializable
+data class HandshakeResponse(
+    val serverSequence: Long,
+    val currentKeyEpoch: Int,
+    val protocolVersion: Int,
+    val serverTime: String
 )
 
 // ---- Blobs ----

@@ -1,6 +1,7 @@
 package com.kidsync.app.domain.usecase.sync
 
 import com.kidsync.app.crypto.CryptoManager
+import com.kidsync.app.crypto.CryptoManager.Companion.buildPayloadAad
 import com.kidsync.app.crypto.KeyManager
 import com.kidsync.app.domain.model.*
 import com.kidsync.app.domain.repository.SyncRepository
@@ -49,10 +50,16 @@ class SyncOpsUseCase @Inject constructor(
                 val dek = keyManager.getDek(familyId, op.keyEpoch)
                     ?: return Result.failure(IllegalStateException("Missing DEK for epoch ${op.keyEpoch}"))
 
+                val aad = buildPayloadAad(
+                    familyId = familyId.toString(),
+                    deviceId = op.deviceId.toString(),
+                    deviceSequence = op.deviceSequence,
+                    keyEpoch = op.keyEpoch
+                )
                 val decryptedPayload = cryptoManager.decryptPayload(
                     encryptedPayload = op.encryptedPayload,
                     dek = dek,
-                    aad = op.deviceId.toString()
+                    aad = aad
                 )
 
                 val applyResult = opApplier.apply(op, decryptedPayload)

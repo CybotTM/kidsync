@@ -69,6 +69,9 @@ interface ApiService {
 
     // ---- Sync ----
 
+    @POST("sync/handshake")
+    suspend fun handshake(@Body request: HandshakeRequest): Response<HandshakeResponse>
+
     @POST("sync/ops")
     suspend fun uploadOps(@Body request: UploadOpsRequest): Response<UploadOpsResponse>
 
