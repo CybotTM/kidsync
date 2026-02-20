@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">KidSync</string>
+
+    <!-- Welcome Screen -->
+    <string name="welcome_tagline">Co-Parenting leicht gemacht</string>
+    <string name="welcome_description">Kalender, Ausgaben und Betreuungszeiten sicher mit dem anderen Elternteil teilen. Ende-zu-Ende-verschl\u00fcsselt f\u00fcr die Privatsph\u00e4re Ihrer Familie.</string>
+    <string name="welcome_get_started">Loslegen</string>
+    <string name="welcome_have_account">Ich habe ein Konto</string>
+    <string name="welcome_join_family">Einer Familie beitreten</string>
+
+    <!-- Register Screen -->
+    <string name="register_title">Konto erstellen</string>
+    <string name="register_heading">Konto erstellen</string>
+    <string name="register_subtitle">Richten Sie Ihr sicheres Co-Parenting-Konto ein</string>
+    <string name="register_display_name">Anzeigename</string>
+    <string name="register_email">E-Mail</string>
+    <string name="register_password">Passwort</string>
+    <string name="register_confirm_password">Passwort best\u00e4tigen</string>
+    <string name="register_button">Konto erstellen</string>
+    <string name="register_already_have_account">Bereits ein Konto? Anmelden</string>
+    <string name="register_passwords_mismatch">Passw\u00f6rter stimmen nicht \u00fcberein</string>
+
+    <!-- Login Screen -->
+    <string name="login_title">Anmelden</string>
+    <string name="login_heading">Willkommen zur\u00fcck</string>
+    <string name="login_subtitle">Melden Sie sich bei Ihrem KidSync-Konto an</string>
+    <string name="login_email">E-Mail</string>
+    <string name="login_password">Passwort</string>
+    <string name="login_totp_code">2FA-Code (optional)</string>
+    <string name="login_totp_placeholder">6-stelliger Code</string>
+    <string name="login_button">Anmelden</string>
+    <string name="login_forgot_password">Konto mit Wiederherstellungsschl\u00fcssel wiederherstellen</string>
+    <string name="login_no_account">Noch kein Konto? Registrieren</string>
+
+    <!-- TOTP Setup Screen -->
+    <string name="totp_title">Zwei-Faktor-Auth.</string>
+    <string name="totp_heading">Konto absichern</string>
+    <string name="totp_description">F\u00fcgen Sie eine zus\u00e4tzliche Sicherheitsebene hinzu, indem Sie eine Authenticator-App wie Google Authenticator oder Authy verbinden.</string>
+    <string name="totp_scan_qr">Scannen Sie diesen QR-Code mit Ihrer Authenticator-App</string>
+    <string name="totp_manual_entry">Oder geben Sie diesen Code manuell ein:</string>
+    <string name="totp_verification_code">Verifizierungscode</string>
+    <string name="totp_verify_button">Verifizieren</string>
+    <string name="totp_skip">\u00dcberspringen</string>
+
+    <!-- Recovery Key Screen -->
+    <string name="recovery_title">Wiederherstellungsschl\u00fcssel</string>
+    <string name="recovery_heading">Schl\u00fcssel sichern</string>
+    <string name="recovery_description">Schreiben Sie diese 24 W\u00f6rter der Reihe nach auf. Sie sind die einzige M\u00f6glichkeit, Ihr Konto wiederherzustellen, wenn Sie den Zugang zu allen Ger\u00e4ten verlieren.</string>
+    <string name="recovery_warning">Wenn Sie diese W\u00f6rter und alle Ihre Ger\u00e4te verlieren, k\u00f6nnen Ihre verschl\u00fcsselten Daten nicht wiederhergestellt werden. Bewahren Sie sie sicher und offline auf.</string>
+    <string name="recovery_saved_checkbox">Ich habe diese W\u00f6rter aufgeschrieben und sicher aufbewahrt</string>
+    <string name="recovery_continue">Weiter</string>
+    <string name="recovery_generating">Wiederherstellungsschl\u00fcssel wird generiert\u2026</string>
+
+    <!-- Recovery Restore Screen -->
+    <string name="recovery_restore_title">Kontowiederherstellung</string>
+    <string name="recovery_restore_heading">Konto wiederherstellen</string>
+    <string name="recovery_restore_description">Geben Sie die 24 W\u00f6rter ein, die Sie bei der Kontoeinrichtung gesichert haben, um den Zugriff auf Ihre verschl\u00fcsselten Daten wiederherzustellen.</string>
+    <string name="recovery_restore_progress">%1$d von %2$d W\u00f6rtern eingegeben</string>
+    <string name="recovery_restore_button">Konto wiederherstellen</string>
+
+    <!-- Family Setup Screen -->
+    <string name="family_setup_title">Familie einrichten</string>
+    <string name="family_setup_heading">Familie erstellen</string>
+    <string name="family_setup_description">W\u00e4hlen Sie einen Namen f\u00fcr Ihre Familiengruppe. Dieser ist f\u00fcr alle Familienmitglieder sichtbar.</string>
+    <string name="family_setup_name_label">Familienname</string>
+    <string name="family_setup_name_placeholder">z.B. Familie M\u00fcller</string>
+    <string name="family_setup_continue">Familie erstellen</string>
+
+    <!-- Add Children Screen -->
+    <string name="add_children_title">Kinder hinzuf\u00fcgen</string>
+    <string name="add_children_heading">Kinder hinzuf\u00fcgen</string>
+    <string name="add_children_description">F\u00fcgen Sie die Kinder hinzu, f\u00fcr die Sie das Sorgerecht teilen. Sie k\u00f6nnen sp\u00e4ter weitere hinzuf\u00fcgen.</string>
+    <string name="add_children_child_number">Kind %1$d</string>
+    <string name="add_children_name_label">Name des Kindes</string>
+    <string name="add_children_dob_label">Geburtsdatum</string>
+    <string name="add_children_dob_placeholder">JJJJ-MM-TT</string>
+    <string name="add_children_add_more">Weiteres Kind hinzuf\u00fcgen</string>
+    <string name="add_children_continue">Weiter</string>
+
+    <!-- Invite Co-Parent Screen -->
+    <string name="invite_title">Elternteil einladen</string>
+    <string name="invite_heading">Co-Elternteil einladen</string>
+    <string name="invite_description">Erstellen Sie einen Einladungslink, um ihn mit dem anderen Elternteil zu teilen. Damit kann er/sie sicher der Familie beitreten.</string>
+    <string name="invite_generate_button">Einladungslink erstellen</string>
+    <string name="invite_copy">Kopieren</string>
+    <string name="invite_share">Teilen</string>
+    <string name="invite_skip">Sp\u00e4ter einladen</string>
+
+    <!-- Join Family Screen -->
+    <string name="join_title">Familie beitreten</string>
+    <string name="join_heading">Einer Familie beitreten</string>
+    <string name="join_description">Geben Sie den Einladungscode ein, den Sie vom anderen Elternteil erhalten haben.</string>
+    <string name="join_invite_code_label">Einladungscode</string>
+    <string name="join_invite_code_placeholder">Einladungscode einf\u00fcgen</string>
+    <string name="join_verify_fingerprint">Schl\u00fcssel-Fingerabdruck pr\u00fcfen</string>
+    <string name="join_verify_instruction">Vergleichen Sie diesen Fingerabdruck mit Ihrem Co-Elternteil, um die sichere Verbindung zu best\u00e4tigen.</string>
+    <string name="join_button">Familie beitreten</string>
+
+    <!-- Dashboard Screen -->
+    <string name="dashboard_welcome">Willkommen!</string>
+    <string name="dashboard_family_subtitle">Ihr Familien-Dashboard</string>
+    <string name="dashboard_quick_access">Schnellzugriff</string>
+    <string name="dashboard_calendar">Kalender</string>
+    <string name="dashboard_calendar_desc">Betreuungsplan</string>
+    <string name="dashboard_expenses">Ausgaben</string>
+    <string name="dashboard_expenses_desc">Geteilte Kosten</string>
+    <string name="dashboard_no_events">Keine anstehenden Termine</string>
+    <string name="dashboard_no_events_subtitle">Ihre gemeinsamen Kalendereintr\u00e4ge erscheinen hier</string>
+
+    <!-- Settings Screen -->
+    <string name="settings_title">Einstellungen</string>
+    <string name="settings_section_server">Server</string>
+    <string name="settings_server_config">Server-Konfiguration</string>
+    <string name="settings_section_notifications">Benachrichtigungen</string>
+    <string name="settings_notifications_enabled">Push-Benachrichtigungen</string>
+    <string name="settings_section_expenses">Ausgaben</string>
+    <string name="settings_default_currency">Standardw\u00e4hrung</string>
+    <string name="settings_section_devices">Ger\u00e4te</string>
+    <string name="settings_manage_devices">Ger\u00e4te verwalten</string>
+    <string name="settings_manage_devices_subtitle">Ger\u00e4tezugriff anzeigen und widerrufen</string>
+    <string name="settings_section_about">\u00dcber</string>
+    <string name="settings_about">\u00dcber KidSync</string>
+    <string name="settings_version">Version %1$s</string>
+    <string name="settings_logout">Abmelden</string>
+
+    <!-- Device List Screen -->
+    <string name="devices_title">Ger\u00e4te</string>
+    <string name="devices_loading">Ger\u00e4te werden geladen\u2026</string>
+    <string name="devices_empty">Keine Ger\u00e4te registriert</string>
+    <string name="devices_registered">Registriert am %1$s</string>
+    <string name="devices_revoked">Widerrufen</string>
+    <string name="devices_revoke">Widerrufen</string>
+
+    <!-- Server Config Screen -->
+    <string name="server_config_title">Server</string>
+    <string name="server_config_heading">Server-Konfiguration</string>
+    <string name="server_config_description">Konfigurieren Sie die KidSync-Server-URL. Sie k\u00f6nnen selbst hosten oder einen Community-Server verwenden.</string>
+    <string name="server_config_url_label">Server-URL</string>
+    <string name="server_config_save">Speichern</string>
+    <string name="server_config_test">Verbindung testen</string>
+    <string name="server_config_connected">Verbindung erfolgreich</string>
+    <string name="server_config_failed">Verbindung fehlgeschlagen</string>
+
+    <!-- Password Strength -->
+    <string name="password_strength_weak">Schwach</string>
+    <string name="password_strength_medium">Mittel</string>
+    <string name="password_strength_strong">Stark</string>
+
+    <!-- Content Descriptions (Accessibility) -->
+    <string name="cd_app_logo">KidSync App-Logo</string>
+    <string name="cd_navigate_back">Zur\u00fcck navigieren</string>
+    <string name="cd_show_password">Passwort anzeigen</string>
+    <string name="cd_hide_password">Passwort verbergen</string>
+    <string name="cd_settings">Einstellungen \u00f6ffnen</string>
+    <string name="cd_registering">Konto wird erstellt</string>
+    <string name="cd_signing_in">Anmeldung l\u00e4uft</string>
+    <string name="cd_verifying_code">Code wird verifiziert</string>
+    <string name="cd_creating_family">Familie wird erstellt</string>
+    <string name="cd_generating_invite">Einladungslink wird erstellt</string>
+    <string name="cd_joining_family">Familie beitreten</string>
+    <string name="cd_restoring_account">Konto wird wiederhergestellt</string>
+    <string name="cd_testing_connection">Serververbindung wird getestet</string>
+    <string name="cd_invite_qr_code">QR-Code f\u00fcr Einladungslink</string>
+    <string name="cd_password_strength_none">Kein Passwort eingegeben</string>
+    <string name="cd_password_strength_weak">Passwortst\u00e4rke: schwach</string>
+    <string name="cd_password_strength_medium">Passwortst\u00e4rke: mittel</string>
+    <string name="cd_password_strength_strong">Passwortst\u00e4rke: stark</string>
+    <string name="cd_mnemonic_grid">Wiederherstellungsschl\u00fcssel mit %1$d W\u00f6rtern</string>
+    <string name="cd_mnemonic_word">Wort %1$d: %2$s</string>
+    <string name="cd_mnemonic_input_grid">Wiederherstellungsw\u00f6rter-Eingabe, %1$d W\u00f6rter</string>
+    <string name="cd_mnemonic_input_word">Wiederherstellungswort %1$d</string>
+</resources>

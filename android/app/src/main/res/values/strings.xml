@@ -1,4 +1,173 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">KidSync</string>
+
+    <!-- Welcome Screen -->
+    <string name="welcome_tagline">Co-parenting made simple</string>
+    <string name="welcome_description">Securely share calendars, expenses, and schedules with your co-parent. End-to-end encrypted for your family\'s privacy.</string>
+    <string name="welcome_get_started">Get Started</string>
+    <string name="welcome_have_account">I have an account</string>
+    <string name="welcome_join_family">Join an existing family</string>
+
+    <!-- Register Screen -->
+    <string name="register_title">Create Account</string>
+    <string name="register_heading">Create Your Account</string>
+    <string name="register_subtitle">Set up your secure co-parenting account</string>
+    <string name="register_display_name">Display Name</string>
+    <string name="register_email">Email</string>
+    <string name="register_password">Password</string>
+    <string name="register_confirm_password">Confirm Password</string>
+    <string name="register_button">Create Account</string>
+    <string name="register_already_have_account">Already have an account? Sign in</string>
+    <string name="register_passwords_mismatch">Passwords do not match</string>
+
+    <!-- Login Screen -->
+    <string name="login_title">Sign In</string>
+    <string name="login_heading">Welcome Back</string>
+    <string name="login_subtitle">Sign in to your KidSync account</string>
+    <string name="login_email">Email</string>
+    <string name="login_password">Password</string>
+    <string name="login_totp_code">2FA Code (optional)</string>
+    <string name="login_totp_placeholder">6-digit code</string>
+    <string name="login_button">Sign In</string>
+    <string name="login_forgot_password">Recover account with recovery key</string>
+    <string name="login_no_account">Don\'t have an account? Sign up</string>
+
+    <!-- TOTP Setup Screen -->
+    <string name="totp_title">Two-Factor Auth</string>
+    <string name="totp_heading">Secure Your Account</string>
+    <string name="totp_description">Add an extra layer of security by connecting an authenticator app like Google Authenticator or Authy.</string>
+    <string name="totp_scan_qr">Scan this QR code with your authenticator app</string>
+    <string name="totp_manual_entry">Or enter this code manually:</string>
+    <string name="totp_verification_code">Verification Code</string>
+    <string name="totp_verify_button">Verify</string>
+    <string name="totp_skip">Skip for now</string>
+
+    <!-- Recovery Key Screen -->
+    <string name="recovery_title">Recovery Key</string>
+    <string name="recovery_heading">Save Your Recovery Key</string>
+    <string name="recovery_description">Write down these 24 words in order. They are the only way to recover your account if you lose access to all your devices.</string>
+    <string name="recovery_warning">If you lose these words and all your devices, your encrypted data cannot be recovered. Store them somewhere safe and offline.</string>
+    <string name="recovery_saved_checkbox">I have written down and securely stored these words</string>
+    <string name="recovery_continue">Continue</string>
+    <string name="recovery_generating">Generating recovery key\u2026</string>
+
+    <!-- Recovery Restore Screen -->
+    <string name="recovery_restore_title">Account Recovery</string>
+    <string name="recovery_restore_heading">Restore Your Account</string>
+    <string name="recovery_restore_description">Enter the 24 recovery words you saved during account setup to restore access to your encrypted data.</string>
+    <string name="recovery_restore_progress">%1$d of %2$d words entered</string>
+    <string name="recovery_restore_button">Restore Account</string>
+
+    <!-- Family Setup Screen -->
+    <string name="family_setup_title">Family Setup</string>
+    <string name="family_setup_heading">Create Your Family</string>
+    <string name="family_setup_description">Choose a name for your family group. This will be visible to all family members.</string>
+    <string name="family_setup_name_label">Family Name</string>
+    <string name="family_setup_name_placeholder">e.g. The Smiths</string>
+    <string name="family_setup_continue">Create Family</string>
+
+    <!-- Add Children Screen -->
+    <string name="add_children_title">Add Children</string>
+    <string name="add_children_heading">Add Your Children</string>
+    <string name="add_children_description">Add the children you share custody of. You can add more later.</string>
+    <string name="add_children_child_number">Child %1$d</string>
+    <string name="add_children_name_label">Child\'s Name</string>
+    <string name="add_children_dob_label">Date of Birth</string>
+    <string name="add_children_dob_placeholder">YYYY-MM-DD</string>
+    <string name="add_children_add_more">Add Another Child</string>
+    <string name="add_children_continue">Continue</string>
+
+    <!-- Invite Co-Parent Screen -->
+    <string name="invite_title">Invite Co-Parent</string>
+    <string name="invite_heading">Invite Your Co-Parent</string>
+    <string name="invite_description">Generate an invite link to share with your co-parent. They can use it to join your family and access shared information securely.</string>
+    <string name="invite_generate_button">Generate Invite Link</string>
+    <string name="invite_copy">Copy</string>
+    <string name="invite_share">Share</string>
+    <string name="invite_skip">Skip for now, I\'ll invite later</string>
+
+    <!-- Join Family Screen -->
+    <string name="join_title">Join Family</string>
+    <string name="join_heading">Join a Family</string>
+    <string name="join_description">Enter the invite code you received from your co-parent to join their family group.</string>
+    <string name="join_invite_code_label">Invite Code</string>
+    <string name="join_invite_code_placeholder">Paste your invite code</string>
+    <string name="join_verify_fingerprint">Verify Key Fingerprint</string>
+    <string name="join_verify_instruction">Compare this fingerprint with your co-parent to verify the secure connection.</string>
+    <string name="join_button">Join Family</string>
+
+    <!-- Dashboard Screen -->
+    <string name="dashboard_welcome">Welcome!</string>
+    <string name="dashboard_family_subtitle">Your family dashboard</string>
+    <string name="dashboard_quick_access">Quick Access</string>
+    <string name="dashboard_calendar">Calendar</string>
+    <string name="dashboard_calendar_desc">Custody schedule</string>
+    <string name="dashboard_expenses">Expenses</string>
+    <string name="dashboard_expenses_desc">Shared costs</string>
+    <string name="dashboard_no_events">No upcoming events</string>
+    <string name="dashboard_no_events_subtitle">Your shared calendar events will appear here</string>
+
+    <!-- Settings Screen -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_section_server">Server</string>
+    <string name="settings_server_config">Server Configuration</string>
+    <string name="settings_section_notifications">Notifications</string>
+    <string name="settings_notifications_enabled">Push Notifications</string>
+    <string name="settings_section_expenses">Expenses</string>
+    <string name="settings_default_currency">Default Currency</string>
+    <string name="settings_section_devices">Devices</string>
+    <string name="settings_manage_devices">Manage Devices</string>
+    <string name="settings_manage_devices_subtitle">View and revoke device access</string>
+    <string name="settings_section_about">About</string>
+    <string name="settings_about">About KidSync</string>
+    <string name="settings_version">Version %1$s</string>
+    <string name="settings_logout">Sign Out</string>
+
+    <!-- Device List Screen -->
+    <string name="devices_title">Devices</string>
+    <string name="devices_loading">Loading devices\u2026</string>
+    <string name="devices_empty">No devices registered</string>
+    <string name="devices_registered">Registered %1$s</string>
+    <string name="devices_revoked">Revoked</string>
+    <string name="devices_revoke">Revoke</string>
+
+    <!-- Server Config Screen -->
+    <string name="server_config_title">Server</string>
+    <string name="server_config_heading">Server Configuration</string>
+    <string name="server_config_description">Configure the KidSync server URL. You can self-host or use a community server.</string>
+    <string name="server_config_url_label">Server URL</string>
+    <string name="server_config_save">Save</string>
+    <string name="server_config_test">Test Connection</string>
+    <string name="server_config_connected">Connection successful</string>
+    <string name="server_config_failed">Connection failed</string>
+
+    <!-- Password Strength -->
+    <string name="password_strength_weak">Weak</string>
+    <string name="password_strength_medium">Medium</string>
+    <string name="password_strength_strong">Strong</string>
+
+    <!-- Content Descriptions (Accessibility) -->
+    <string name="cd_app_logo">KidSync app logo</string>
+    <string name="cd_navigate_back">Navigate back</string>
+    <string name="cd_show_password">Show password</string>
+    <string name="cd_hide_password">Hide password</string>
+    <string name="cd_settings">Open settings</string>
+    <string name="cd_registering">Creating your account</string>
+    <string name="cd_signing_in">Signing in</string>
+    <string name="cd_verifying_code">Verifying code</string>
+    <string name="cd_creating_family">Creating family</string>
+    <string name="cd_generating_invite">Generating invite link</string>
+    <string name="cd_joining_family">Joining family</string>
+    <string name="cd_restoring_account">Restoring account</string>
+    <string name="cd_testing_connection">Testing server connection</string>
+    <string name="cd_invite_qr_code">QR code for invite link</string>
+    <string name="cd_password_strength_none">No password entered</string>
+    <string name="cd_password_strength_weak">Password strength: weak</string>
+    <string name="cd_password_strength_medium">Password strength: medium</string>
+    <string name="cd_password_strength_strong">Password strength: strong</string>
+    <string name="cd_mnemonic_grid">Recovery key with %1$d words</string>
+    <string name="cd_mnemonic_word">Word %1$d: %2$s</string>
+    <string name="cd_mnemonic_input_grid">Recovery word input, %1$d words</string>
+    <string name="cd_mnemonic_input_word">Recovery word %1$d</string>
 </resources>

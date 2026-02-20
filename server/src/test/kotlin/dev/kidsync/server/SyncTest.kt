@@ -49,6 +49,8 @@ class SyncTest {
             contentType(ContentType.Application.Json)
             setBody(LoginRequest(email = email, password = "strong-password-12345"))
         }
+        assertEquals(HttpStatusCode.OK, loginResponse.status,
+            "Login failed with status ${loginResponse.status}")
         val login = loginResponse.body<LoginResponse>()
 
         return TestUser(login.token, reg.userId, reg.deviceId, family.familyId)
