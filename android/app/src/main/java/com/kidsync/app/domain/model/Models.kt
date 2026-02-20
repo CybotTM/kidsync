@@ -14,7 +14,8 @@ enum class EntityType {
     ScheduleOverride,
     Expense,
     ExpenseStatus,
-    Event
+    Event,
+    InfoBank
 }
 
 enum class OverrideType {
@@ -71,6 +72,7 @@ enum class DeviceStatus {
 data class Family(
     val familyId: UUID,
     val name: String,
+    val isSolo: Boolean = false,
     val createdAt: Instant
 )
 

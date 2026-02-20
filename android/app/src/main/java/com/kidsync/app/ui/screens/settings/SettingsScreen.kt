@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CurrencyExchange
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -51,12 +52,15 @@ import com.kidsync.app.ui.viewmodel.SettingsViewModel
 fun SettingsScreen(
     onNavigateToDeviceList: () -> Unit,
     onNavigateToServerConfig: () -> Unit,
+    onInviteCoParent: () -> Unit = {},
     onLogout: () -> Unit,
     onBack: () -> Unit,
+    isSolo: Boolean = false,
     modifier: Modifier = Modifier,
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val effectiveSolo = isSolo || uiState.isSolo
 
     Scaffold(
         topBar = {
@@ -73,6 +77,20 @@ fun SettingsScreen(
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
         ) {
+            // Solo mode section (only shown when in solo mode)
+            if (effectiveSolo) {
+                SettingsSectionHeader(title = stringResource(R.string.settings_section_solo))
+
+                SettingsItem(
+                    icon = Icons.Filled.PersonAdd,
+                    title = stringResource(R.string.settings_invite_coparent),
+                    subtitle = stringResource(R.string.settings_invite_coparent_subtitle),
+                    onClick = onInviteCoParent
+                )
+
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+            }
+
             // Server section
             SettingsSectionHeader(title = stringResource(R.string.settings_section_server))
 

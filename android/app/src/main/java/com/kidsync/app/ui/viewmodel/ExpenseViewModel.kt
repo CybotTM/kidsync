@@ -11,6 +11,7 @@ import com.kidsync.app.domain.model.ExpenseCategory
 import com.kidsync.app.domain.model.ExpenseStatusType
 import com.kidsync.app.domain.repository.AuthRepository
 import com.kidsync.app.domain.repository.ExpenseRepository
+import com.kidsync.app.domain.repository.FamilyRepository
 import com.kidsync.app.domain.usecase.expense.CreateExpenseUseCase
 import com.kidsync.app.domain.usecase.expense.ExpenseSummary
 import com.kidsync.app.domain.usecase.expense.GetExpenseSummaryUseCase
@@ -58,6 +59,9 @@ data class ExpenseUiState(
     val isRefreshing: Boolean = false,
     val error: String? = null,
 
+    // Solo mode
+    val isSolo: Boolean = false,
+
     // List
     val expenses: List<ExpenseWithStatus> = emptyList(),
     val filter: ExpenseFilter = ExpenseFilter(),
@@ -96,6 +100,7 @@ class ExpenseViewModel @Inject constructor(
     private val getExpenseSummaryUseCase: GetExpenseSummaryUseCase,
     private val expenseRepository: ExpenseRepository,
     private val authRepository: AuthRepository,
+    private val familyRepository: FamilyRepository,
     private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -103,10 +108,30 @@ class ExpenseViewModel @Inject constructor(
     val uiState: StateFlow<ExpenseUiState> = _uiState.asStateFlow()
 
     init {
+        loadSoloMode()
         loadExpenses()
         // Restore receipt URI from saved state if process was killed
         savedStateHandle.get<String>("receipt_uri")?.let { uriString ->
             _uiState.update { it.copy(addReceiptUri = Uri.parse(uriString)) }
+        }
+    }
+
+    private fun loadSoloMode() {
+        viewModelScope.launch {
+            try {
+                val session = authRepository.getSession() ?: return@launch
+                val family = familyRepository.getFamily(session.familyId)
+                if (family?.isSolo == true) {
+                    _uiState.update {
+                        it.copy(
+                            isSolo = true,
+                            addSplitRatio = 1.0f
+                        )
+                    }
+                }
+            } catch (_: Exception) {
+                // Non-critical: default to shared mode behavior
+            }
         }
     }
 

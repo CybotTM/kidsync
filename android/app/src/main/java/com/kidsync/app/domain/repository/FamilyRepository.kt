@@ -14,6 +14,7 @@ interface FamilyRepository {
     suspend fun getDevices(familyId: UUID): List<Device>
 
     suspend fun createInvite(familyId: UUID): Result<String>
+    suspend fun convertToShared(familyId: UUID): Result<Unit>
     suspend fun revokeDevice(familyId: UUID, deviceId: UUID): Result<Unit>
 
     suspend fun saveFamily(family: Family)

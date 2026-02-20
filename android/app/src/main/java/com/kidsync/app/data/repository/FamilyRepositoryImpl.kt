@@ -116,6 +116,18 @@ class FamilyRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun convertToShared(familyId: UUID): Result<Unit> {
+        return try {
+            val response = apiService.convertToShared(familyId.toString())
+            if (!response.isSuccessful) {
+                return Result.failure(ApiException(response.code(), response.message()))
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     override suspend fun revokeDevice(familyId: UUID, deviceId: UUID): Result<Unit> {
         return try {
             val response = apiService.revokeDevice(deviceId.toString())

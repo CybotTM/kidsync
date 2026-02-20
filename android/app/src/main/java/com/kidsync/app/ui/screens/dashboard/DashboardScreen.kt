@@ -16,7 +16,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.FamilyRestroom
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -24,11 +27,13 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -38,7 +43,10 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kidsync.app.R
+import com.kidsync.app.ui.viewmodel.DashboardViewModel
 
 /**
  * Placeholder dashboard screen showing family info and quick-access cards
@@ -50,8 +58,15 @@ fun DashboardScreen(
     onNavigateToSettings: () -> Unit,
     onNavigateToExpenses: () -> Unit = {},
     onNavigateToCalendar: () -> Unit = {},
-    modifier: Modifier = Modifier
+    onNavigateToInfoBank: () -> Unit = {},
+    onInviteCoParent: () -> Unit = {},
+    isSolo: Boolean = false,
+    modifier: Modifier = Modifier,
+    viewModel: DashboardViewModel = hiltViewModel()
 ) {
+    val dashboardState by viewModel.uiState.collectAsStateWithLifecycle()
+    val effectiveSolo = isSolo || dashboardState.isSolo
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -129,6 +144,59 @@ fun DashboardScreen(
                 }
             }
 
+            // Solo mode indicator
+            if (effectiveSolo) {
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics { contentDescription = "Solo mode active" },
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Person,
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp),
+                            tint = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(R.string.dashboard_solo_mode),
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
+                            Text(
+                                text = stringResource(R.string.dashboard_solo_mode_desc),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.8f)
+                            )
+                        }
+                        OutlinedButton(onClick = onInviteCoParent) {
+                            Icon(
+                                imageVector = Icons.Filled.PersonAdd,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = stringResource(R.string.dashboard_invite_coparent),
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(24.dp))
 
             Text(
@@ -159,6 +227,24 @@ fun DashboardScreen(
                     onClick = onNavigateToExpenses,
                     modifier = Modifier.weight(1f)
                 )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                DashboardQuickCard(
+                    icon = Icons.Filled.Folder,
+                    title = stringResource(R.string.dashboard_info_bank),
+                    description = stringResource(R.string.dashboard_info_bank_desc),
+                    onClick = onNavigateToInfoBank,
+                    modifier = Modifier.weight(1f)
+                )
+
+                // Placeholder to balance the grid
+                Spacer(modifier = Modifier.weight(1f))
             }
 
             Spacer(modifier = Modifier.height(24.dp))

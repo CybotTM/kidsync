@@ -361,4 +361,79 @@
     <string name="cd_saving_schedule">Plan wird gespeichert</string>
     <string name="cd_submitting_swap">Tausch-Anfrage wird gesendet</string>
     <string name="cd_saving_event">Termin wird gespeichert</string>
+    <string name="cd_info_bank_saving">Info-Bank-Eintrag wird gespeichert</string>
+
+    <!-- Dashboard - Info Bank -->
+    <string name="dashboard_info_bank">Info-Bank</string>
+    <string name="dashboard_info_bank_desc">Kinderinformationen</string>
+
+    <!-- Solo Mode -->
+    <string name="family_setup_mode_label">Wie m\u00f6chten Sie KidSync nutzen?</string>
+    <string name="family_setup_mode_shared">Mit Co-Elternteil einrichten</string>
+    <string name="family_setup_mode_shared_desc">Laden Sie Ihren Co-Elternteil ein, um Kalender, Ausgaben und Betreuungszeiten gemeinsam zu verwalten.</string>
+    <string name="family_setup_mode_solo">Solo nutzen</string>
+    <string name="family_setup_mode_solo_desc">Als pers\u00f6nliches Eltern-Tagebuch starten. Sie k\u00f6nnen sp\u00e4ter einen Co-Elternteil einladen.</string>
+    <string name="dashboard_solo_mode">Solo-Modus</string>
+    <string name="dashboard_solo_mode_desc">Sie nutzen KidSync als pers\u00f6nliches Eltern-Tagebuch.</string>
+    <string name="dashboard_invite_coparent">Einladen</string>
+    <string name="settings_section_solo">Solo-Modus</string>
+    <string name="settings_invite_coparent">Co-Elternteil einladen</string>
+    <string name="settings_invite_coparent_subtitle">Wechseln Sie zum gemeinsamen Modus, indem Sie Ihren Co-Elternteil einladen</string>
+    <string name="calendar_swap_solo_title">Tausch nicht n\u00f6tig</string>
+    <string name="calendar_swap_solo_subtitle">Im Solo-Modus verwalten Sie den Betreuungsplan alleine. Tausch-Anfragen sind nicht erforderlich.</string>
+
+    <!-- Info Bank Module -->
+    <string name="info_bank_title">Info-Bank</string>
+    <string name="info_bank_add_entry">Eintrag hinzuf\u00fcgen</string>
+    <string name="info_bank_add_title">Eintrag hinzuf\u00fcgen</string>
+    <string name="info_bank_edit_title">Eintrag bearbeiten</string>
+    <string name="info_bank_detail_title">Eintragsdetails</string>
+    <string name="info_bank_search">Eintr\u00e4ge durchsuchen...</string>
+    <string name="info_bank_empty">Noch keine Eintr\u00e4ge</string>
+    <string name="info_bank_empty_subtitle">Tippen Sie auf +, um wichtige Kinderinformationen hinzuzuf\u00fcgen</string>
+    <string name="info_bank_not_found">Eintrag nicht gefunden</string>
+    <string name="info_bank_save">Eintrag speichern</string>
+    <string name="info_bank_edit">Bearbeiten</string>
+    <string name="info_bank_delete">L\u00f6schen</string>
+    <string name="info_bank_delete_confirm_title">Eintrag l\u00f6schen</string>
+    <string name="info_bank_delete_confirm_message">Sind Sie sicher, dass Sie diesen Eintrag l\u00f6schen m\u00f6chten? Diese Aktion kann nicht r\u00fcckg\u00e4ngig gemacht werden.</string>
+    <string name="info_bank_notes">Zus\u00e4tzliche Notizen</string>
+
+    <!-- Info Bank Categories -->
+    <string name="info_bank_category_medical">Medizinisch</string>
+    <string name="info_bank_category_school">Schule</string>
+    <string name="info_bank_category_emergency">Notfallkontakte</string>
+    <string name="info_bank_category_notes">Wichtige Notizen</string>
+
+    <!-- Info Bank Form -->
+    <string name="info_bank_form_category">Kategorie</string>
+    <string name="info_bank_form_child">Kind</string>
+
+    <!-- Info Bank - Medical Fields -->
+    <string name="info_bank_medical_allergies">Allergien</string>
+    <string name="info_bank_medical_medication_name">Medikamentenname</string>
+    <string name="info_bank_medical_dosage">Dosierung</string>
+    <string name="info_bank_medical_schedule">Medikamentenplan</string>
+    <string name="info_bank_medical_doctor">Arztname</string>
+    <string name="info_bank_medical_doctor_phone">Arzt-Telefon</string>
+    <string name="info_bank_medical_insurance">Versicherungsinformationen</string>
+    <string name="info_bank_medical_blood_type">Blutgruppe</string>
+
+    <!-- Info Bank - School Fields -->
+    <string name="info_bank_school_name">Schulname</string>
+    <string name="info_bank_school_teachers">Lehrernamen</string>
+    <string name="info_bank_school_grade">Klasse / Stufe</string>
+    <string name="info_bank_school_phone">Schultelefon</string>
+    <string name="info_bank_school_schedule">Stundenplan-Notizen</string>
+
+    <!-- Info Bank - Emergency Contact Fields -->
+    <string name="info_bank_emergency_name">Kontaktname</string>
+    <string name="info_bank_emergency_relationship">Beziehung</string>
+    <string name="info_bank_emergency_phone">Telefon</string>
+    <string name="info_bank_emergency_email">E-Mail</string>
+
+    <!-- Info Bank - Note Fields -->
+    <string name="info_bank_note_title">Titel</string>
+    <string name="info_bank_note_content">Inhalt</string>
+    <string name="info_bank_note_tag">Kategorie-Tag</string>
 </resources>

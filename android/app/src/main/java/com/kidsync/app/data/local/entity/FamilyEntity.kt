@@ -9,5 +9,6 @@ data class FamilyEntity(
     @PrimaryKey
     val familyId: UUID,
     val name: String,
+    val isSolo: Boolean = false,
     val createdAt: String
 )

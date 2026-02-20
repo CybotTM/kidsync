@@ -41,6 +41,9 @@ interface ApiService {
     @POST("families/{familyId}/invite")
     suspend fun createInvite(@Path("familyId") familyId: String): Response<InviteResponse>
 
+    @POST("families/{familyId}/convert")
+    suspend fun convertToShared(@Path("familyId") familyId: String): Response<CreateFamilyResponse>
+
     @POST("families/{familyId}/join")
     suspend fun joinFamily(
         @Path("familyId") familyId: String,

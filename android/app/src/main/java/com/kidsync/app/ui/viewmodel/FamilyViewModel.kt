@@ -33,6 +33,7 @@ data class FamilyUiState(
     val familyName: String = "",
     val familyId: UUID? = null,
     val isFamilyCreated: Boolean = false,
+    val isSolo: Boolean = false,
 
     // Children
     val children: List<ChildEntry> = listOf(ChildEntry()),
@@ -66,7 +67,7 @@ class FamilyViewModel @Inject constructor(
         _uiState.update { it.copy(familyName = name, error = null) }
     }
 
-    fun createFamily() {
+    fun createFamily(solo: Boolean = false) {
         val name = _uiState.value.familyName.trim()
         if (name.isBlank()) {
             _uiState.update { it.copy(error = "Family name is required") }
@@ -77,14 +78,18 @@ class FamilyViewModel @Inject constructor(
             _uiState.update { it.copy(isLoading = true, error = null) }
 
             try {
-                val response = apiService.createFamily(CreateFamilyRequest(name = name))
+                val response = apiService.createFamily(
+                    CreateFamilyRequest(name = name, solo = solo)
+                )
                 if (response.isSuccessful) {
-                    val familyId = response.body()?.familyId?.let { UUID.fromString(it) }
+                    val body = response.body()
+                    val familyId = body?.familyId?.let { UUID.fromString(it) }
                     _uiState.update {
                         it.copy(
                             isLoading = false,
                             familyId = familyId,
-                            isFamilyCreated = true
+                            isFamilyCreated = true,
+                            isSolo = body?.isSolo ?: solo
                         )
                     }
                 } else {

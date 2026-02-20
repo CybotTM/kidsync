@@ -1,16 +1,24 @@
 package com.kidsync.app.ui.screens.family
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.People
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -21,7 +29,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
@@ -53,6 +63,7 @@ fun FamilySetupScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val focusManager = LocalFocusManager.current
+    var isSoloSelected by remember { mutableStateOf(false) }
 
     LaunchedEffect(uiState.isFamilyCreated) {
         if (uiState.isFamilyCreated) {
@@ -121,18 +132,50 @@ fun FamilySetupScreen(
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(
-                    onDone = {
-                        focusManager.clearFocus()
-                        viewModel.createFamily()
-                    }
+                    onDone = { focusManager.clearFocus() }
                 )
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Mode selection: shared vs solo
+            Text(
+                text = stringResource(R.string.family_setup_mode_label),
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics { heading() }
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Shared mode card
+            FamilyModeCard(
+                icon = Icons.Filled.People,
+                title = stringResource(R.string.family_setup_mode_shared),
+                description = stringResource(R.string.family_setup_mode_shared_desc),
+                isSelected = !isSoloSelected,
+                onClick = { isSoloSelected = false },
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Solo mode card
+            FamilyModeCard(
+                icon = Icons.Filled.Person,
+                title = stringResource(R.string.family_setup_mode_solo),
+                description = stringResource(R.string.family_setup_mode_solo_desc),
+                isSelected = isSoloSelected,
+                onClick = { isSoloSelected = true },
+                modifier = Modifier.fillMaxWidth()
             )
 
             Spacer(modifier = Modifier.height(32.dp))
 
             LoadingButton(
                 text = stringResource(R.string.family_setup_continue),
-                onClick = { viewModel.createFamily() },
+                onClick = { viewModel.createFamily(solo = isSoloSelected) },
                 isLoading = uiState.isLoading,
                 enabled = uiState.familyName.isNotBlank(),
                 modifier = Modifier
@@ -140,6 +183,74 @@ fun FamilySetupScreen(
                     .height(52.dp),
                 loadingDescription = stringResource(R.string.cd_creating_family)
             )
+        }
+    }
+}
+
+@Composable
+private fun FamilyModeCard(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    description: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val borderColor = if (isSelected) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.outline
+    }
+    val containerColor = if (isSelected) {
+        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+    } else {
+        MaterialTheme.colorScheme.surface
+    }
+
+    Card(
+        onClick = onClick,
+        modifier = modifier.semantics {
+            contentDescription = if (isSelected) "$title, selected" else title
+        },
+        border = BorderStroke(
+            width = if (isSelected) 2.dp else 1.dp,
+            color = borderColor
+        ),
+        colors = CardDefaults.cardColors(containerColor = containerColor)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(32.dp),
+                tint = if (isSelected) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = if (isSelected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    }
+                )
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }

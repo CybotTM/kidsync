@@ -51,6 +51,7 @@ data class RefreshResponse(
 @Serializable
 data class CreateFamilyResponse(
     val familyId: String,
+    val isSolo: Boolean = false,
 )
 
 @Serializable

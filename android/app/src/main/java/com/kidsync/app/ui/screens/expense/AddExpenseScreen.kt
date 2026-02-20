@@ -287,48 +287,50 @@ fun AddExpenseScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Split ratio slider
-            val splitPercent = (uiState.addSplitRatio * 100).toInt()
-            Text(
-                text = stringResource(R.string.expense_add_split, splitPercent, 100 - splitPercent),
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.semantics { heading() }
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = stringResource(R.string.expense_add_split_description),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Slider(
-                value = uiState.addSplitRatio,
-                onValueChange = viewModel::onSplitRatioChanged,
-                valueRange = 0f..1f,
-                steps = 19,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .semantics {
-                        contentDescription = "Split ratio: you pay $splitPercent percent, " +
-                            "co-parent pays ${100 - splitPercent} percent"
-                    }
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
+            // Split ratio slider (hidden in solo mode)
+            if (!uiState.isSolo) {
+                val splitPercent = (uiState.addSplitRatio * 100).toInt()
                 Text(
-                    text = stringResource(R.string.expense_add_split_you, splitPercent),
-                    style = MaterialTheme.typography.labelSmall,
+                    text = stringResource(R.string.expense_add_split, splitPercent, 100 - splitPercent),
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.semantics { heading() }
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = stringResource(R.string.expense_add_split_description),
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Text(
-                    text = stringResource(R.string.expense_add_split_them, 100 - splitPercent),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                Slider(
+                    value = uiState.addSplitRatio,
+                    onValueChange = viewModel::onSplitRatioChanged,
+                    valueRange = 0f..1f,
+                    steps = 19,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics {
+                            contentDescription = "Split ratio: you pay $splitPercent percent, " +
+                                "co-parent pays ${100 - splitPercent} percent"
+                        }
                 )
-            }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = stringResource(R.string.expense_add_split_you, splitPercent),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = stringResource(R.string.expense_add_split_them, 100 - splitPercent),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
 
-            Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(16.dp))
+            }
 
             // Currency selector
             ExposedDropdownMenuBox(

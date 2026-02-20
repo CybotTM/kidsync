@@ -63,12 +63,14 @@ data class TotpVerifyResponse(
 
 @Serializable
 data class CreateFamilyRequest(
-    val name: String
+    val name: String,
+    val solo: Boolean = false
 )
 
 @Serializable
 data class CreateFamilyResponse(
-    val familyId: String
+    val familyId: String,
+    val isSolo: Boolean = false
 )
 
 @Serializable

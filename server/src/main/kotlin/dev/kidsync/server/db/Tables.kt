@@ -35,6 +35,7 @@ object Devices : Table("devices") {
 object Families : Table("families") {
     val id = varchar("id", 36)
     val name = varchar("name", 100)
+    val isSolo = bool("is_solo").default(false)
     val createdAt = datetime("created_at")
 
     override val primaryKey = PrimaryKey(id)

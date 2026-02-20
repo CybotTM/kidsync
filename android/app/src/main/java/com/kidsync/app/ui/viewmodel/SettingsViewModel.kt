@@ -20,6 +20,9 @@ data class SettingsUiState(
     val isLoading: Boolean = false,
     val error: String? = null,
 
+    // Solo mode
+    val isSolo: Boolean = false,
+
     // Server config
     val serverUrl: String = "",
     val isServerConnected: Boolean? = null,
@@ -46,7 +49,22 @@ class SettingsViewModel @Inject constructor(
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
     init {
+        loadSoloMode()
         loadPreferences()
+    }
+
+    private fun loadSoloMode() {
+        viewModelScope.launch {
+            try {
+                val session = authRepository.getSession() ?: return@launch
+                val family = familyRepository.getFamily(session.familyId)
+                if (family?.isSolo == true) {
+                    _uiState.update { it.copy(isSolo = true) }
+                }
+            } catch (_: Exception) {
+                // Non-critical: default to shared mode behavior
+            }
+        }
     }
 
     private fun loadPreferences() {

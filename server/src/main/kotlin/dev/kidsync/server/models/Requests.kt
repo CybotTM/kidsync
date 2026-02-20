@@ -32,6 +32,7 @@ data class RefreshRequest(
 @Serializable
 data class CreateFamilyRequest(
     val name: String,
+    val solo: Boolean = false,
 )
 
 @Serializable
