@@ -35,6 +35,8 @@ class SyncTest {
             contentType(ContentType.Application.Json)
             setBody(RegisterRequest(email = email, password = "strong-password-12345"))
         }
+        assertEquals(HttpStatusCode.Created, regResponse.status,
+            "Register failed: ${regResponse.status}")
         val reg = regResponse.body<RegisterResponse>()
 
         val familyResponse = client.post("/families") {
@@ -42,6 +44,8 @@ class SyncTest {
             header(HttpHeaders.Authorization, "Bearer ${reg.token}")
             setBody(CreateFamilyRequest(name = "Test Family"))
         }
+        assertEquals(HttpStatusCode.Created, familyResponse.status,
+            "Family creation failed: ${familyResponse.status}")
         val family = familyResponse.body<CreateFamilyResponse>()
 
         // Need to re-login to get updated familyIds in JWT
@@ -50,7 +54,7 @@ class SyncTest {
             setBody(LoginRequest(email = email, password = "strong-password-12345"))
         }
         assertEquals(HttpStatusCode.OK, loginResponse.status,
-            "Login failed with status ${loginResponse.status}")
+            "Login failed: ${loginResponse.status}")
         val login = loginResponse.body<LoginResponse>()
 
         return TestUser(login.token, reg.userId, reg.deviceId, family.familyId)

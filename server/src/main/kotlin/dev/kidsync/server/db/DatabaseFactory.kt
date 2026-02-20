@@ -12,6 +12,8 @@ import java.io.File
 
 object DatabaseFactory {
 
+    private lateinit var database: Database
+
     fun init(config: AppConfig) {
         val dbFile = File(config.dbPath)
         dbFile.parentFile?.mkdirs()
@@ -29,7 +31,7 @@ object DatabaseFactory {
             url = "jdbc:sqlite:${config.dbPath}"
         }
 
-        val database = Database.connect(dataSource)
+        database = Database.connect(dataSource)
 
         transaction(database) {
             SchemaUtils.create(
@@ -53,7 +55,9 @@ object DatabaseFactory {
 
     /**
      * Convenience wrapper for executing suspended database transactions.
+     * Explicitly passes the database reference to avoid issues with
+     * Exposed's global default when multiple databases are connected.
      */
     suspend fun <T> dbQuery(block: suspend () -> T): T =
-        newSuspendedTransaction(Dispatchers.IO) { block() }
+        newSuspendedTransaction(Dispatchers.IO, database) { block() }
 }

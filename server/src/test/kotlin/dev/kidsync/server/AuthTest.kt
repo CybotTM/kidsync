@@ -133,14 +133,18 @@ class AuthTest {
             contentType(ContentType.Application.Json)
             setBody(RegisterRequest(email = "refresh@example.com", password = "strong-password-12345"))
         }
+        assertEquals(HttpStatusCode.Created, regResponse.status,
+            "Register failed: ${regResponse.status}")
         val regBody = regResponse.body<RegisterResponse>()
+        assertNotNull(regBody.refreshToken, "Register response missing refreshToken")
 
         val refreshResponse = client.post("/auth/refresh") {
             contentType(ContentType.Application.Json)
             setBody(RefreshRequest(refreshToken = regBody.refreshToken))
         }
 
-        assertEquals(HttpStatusCode.OK, refreshResponse.status)
+        assertEquals(HttpStatusCode.OK, refreshResponse.status,
+            "Refresh failed: ${refreshResponse.status}")
         val refreshBody = refreshResponse.body<RefreshResponse>()
         assertNotNull(refreshBody.token)
         assertNotNull(refreshBody.refreshToken)
