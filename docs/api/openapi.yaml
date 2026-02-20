@@ -1,0 +1,2117 @@
+openapi: 3.1.0
+info:
+  title: Co-Parenting Sync Server API
+  description: |
+    REST API contract for the co-parenting app sync server (Kotlin/Ktor).
+
+    The server is a **dumb relay** for end-to-end encrypted data. It assigns
+    monotonic sequence numbers, stores encrypted blobs, and relays operations
+    between family member devices. The server never sees plaintext family data.
+
+    ## Authentication
+    All endpoints except `/auth/register`, `/auth/login`, and `/auth/refresh`
+    require a valid JWT Bearer token in the `Authorization` header.
+
+    ## Rate Limiting
+    All endpoints return rate-limiting headers:
+    - `X-RateLimit-Limit` -- maximum requests per window
+    - `X-RateLimit-Remaining` -- remaining requests in current window
+    - `X-RateLimit-Reset` -- UTC epoch seconds when the window resets
+
+    ## Protocol Versioning
+    Clients must send `X-Protocol-Version: 1` on every request. The server
+    rejects requests with an unsupported protocol version with `PROTOCOL_MISMATCH`.
+  version: 1.0.0
+  license:
+    name: AGPL-3.0-or-later
+    identifier: AGPL-3.0-or-later
+  contact:
+    name: Co-Parenting Project
+
+servers:
+  - url: https://api.example.com/v1
+    description: Managed instance (EU)
+  - url: http://localhost:8080/v1
+    description: Local development / self-hosted
+
+tags:
+  - name: Auth
+    description: Registration, login, TOTP setup, and token refresh
+  - name: Families
+    description: Family creation, invitations, and membership
+  - name: Devices
+    description: Device registration and revocation
+  - name: Sync
+    description: Operation log sync, snapshots, and checkpoints
+  - name: Blobs
+    description: Encrypted blob storage (receipts, attachments)
+  - name: Push
+    description: Push notification token registration
+  - name: Keys
+    description: Wrapped DEK distribution and recovery blobs
+
+security:
+  - bearerAuth: []
+
+paths:
+  # ---------------------------------------------------------------------------
+  # Auth
+  # ---------------------------------------------------------------------------
+  /auth/register:
+    post:
+      operationId: register
+      tags: [Auth]
+      summary: Register a new account
+      description: |
+        Creates a new user account with email and password. Returns a user ID,
+        an initial device ID, a short-lived JWT, and a refresh token.
+
+        The password is hashed with bcrypt server-side. The server enforces a
+        minimum strength policy and checks the password against the
+        HaveIBeenPwned k-anonymity API.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: Account created successfully
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/X-RateLimit-Limit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/X-RateLimit-Remaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/X-RateLimit-Reset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterResponse"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/login:
+    post:
+      operationId: login
+      tags: [Auth]
+      summary: Log in to an existing account
+      description: |
+        Authenticates with email and password. If TOTP is enabled on the
+        account, the `totpCode` field is required.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login successful
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/X-RateLimit-Limit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/X-RateLimit-Remaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/X-RateLimit-Reset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/totp/setup:
+    post:
+      operationId: totpSetup
+      tags: [Auth]
+      summary: Initialize TOTP two-factor authentication
+      description: |
+        Generates a new TOTP secret for the authenticated user and returns
+        the secret along with an `otpauth://` URI suitable for QR code
+        generation. The TOTP is not enforced until verified via
+        `POST /auth/totp/verify`.
+      responses:
+        "200":
+          description: TOTP secret generated
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/X-RateLimit-Limit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/X-RateLimit-Remaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/X-RateLimit-Reset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TotpSetupResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/totp/verify:
+    post:
+      operationId: totpVerify
+      tags: [Auth]
+      summary: Verify and activate TOTP
+      description: |
+        Verifies a TOTP code against the secret generated by
+        `POST /auth/totp/setup`. On success, TOTP is permanently enabled
+        for the account and will be required on all subsequent logins.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TotpVerifyRequest"
+      responses:
+        "200":
+          description: TOTP verified and activated
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/X-RateLimit-Limit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/X-RateLimit-Remaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/X-RateLimit-Reset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TotpVerifyResponse"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/refresh:
+    post:
+      operationId: refreshToken
+      tags: [Auth]
+      summary: Refresh an expired JWT
+      description: |
+        Exchanges a valid refresh token for a new short-lived JWT and a
+        new refresh token. The old refresh token is invalidated (rotation).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "200":
+          description: Tokens refreshed
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/X-RateLimit-Limit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/X-RateLimit-Remaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/X-RateLimit-Reset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RefreshResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ---------------------------------------------------------------------------
+  # Families
+  # ---------------------------------------------------------------------------
+  /families:
+    post:
+      operationId: createFamily
+      tags: [Families]
+      summary: Create a new family
+      description: |
+        Creates a new family and adds the authenticated user as the first
+        member with the `PARENT` role.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateFamilyRequest"
+      responses:
+        "201":
+          description: Family created
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/X-RateLimit-Limit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/X-RateLimit-Remaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/X-RateLimit-Reset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateFamilyResponse"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /families/{familyId}/invite:
+    post:
+      operationId: createInvite
+      tags: [Families]
+      summary: Generate an invite token
+      description: |
+        Generates a single-use invite token for the family. The token
+        expires after 48 hours. Only existing family members with the
+        `PARENT` role can create invitations.
+      parameters:
+        - $ref: "#/components/parameters/familyId"
+      responses:
+        "201":
+          description: Invite token generated
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/X-RateLimit-Limit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/X-RateLimit-Remaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/X-RateLimit-Reset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InviteResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /families/{familyId}/join:
+    post:
+      operationId: joinFamily
+      tags: [Families]
+      summary: Join a family using an invite token
+      description: |
+        Accepts an invite token and joins the authenticated user to the
+        family. The client must provide its device public key so that
+        existing members can wrap the family DEK for the new device.
+
+        Returns the family ID and the current member list (with public
+        keys) so the joining device can request wrapped DEKs.
+      parameters:
+        - $ref: "#/components/parameters/familyId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JoinFamilyRequest"
+      responses:
+        "200":
+          description: Successfully joined the family
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/X-RateLimit-Limit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/X-RateLimit-Remaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/X-RateLimit-Reset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JoinFamilyResponse"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /families/{familyId}/members:
+    get:
+      operationId: listMembers
+      tags: [Families]
+      summary: List family members
+      description: |
+        Returns all members of the family including their display names,
+        roles, public keys, and registered devices. Only accessible to
+        current family members.
+      parameters:
+        - $ref: "#/components/parameters/familyId"
+      responses:
+        "200":
+          description: Member list
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/X-RateLimit-Limit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/X-RateLimit-Remaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/X-RateLimit-Reset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MembersResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ---------------------------------------------------------------------------
+  # Devices
+  # ---------------------------------------------------------------------------
+  /devices:
+    post:
+      operationId: registerDevice
+      tags: [Devices]
+      summary: Register a new device
+      description: |
+        Registers a new device for the authenticated user. The client must
+        provide the device's X25519 public key so other family members can
+        wrap the family DEK for this device.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterDeviceRequest"
+      responses:
+        "201":
+          description: Device registered
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/X-RateLimit-Limit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/X-RateLimit-Remaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/X-RateLimit-Reset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterDeviceResponse"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    get:
+      operationId: listDevices
+      tags: [Devices]
+      summary: List the authenticated user's devices
+      description: |
+        Returns all devices registered to the authenticated user, including
+        revoked devices (with their `revokedAt` timestamp).
+      responses:
+        "200":
+          description: Device list
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/X-RateLimit-Limit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/X-RateLimit-Remaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/X-RateLimit-Reset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /devices/{deviceId}:
+    delete:
+      operationId: revokeDevice
+      tags: [Devices]
+      summary: Revoke a device
+      description: |
+        Marks the device as revoked. The device's API tokens are
+        invalidated immediately. This triggers a DEK rotation event --
+        existing family members must re-wrap the new DEK for all remaining
+        trusted devices.
+
+        Only the device owner or a family admin can revoke a device.
+      parameters:
+        - $ref: "#/components/parameters/deviceId"
+      responses:
+        "204":
+          description: Device revoked
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/X-RateLimit-Limit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/X-RateLimit-Remaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/X-RateLimit-Reset"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ---------------------------------------------------------------------------
+  # Sync
+  # ---------------------------------------------------------------------------
+  /sync/ops:
+    post:
+      operationId: uploadOps
+      tags: [Sync]
+      summary: Upload encrypted operations
+      description: |
+        Uploads one or more encrypted operations to the server. The server
+        assigns a monotonic global sequence number and a server timestamp
+        to each operation.
+
+        The server validates:
+        - The `deviceId` belongs to the authenticated user
+        - The `devicePrevHash` is consistent with the device's hash chain
+        - The `keyEpoch` references a known epoch
+
+        Operations are atomic: either all ops in the batch succeed, or
+        none are persisted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UploadOpsRequest"
+      responses:
+        "200":
+          description: Operations accepted and sequenced
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/X-RateLimit-Limit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/X-RateLimit-Remaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/X-RateLimit-Reset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadOpsResponse"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    get:
+      operationId: pullOps
+      tags: [Sync]
+      summary: Pull operations since a sequence number
+      description: |
+        Returns operations with global sequence numbers strictly greater
+        than the `since` parameter. Results are ordered by global sequence
+        (ascending). Use `limit` to paginate; when `hasMore` is `true`,
+        issue another request with `since` set to the last received
+        sequence number.
+
+        Only returns ops belonging to families the authenticated user is
+        a member of.
+      parameters:
+        - name: since
+          in: query
+          required: true
+          description: |
+            Return operations with a global sequence strictly greater than
+            this value. Use `0` to pull from the beginning.
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+            examples:
+              - 0
+              - 42
+        - name: limit
+          in: query
+          required: false
+          description: |
+            Maximum number of operations to return. Defaults to 100.
+            Maximum allowed value is 1000.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 1000
+            default: 100
+      responses:
+        "200":
+          description: Operations retrieved
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/X-RateLimit-Limit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/X-RateLimit-Remaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/X-RateLimit-Reset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PullOpsResponse"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /sync/snapshot:
+    post:
+      operationId: uploadSnapshot
+      tags: [Sync]
+      summary: Upload an encrypted state snapshot
+      description: |
+        Uploads an encrypted snapshot of the complete family state at a
+        given sequence number. Snapshots are used for bootstrapping new
+        devices so they do not need to replay the entire operation log.
+
+        The snapshot is uploaded as a multipart form with the encrypted
+        binary payload and metadata.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - metadata
+                - snapshot
+              properties:
+                metadata:
+                  type: string
+                  contentMediaType: application/json
+                  description: |
+                    JSON-encoded snapshot metadata including the sequence
+                    number at which the snapshot was taken and the device
+                    ID that created it.
+                snapshot:
+                  type: string
+                  format: binary
+                  description: Encrypted snapshot binary payload
+      responses:
+        "201":
+          description: Snapshot uploaded
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/X-RateLimit-Limit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/X-RateLimit-Remaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/X-RateLimit-Reset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadSnapshotResponse"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /sync/snapshot/latest:
+    get:
+      operationId: getLatestSnapshot
+      tags: [Sync]
+      summary: Get the latest snapshot metadata
+      description: |
+        Returns metadata for the most recent snapshot, including a
+        time-limited download URL for the encrypted snapshot payload.
+        The client should pull ops since the snapshot's sequence number
+        to catch up to the current state.
+      responses:
+        "200":
+          description: Latest snapshot metadata
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/X-RateLimit-Limit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/X-RateLimit-Remaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/X-RateLimit-Reset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LatestSnapshotResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /sync/checkpoint:
+    get:
+      operationId: getCheckpoint
+      tags: [Sync]
+      summary: Get the latest server checkpoint
+      description: |
+        Returns the latest server-computed checkpoint hash. The checkpoint
+        covers a range of operations (`startSequence` to `endSequence`)
+        and is computed as `SHA-256(concat(all_ops[start..end]))`.
+
+        Clients can independently compute the same hash over the same
+        range to verify data integrity and detect tampering.
+
+        Checkpoints are published approximately every 100 operations.
+      responses:
+        "200":
+          description: Checkpoint data
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/X-RateLimit-Limit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/X-RateLimit-Remaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/X-RateLimit-Reset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckpointResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /sync/ws:
+    get:
+      operationId: syncWebSocket
+      tags: [Sync]
+      summary: Real-time sync WebSocket
+      description: |
+        WebSocket endpoint for real-time push notifications when new
+        operations are available.
+
+        **Connection**: Upgrade to WebSocket with the JWT token provided
+        as a query parameter (`?token=<jwt>`) or via the
+        `Authorization` header during the HTTP upgrade handshake.
+
+        **Server-to-client messages** (JSON):
+        - `{"type": "ops_available", "latestSequence": 123}` -- new ops
+          are available; the client should issue `GET /sync/ops`.
+        - `{"type": "key_rotation", "keyEpoch": 5}` -- a DEK rotation
+          occurred; the client should fetch the new wrapped key.
+        - `{"type": "ping"}` -- keep-alive ping (every 30 seconds).
+
+        **Client-to-server messages** (JSON):
+        - `{"type": "pong"}` -- response to server ping.
+        - `{"type": "subscribe", "familyId": "<uuid>"}` -- subscribe to
+          a family's events (must be a member).
+
+        The server closes the connection with code `4001` if the token
+        expires and the client does not reconnect with a fresh token.
+      x-websocket:
+        subprotocol: coparenting-sync-v1
+        serverMessages:
+          - type: ops_available
+            description: New operations are available for pull
+            payload:
+              type: object
+              required: [type, latestSequence]
+              properties:
+                type:
+                  type: string
+                  const: ops_available
+                latestSequence:
+                  type: integer
+                  format: int64
+          - type: key_rotation
+            description: A DEK rotation event occurred
+            payload:
+              type: object
+              required: [type, keyEpoch]
+              properties:
+                type:
+                  type: string
+                  const: key_rotation
+                keyEpoch:
+                  type: integer
+                  format: int32
+          - type: ping
+            description: Keep-alive ping sent every 30 seconds
+            payload:
+              type: object
+              required: [type]
+              properties:
+                type:
+                  type: string
+                  const: ping
+        clientMessages:
+          - type: pong
+            description: Response to server ping
+            payload:
+              type: object
+              required: [type]
+              properties:
+                type:
+                  type: string
+                  const: pong
+          - type: subscribe
+            description: Subscribe to a family's real-time events
+            payload:
+              type: object
+              required: [type, familyId]
+              properties:
+                type:
+                  type: string
+                  const: subscribe
+                familyId:
+                  type: string
+                  format: uuid
+      parameters:
+        - name: token
+          in: query
+          required: false
+          description: |
+            JWT token for authentication. Alternative to the
+            `Authorization` header during the WebSocket upgrade.
+          schema:
+            type: string
+      responses:
+        "101":
+          description: Switching to WebSocket protocol
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ---------------------------------------------------------------------------
+  # Blobs
+  # ---------------------------------------------------------------------------
+  /blobs:
+    post:
+      operationId: uploadBlob
+      tags: [Blobs]
+      summary: Upload an encrypted blob
+      description: |
+        Uploads an encrypted binary blob (e.g., receipt photo). The blob
+        is stored as-is; the server never decrypts it. Maximum size is
+        10 MB.
+
+        The server computes and returns the SHA-256 hash of the uploaded
+        bytes for client-side integrity verification.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Encrypted blob payload (max 10 MB)
+      responses:
+        "201":
+          description: Blob uploaded
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/X-RateLimit-Limit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/X-RateLimit-Remaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/X-RateLimit-Reset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadBlobResponse"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          description: Blob exceeds 10 MB size limit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /blobs/{blobId}:
+    get:
+      operationId: downloadBlob
+      tags: [Blobs]
+      summary: Download an encrypted blob
+      description: |
+        Downloads the encrypted blob binary. Only accessible to members
+        of the family that owns the blob.
+      parameters:
+        - $ref: "#/components/parameters/blobId"
+      responses:
+        "200":
+          description: Encrypted blob binary
+          headers:
+            Content-Length:
+              schema:
+                type: integer
+                format: int64
+              description: Size of the blob in bytes
+            X-Blob-SHA256:
+              schema:
+                type: string
+              description: Hex-encoded SHA-256 hash of the blob
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/X-RateLimit-Limit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/X-RateLimit-Remaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/X-RateLimit-Reset"
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    delete:
+      operationId: deleteBlob
+      tags: [Blobs]
+      summary: Soft-delete a blob
+      description: |
+        Marks the blob as deleted. The blob is not immediately removed
+        from storage but will be garbage-collected after the retention
+        period. Only the blob's uploader or a family admin can delete it.
+      parameters:
+        - $ref: "#/components/parameters/blobId"
+      responses:
+        "204":
+          description: Blob marked as deleted
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/X-RateLimit-Limit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/X-RateLimit-Remaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/X-RateLimit-Reset"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ---------------------------------------------------------------------------
+  # Push
+  # ---------------------------------------------------------------------------
+  /push/register:
+    post:
+      operationId: registerPushToken
+      tags: [Push]
+      summary: Register a push notification token
+      description: |
+        Registers or updates the push notification token for the
+        authenticated device. The server sends generic "data available"
+        signals when new ops arrive for the device's family; it never
+        includes decrypted content in push payloads.
+
+        If a token already exists for this device, it is replaced.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterPushRequest"
+      responses:
+        "204":
+          description: Push token registered
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/X-RateLimit-Limit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/X-RateLimit-Remaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/X-RateLimit-Reset"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ---------------------------------------------------------------------------
+  # Wrapped Keys
+  # ---------------------------------------------------------------------------
+  /keys/wrapped:
+    post:
+      operationId: uploadWrappedKey
+      tags: [Keys]
+      summary: Upload a wrapped DEK for a target device
+      description: |
+        Uploads a family DEK that has been wrapped (encrypted) with the
+        target device's X25519 public key. This is used during device
+        enrollment and key rotation.
+
+        Only family members can upload wrapped keys, and only for devices
+        belonging to other members of the same family.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UploadWrappedKeyRequest"
+      responses:
+        "201":
+          description: Wrapped key stored
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/X-RateLimit-Limit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/X-RateLimit-Remaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/X-RateLimit-Reset"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /keys/wrapped/{deviceId}:
+    get:
+      operationId: getWrappedKey
+      tags: [Keys]
+      summary: Get the wrapped DEK for a device
+      description: |
+        Retrieves the wrapped DEK for the specified device. Only the
+        device owner can retrieve their own wrapped key.
+
+        If multiple key epochs exist, the latest epoch's wrapped key is
+        returned. Older epochs can be retrieved by specifying the
+        `keyEpoch` query parameter.
+      parameters:
+        - $ref: "#/components/parameters/deviceId"
+        - name: keyEpoch
+          in: query
+          required: false
+          description: |
+            Specific key epoch to retrieve. If omitted, the latest
+            epoch is returned.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+      responses:
+        "200":
+          description: Wrapped DEK
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/X-RateLimit-Limit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/X-RateLimit-Remaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/X-RateLimit-Reset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WrappedKeyResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /keys/recovery:
+    post:
+      operationId: uploadRecoveryBlob
+      tags: [Keys]
+      summary: Upload an encrypted recovery blob
+      description: |
+        Stores an encrypted recovery blob for the authenticated user.
+        The blob contains the family DEK encrypted with the user's
+        recovery key (BIP39 mnemonic-derived). This allows account
+        recovery on a new device.
+
+        Replaces any existing recovery blob for the user.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UploadRecoveryBlobRequest"
+      responses:
+        "201":
+          description: Recovery blob stored
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/X-RateLimit-Limit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/X-RateLimit-Remaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/X-RateLimit-Reset"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    get:
+      operationId: getRecoveryBlob
+      tags: [Keys]
+      summary: Get the encrypted recovery blob
+      description: |
+        Retrieves the encrypted recovery blob for the authenticated user.
+        The client decrypts this blob locally using the recovery key
+        (BIP39 mnemonic) to extract the family DEK.
+      responses:
+        "200":
+          description: Recovery blob
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/X-RateLimit-Limit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/X-RateLimit-Remaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/X-RateLimit-Reset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecoveryBlobResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+# =============================================================================
+# Components
+# =============================================================================
+components:
+
+  # ---------------------------------------------------------------------------
+  # Security Schemes
+  # ---------------------------------------------------------------------------
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Short-lived JWT issued by `/auth/login` or `/auth/refresh`.
+        Include in the `Authorization` header as `Bearer <token>`.
+
+        JWT claims:
+        - `sub` -- user UUID
+        - `did` -- device UUID
+        - `fam` -- array of family UUIDs the user belongs to
+        - `iat` -- issued-at epoch seconds
+        - `exp` -- expiration epoch seconds (15 minutes after issuance)
+
+  # ---------------------------------------------------------------------------
+  # Parameters
+  # ---------------------------------------------------------------------------
+  parameters:
+    familyId:
+      name: familyId
+      in: path
+      required: true
+      description: UUID of the family
+      schema:
+        type: string
+        format: uuid
+
+    deviceId:
+      name: deviceId
+      in: path
+      required: true
+      description: UUID of the device
+      schema:
+        type: string
+        format: uuid
+
+    blobId:
+      name: blobId
+      in: path
+      required: true
+      description: UUID of the blob
+      schema:
+        type: string
+        format: uuid
+
+  # ---------------------------------------------------------------------------
+  # Headers
+  # ---------------------------------------------------------------------------
+  headers:
+    X-RateLimit-Limit:
+      description: Maximum number of requests allowed in the current window
+      schema:
+        type: integer
+        format: int32
+        examples:
+          - 100
+
+    X-RateLimit-Remaining:
+      description: Number of requests remaining in the current window
+      schema:
+        type: integer
+        format: int32
+        examples:
+          - 87
+
+    X-RateLimit-Reset:
+      description: UTC epoch seconds when the rate-limit window resets
+      schema:
+        type: integer
+        format: int64
+        examples:
+          - 1771545600
+
+  # ---------------------------------------------------------------------------
+  # Reusable Responses
+  # ---------------------------------------------------------------------------
+  responses:
+    InvalidRequest:
+      description: Request validation failed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: INVALID_REQUEST
+            message: "Validation failed"
+            details:
+              fields:
+                - field: email
+                  reason: "Must be a valid email address"
+
+    Unauthorized:
+      description: Authentication required or token invalid/expired
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: UNAUTHORIZED
+            message: "Token expired"
+            details: {}
+
+    Forbidden:
+      description: Authenticated but insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: FORBIDDEN
+            message: "You are not a member of this family"
+            details: {}
+
+    NotFound:
+      description: Requested resource does not exist
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: NOT_FOUND
+            message: "Family not found"
+            details: {}
+
+    Conflict:
+      description: Resource conflict (e.g., duplicate email, hash chain break)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: CONFLICT
+            message: "Email already registered"
+            details: {}
+
+    RateLimited:
+      description: Too many requests
+      headers:
+        Retry-After:
+          description: Seconds until the client should retry
+          schema:
+            type: integer
+            format: int32
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/X-RateLimit-Limit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/X-RateLimit-Remaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/X-RateLimit-Reset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: RATE_LIMITED
+            message: "Too many requests. Retry after 30 seconds."
+            details:
+              retryAfterSeconds: 30
+
+    InternalError:
+      description: Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: INTERNAL_ERROR
+            message: "An unexpected error occurred"
+            details: {}
+
+  # ---------------------------------------------------------------------------
+  # Schemas
+  # ---------------------------------------------------------------------------
+  schemas:
+
+    # ---- Error ----
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Machine-readable error code
+          enum:
+            - UNAUTHORIZED
+            - FORBIDDEN
+            - NOT_FOUND
+            - CONFLICT
+            - RATE_LIMITED
+            - INVALID_REQUEST
+            - PROTOCOL_MISMATCH
+            - INTERNAL_ERROR
+        message:
+          type: string
+          description: Human-readable error description
+        details:
+          type: object
+          description: |
+            Additional structured details about the error. Contents vary
+            by error code. For `INVALID_REQUEST`, includes a `fields`
+            array. For `CONFLICT`, may include the conflicting resource.
+          additionalProperties: true
+
+    # ---- Auth ----
+    RegisterRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          description: User's email address (normalized to lowercase)
+          examples:
+            - "parent@example.com"
+        password:
+          type: string
+          format: password
+          minLength: 12
+          maxLength: 128
+          description: |
+            Password with minimum 12 characters. Checked against
+            HaveIBeenPwned breach database (k-anonymity).
+          examples:
+            - "a-very-strong-passphrase-2026"
+
+    RegisterResponse:
+      type: object
+      required:
+        - userId
+        - deviceId
+        - token
+        - refreshToken
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: Newly created user ID
+        deviceId:
+          type: string
+          format: uuid
+          description: |
+            Auto-generated device ID for the registering device. The
+            client should store this and use it for subsequent requests.
+        token:
+          type: string
+          description: Short-lived JWT (15-minute expiry)
+        refreshToken:
+          type: string
+          description: Long-lived refresh token (30-day expiry)
+
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          examples:
+            - "parent@example.com"
+        password:
+          type: string
+          format: password
+          maxLength: 128
+        totpCode:
+          type: string
+          pattern: "^[0-9]{6}$"
+          description: |
+            6-digit TOTP code. Required if TOTP is enabled on the
+            account. Omit if TOTP is not set up.
+          examples:
+            - "123456"
+
+    LoginResponse:
+      type: object
+      required:
+        - userId
+        - token
+        - refreshToken
+      properties:
+        userId:
+          type: string
+          format: uuid
+        token:
+          type: string
+          description: Short-lived JWT (15-minute expiry)
+        refreshToken:
+          type: string
+          description: Long-lived refresh token (30-day expiry)
+
+    TotpSetupResponse:
+      type: object
+      required:
+        - secret
+        - qrCodeUri
+      properties:
+        secret:
+          type: string
+          description: Base32-encoded TOTP secret
+          examples:
+            - "JBSWY3DPEHPK3PXP"
+        qrCodeUri:
+          type: string
+          format: uri
+          description: |
+            `otpauth://` URI for QR code generation, including issuer
+            and account name.
+          examples:
+            - "otpauth://totp/CoParenting:parent@example.com?secret=JBSWY3DPEHPK3PXP&issuer=CoParenting&algorithm=SHA1&digits=6&period=30"
+
+    TotpVerifyRequest:
+      type: object
+      required:
+        - code
+      properties:
+        code:
+          type: string
+          pattern: "^[0-9]{6}$"
+          description: 6-digit TOTP code from authenticator app
+          examples:
+            - "654321"
+
+    TotpVerifyResponse:
+      type: object
+      required:
+        - verified
+      properties:
+        verified:
+          type: boolean
+          const: true
+          description: Always `true` on success; errors return 400
+
+    RefreshRequest:
+      type: object
+      required:
+        - refreshToken
+      properties:
+        refreshToken:
+          type: string
+          description: The refresh token from a previous login or refresh
+
+    RefreshResponse:
+      type: object
+      required:
+        - token
+        - refreshToken
+      properties:
+        token:
+          type: string
+          description: New short-lived JWT (15-minute expiry)
+        refreshToken:
+          type: string
+          description: New refresh token (previous one is invalidated)
+
+    # ---- Families ----
+    CreateFamilyRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Display name for the family
+          examples:
+            - "Smith-Jones Family"
+
+    CreateFamilyResponse:
+      type: object
+      required:
+        - familyId
+      properties:
+        familyId:
+          type: string
+          format: uuid
+          description: Newly created family UUID
+
+    InviteResponse:
+      type: object
+      required:
+        - inviteToken
+        - expiresAt
+      properties:
+        inviteToken:
+          type: string
+          description: |
+            Single-use, URL-safe invite token. Embed in a deep link
+            for the co-parent to open.
+          examples:
+            - "inv_a1b2c3d4e5f6g7h8i9j0"
+        expiresAt:
+          type: string
+          format: date-time
+          description: ISO 8601 UTC timestamp when the token expires (48 hours)
+          examples:
+            - "2026-02-22T14:30:00Z"
+
+    JoinFamilyRequest:
+      type: object
+      required:
+        - inviteToken
+        - devicePublicKey
+      properties:
+        inviteToken:
+          type: string
+          description: Invite token received from the inviting parent
+        devicePublicKey:
+          type: string
+          description: |
+            Base64-encoded X25519 public key of the joining device.
+            Existing family members use this to wrap the family DEK
+            for the new device.
+          examples:
+            - "MCowBQYDK2VuAyEAGb1gaf..."
+
+    JoinFamilyResponse:
+      type: object
+      required:
+        - familyId
+        - members
+      properties:
+        familyId:
+          type: string
+          format: uuid
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/FamilyMember"
+          description: Current family members (so joiner can request wrapped DEKs)
+
+    MembersResponse:
+      type: object
+      required:
+        - members
+      properties:
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/FamilyMember"
+
+    FamilyMember:
+      type: object
+      required:
+        - userId
+        - displayName
+        - role
+        - publicKey
+        - devices
+      properties:
+        userId:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+          description: Human-readable display name
+          examples:
+            - "Alex"
+        role:
+          type: string
+          enum:
+            - PARENT
+            - CHILD
+            - GRANDPARENT
+            - CAREGIVER
+          description: |
+            Member role in the family. Only `PARENT` is supported in
+            v0.1; other roles are reserved for future versions.
+        publicKey:
+          type: string
+          description: Base64-encoded X25519 public key of the user's primary device
+        devices:
+          type: array
+          items:
+            $ref: "#/components/schemas/DeviceSummary"
+          description: Registered devices for this member
+
+    DeviceSummary:
+      type: object
+      required:
+        - deviceId
+        - deviceName
+        - publicKey
+        - createdAt
+      properties:
+        deviceId:
+          type: string
+          format: uuid
+        deviceName:
+          type: string
+          examples:
+            - "Pixel 9"
+        publicKey:
+          type: string
+          description: Base64-encoded X25519 public key of this device
+        createdAt:
+          type: string
+          format: date-time
+        revokedAt:
+          type: string
+          format: date-time
+          description: Present only if the device has been revoked
+
+    # ---- Devices ----
+    RegisterDeviceRequest:
+      type: object
+      required:
+        - deviceName
+        - publicKey
+      properties:
+        deviceName:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Human-readable device name
+          examples:
+            - "Pixel 9"
+        publicKey:
+          type: string
+          description: Base64-encoded X25519 public key
+          examples:
+            - "MCowBQYDK2VuAyEAGb1gaf..."
+
+    RegisterDeviceResponse:
+      type: object
+      required:
+        - deviceId
+      properties:
+        deviceId:
+          type: string
+          format: uuid
+          description: Server-assigned device UUID
+
+    DeviceListResponse:
+      type: object
+      required:
+        - devices
+      properties:
+        devices:
+          type: array
+          items:
+            $ref: "#/components/schemas/Device"
+
+    Device:
+      type: object
+      required:
+        - deviceId
+        - deviceName
+        - publicKey
+        - createdAt
+      properties:
+        deviceId:
+          type: string
+          format: uuid
+        deviceName:
+          type: string
+          examples:
+            - "Pixel 9"
+        publicKey:
+          type: string
+          description: Base64-encoded X25519 public key
+        createdAt:
+          type: string
+          format: date-time
+        revokedAt:
+          type: string
+          format: date-time
+          description: Present only if the device has been revoked
+
+    # ---- Sync ----
+    UploadOpsRequest:
+      type: object
+      required:
+        - ops
+      properties:
+        ops:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/OpInput"
+          description: |
+            Batch of operations to upload. All ops must be from the
+            same device. Maximum 100 ops per request.
+
+    OpInput:
+      type: object
+      required:
+        - localId
+        - deviceId
+        - encryptedPayload
+        - devicePrevHash
+        - keyEpoch
+      properties:
+        localId:
+          type: string
+          description: |
+            Client-generated local identifier for correlation. Returned
+            in `assignedSequences` so the client can map local ops to
+            global sequence numbers.
+          examples:
+            - "local-op-001"
+        deviceId:
+          type: string
+          format: uuid
+          description: Device that created this operation
+        encryptedPayload:
+          type: string
+          description: |
+            Base64-encoded AES-256-GCM encrypted operation payload.
+            The server stores this opaquely without decryption.
+          examples:
+            - "dGhpcyBpcyBlbmNyeXB0ZWQ..."
+        devicePrevHash:
+          type: string
+          description: |
+            Hex-encoded SHA-256 hash forming the per-device hash chain.
+            Computed as `SHA-256(previousHash + currentPayloadBytes)`.
+            Use all zeros for the first operation from a device.
+          examples:
+            - "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        keyEpoch:
+          type: integer
+          format: int32
+          minimum: 1
+          description: DEK epoch used to encrypt this payload
+
+    UploadOpsResponse:
+      type: object
+      required:
+        - assignedSequences
+      properties:
+        assignedSequences:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssignedSequence"
+
+    AssignedSequence:
+      type: object
+      required:
+        - localId
+        - globalSequence
+        - serverTimestamp
+      properties:
+        localId:
+          type: string
+          description: The `localId` from the corresponding `OpInput`
+        globalSequence:
+          type: integer
+          format: int64
+          description: Server-assigned monotonically increasing sequence number
+          examples:
+            - 42
+        serverTimestamp:
+          type: string
+          format: date-time
+          description: Server UTC timestamp when the op was persisted
+          examples:
+            - "2026-02-20T10:30:00.123Z"
+
+    PullOpsResponse:
+      type: object
+      required:
+        - ops
+        - hasMore
+        - latestSequence
+      properties:
+        ops:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpOutput"
+        hasMore:
+          type: boolean
+          description: |
+            `true` if there are more operations beyond this page. The
+            client should issue another `GET /sync/ops` with `since`
+            set to the last received `globalSequence`.
+        latestSequence:
+          type: integer
+          format: int64
+          description: |
+            The highest known global sequence number on the server.
+            Useful for progress indication.
+          examples:
+            - 150
+
+    OpOutput:
+      type: object
+      required:
+        - globalSequence
+        - deviceId
+        - encryptedPayload
+        - devicePrevHash
+        - keyEpoch
+        - serverTimestamp
+      properties:
+        globalSequence:
+          type: integer
+          format: int64
+          description: Server-assigned monotonic sequence number
+        deviceId:
+          type: string
+          format: uuid
+          description: Device that created this operation
+        encryptedPayload:
+          type: string
+          description: Base64-encoded AES-256-GCM encrypted payload
+        devicePrevHash:
+          type: string
+          description: Hex-encoded SHA-256 per-device hash chain value
+        keyEpoch:
+          type: integer
+          format: int32
+          description: DEK epoch used to encrypt this payload
+        serverTimestamp:
+          type: string
+          format: date-time
+          description: Server UTC timestamp
+
+    UploadSnapshotResponse:
+      type: object
+      required:
+        - snapshotId
+        - sequence
+      properties:
+        snapshotId:
+          type: string
+          format: uuid
+          description: Server-assigned snapshot UUID
+        sequence:
+          type: integer
+          format: int64
+          description: The global sequence number the snapshot was taken at
+
+    LatestSnapshotResponse:
+      type: object
+      required:
+        - snapshotId
+        - sequence
+        - downloadUrl
+        - createdAt
+      properties:
+        snapshotId:
+          type: string
+          format: uuid
+        sequence:
+          type: integer
+          format: int64
+          description: Global sequence number the snapshot represents
+          examples:
+            - 500
+        downloadUrl:
+          type: string
+          format: uri
+          description: |
+            Time-limited URL to download the encrypted snapshot binary.
+            Expires after 1 hour.
+          examples:
+            - "https://api.example.com/v1/internal/snapshots/abc123?token=xyz"
+        createdAt:
+          type: string
+          format: date-time
+          description: When the snapshot was uploaded
+          examples:
+            - "2026-02-20T08:00:00Z"
+
+    CheckpointResponse:
+      type: object
+      required:
+        - startSequence
+        - endSequence
+        - hash
+        - timestamp
+      properties:
+        startSequence:
+          type: integer
+          format: int64
+          description: First global sequence number in the checkpoint range (inclusive)
+          examples:
+            - 1
+        endSequence:
+          type: integer
+          format: int64
+          description: Last global sequence number in the checkpoint range (inclusive)
+          examples:
+            - 100
+        hash:
+          type: string
+          description: |
+            Hex-encoded SHA-256 hash computed as
+            `SHA-256(concat(encrypted_payload[startSequence..endSequence]))`.
+            Clients can independently verify this by computing the same
+            hash over their local copy of the ops in the range.
+          examples:
+            - "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456"
+        timestamp:
+          type: string
+          format: date-time
+          description: When the checkpoint was computed
+          examples:
+            - "2026-02-20T10:00:00Z"
+
+    # ---- Blobs ----
+    UploadBlobResponse:
+      type: object
+      required:
+        - blobId
+        - sizeBytes
+        - sha256Hash
+      properties:
+        blobId:
+          type: string
+          format: uuid
+          description: Server-assigned blob UUID
+        sizeBytes:
+          type: integer
+          format: int64
+          description: Size of the uploaded blob in bytes
+          examples:
+            - 245760
+        sha256Hash:
+          type: string
+          description: |
+            Hex-encoded SHA-256 hash of the uploaded bytes. The client
+            should verify this matches its locally computed hash.
+          examples:
+            - "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+
+    # ---- Push ----
+    RegisterPushRequest:
+      type: object
+      required:
+        - token
+        - platform
+      properties:
+        token:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          description: Platform-specific push notification token
+        platform:
+          type: string
+          enum:
+            - FCM
+            - APNS
+          description: |
+            Push notification platform. `FCM` for Firebase Cloud
+            Messaging (Android), `APNS` for Apple Push Notification
+            Service (iOS, future).
+
+    # ---- Wrapped Keys ----
+    UploadWrappedKeyRequest:
+      type: object
+      required:
+        - targetDeviceId
+        - wrappedDek
+        - keyEpoch
+      properties:
+        targetDeviceId:
+          type: string
+          format: uuid
+          description: Device UUID to deliver the wrapped DEK to
+        wrappedDek:
+          type: string
+          description: |
+            Base64-encoded DEK wrapped (encrypted) with the target
+            device's X25519 public key using X25519 key agreement
+            followed by AES-256-GCM.
+          examples:
+            - "ZW5jcnlwdGVkIERFSw..."
+        keyEpoch:
+          type: integer
+          format: int32
+          minimum: 1
+          description: The key epoch this wrapped DEK belongs to
+          examples:
+            - 1
+
+    WrappedKeyResponse:
+      type: object
+      required:
+        - wrappedDek
+        - keyEpoch
+        - wrappedBy
+      properties:
+        wrappedDek:
+          type: string
+          description: Base64-encoded wrapped DEK
+        keyEpoch:
+          type: integer
+          format: int32
+          description: Key epoch of this wrapped DEK
+          examples:
+            - 1
+        wrappedBy:
+          type: string
+          format: uuid
+          description: User ID of the member who wrapped this DEK
+
+    UploadRecoveryBlobRequest:
+      type: object
+      required:
+        - encryptedRecoveryBlob
+      properties:
+        encryptedRecoveryBlob:
+          type: string
+          description: |
+            Base64-encoded blob containing the family DEK encrypted
+            with the user's recovery key (derived from BIP39 mnemonic).
+          examples:
+            - "cmVjb3ZlcnkgYmxvYg..."
+
+    RecoveryBlobResponse:
+      type: object
+      required:
+        - encryptedRecoveryBlob
+      properties:
+        encryptedRecoveryBlob:
+          type: string
+          description: Base64-encoded encrypted recovery blob

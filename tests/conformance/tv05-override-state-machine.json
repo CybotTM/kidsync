@@ -1,0 +1,377 @@
+{
+  "id": "TV05",
+  "title": "Override State Machine Transitions",
+  "description": "Exhaustive test of all valid and invalid state transitions for ScheduleOverride entities. Includes proposerId/responderId authority constraints. Per wire-format.md Section 6.2 and sync-protocol.md Section 9.2.",
+  "protocolVersion": 1,
+  "specReferences": [
+    "wire-format.md Section 6.2 (UpsertOverride)",
+    "wire-format.md Section 7.2 (OverrideStatus)",
+    "sync-protocol.md Section 9.2 (ScheduleOverride Conflict Resolution)",
+    "sync-protocol.md Section 9.2.1 (State Machine)",
+    "sync-protocol.md Section 9.2.2 (Transition Rules)"
+  ],
+  "context": {
+    "parentA": {
+      "userId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+      "name": "Parent A (Alice)",
+      "deviceId": "aaaaaaaa-1111-2222-3333-444444444444"
+    },
+    "parentB": {
+      "userId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+      "name": "Parent B (Bob)",
+      "deviceId": "bbbbbbbb-1111-2222-3333-444444444444"
+    },
+    "childId": "c1d2e3f4-5678-9abc-def0-123456789012"
+  },
+  "states": {
+    "PROPOSED": { "terminal": false, "description": "Initial state, awaiting response from non-proposing parent" },
+    "APPROVED": { "terminal": false, "description": "Accepted by non-proposing parent; active for the date range" },
+    "DECLINED": { "terminal": true, "description": "Rejected by non-proposing parent" },
+    "CANCELLED": { "terminal": true, "description": "Withdrawn by proposer before any response" },
+    "SUPERSEDED": { "terminal": true, "description": "Replaced by a higher-precedence override" },
+    "EXPIRED": { "terminal": true, "description": "Date range has passed; system-triggered" }
+  },
+  "validTransitions": [
+    {
+      "id": "VT-01",
+      "from": "PROPOSED",
+      "to": "APPROVED",
+      "performedBy": "non-proposer",
+      "description": "Non-proposing parent approves the override",
+      "testCase": {
+        "overrideId": "ovr00001-1111-2222-3333-444444444444",
+        "proposerId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+        "responderId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+        "note": "Parent A proposed, Parent B (non-proposer) approves",
+        "payload": {
+          "payloadType": "UpsertOverride",
+          "entityId": "ovr00001-1111-2222-3333-444444444444",
+          "timestamp": "2026-03-20T18:45:00.000Z",
+          "operationType": "UPDATE",
+          "overrideId": "ovr00001-1111-2222-3333-444444444444",
+          "type": "SWAP_REQUEST",
+          "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+          "startDate": "2026-04-05",
+          "endDate": "2026-04-06",
+          "assignedParentId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "status": "APPROVED",
+          "proposerId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "responderId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb"
+        },
+        "expectedResult": "ACCEPTED"
+      }
+    },
+    {
+      "id": "VT-02",
+      "from": "PROPOSED",
+      "to": "DECLINED",
+      "performedBy": "non-proposer",
+      "description": "Non-proposing parent declines the override",
+      "testCase": {
+        "overrideId": "ovr00002-1111-2222-3333-444444444444",
+        "proposerId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+        "responderId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+        "note": "Parent A proposed, Parent B (non-proposer) declines",
+        "payload": {
+          "payloadType": "UpsertOverride",
+          "entityId": "ovr00002-1111-2222-3333-444444444444",
+          "timestamp": "2026-03-20T19:00:00.000Z",
+          "operationType": "UPDATE",
+          "overrideId": "ovr00002-1111-2222-3333-444444444444",
+          "type": "SWAP_REQUEST",
+          "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+          "startDate": "2026-04-10",
+          "endDate": "2026-04-11",
+          "assignedParentId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "status": "DECLINED",
+          "proposerId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "responderId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb"
+        },
+        "expectedResult": "ACCEPTED"
+      }
+    },
+    {
+      "id": "VT-03",
+      "from": "PROPOSED",
+      "to": "CANCELLED",
+      "performedBy": "proposer",
+      "description": "Proposer cancels their own override before any response",
+      "testCase": {
+        "overrideId": "ovr00003-1111-2222-3333-444444444444",
+        "proposerId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+        "note": "Parent A proposed and now cancels it themselves",
+        "payload": {
+          "payloadType": "UpsertOverride",
+          "entityId": "ovr00003-1111-2222-3333-444444444444",
+          "timestamp": "2026-03-20T20:00:00.000Z",
+          "operationType": "UPDATE",
+          "overrideId": "ovr00003-1111-2222-3333-444444444444",
+          "type": "SWAP_REQUEST",
+          "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+          "startDate": "2026-04-15",
+          "endDate": "2026-04-16",
+          "assignedParentId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "status": "CANCELLED",
+          "proposerId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa"
+        },
+        "expectedResult": "ACCEPTED"
+      }
+    },
+    {
+      "id": "VT-04",
+      "from": "APPROVED",
+      "to": "SUPERSEDED",
+      "performedBy": "system",
+      "description": "System marks an approved override as superseded when a higher-precedence override is created for overlapping dates",
+      "testCase": {
+        "overrideId": "ovr00004-1111-2222-3333-444444444444",
+        "note": "COURT_ORDER override created for same dates supersedes an existing APPROVED SWAP_REQUEST",
+        "payload": {
+          "payloadType": "UpsertOverride",
+          "entityId": "ovr00004-1111-2222-3333-444444444444",
+          "timestamp": "2026-03-21T10:00:00.000Z",
+          "operationType": "UPDATE",
+          "overrideId": "ovr00004-1111-2222-3333-444444444444",
+          "type": "SWAP_REQUEST",
+          "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+          "startDate": "2026-04-20",
+          "endDate": "2026-04-21",
+          "assignedParentId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "status": "SUPERSEDED",
+          "proposerId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "responderId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb"
+        },
+        "expectedResult": "ACCEPTED"
+      }
+    },
+    {
+      "id": "VT-05",
+      "from": "APPROVED",
+      "to": "EXPIRED",
+      "performedBy": "system",
+      "description": "System marks an approved override as expired when the endDate has passed",
+      "testCase": {
+        "overrideId": "ovr00005-1111-2222-3333-444444444444",
+        "note": "Date range 2026-03-01 to 2026-03-02 is in the past; system transitions to EXPIRED",
+        "payload": {
+          "payloadType": "UpsertOverride",
+          "entityId": "ovr00005-1111-2222-3333-444444444444",
+          "timestamp": "2026-03-03T00:00:01.000Z",
+          "operationType": "UPDATE",
+          "overrideId": "ovr00005-1111-2222-3333-444444444444",
+          "type": "SWAP_REQUEST",
+          "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+          "startDate": "2026-03-01",
+          "endDate": "2026-03-02",
+          "assignedParentId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+          "status": "EXPIRED",
+          "proposerId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+          "responderId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa"
+        },
+        "expectedResult": "ACCEPTED"
+      }
+    }
+  ],
+  "invalidTransitions": [
+    {
+      "id": "IT-01",
+      "from": "DECLINED",
+      "to": "APPROVED",
+      "description": "Cannot approve a declined override (DECLINED is terminal)",
+      "reason": "DECLINED is a terminal state; no transitions are allowed",
+      "expectedError": "INVALID_STATE_TRANSITION"
+    },
+    {
+      "id": "IT-02",
+      "from": "CANCELLED",
+      "to": "APPROVED",
+      "description": "Cannot approve a cancelled override (CANCELLED is terminal)",
+      "reason": "CANCELLED is a terminal state; no transitions are allowed",
+      "expectedError": "INVALID_STATE_TRANSITION"
+    },
+    {
+      "id": "IT-03",
+      "from": "CANCELLED",
+      "to": "PROPOSED",
+      "description": "Cannot re-propose a cancelled override",
+      "reason": "CANCELLED is terminal; also PROPOSED is only valid as an initial CREATE state",
+      "expectedError": "INVALID_STATE_TRANSITION"
+    },
+    {
+      "id": "IT-04",
+      "from": "EXPIRED",
+      "to": "APPROVED",
+      "description": "Cannot approve an expired override",
+      "reason": "EXPIRED is a terminal state; no transitions are allowed",
+      "expectedError": "INVALID_STATE_TRANSITION"
+    },
+    {
+      "id": "IT-05",
+      "from": "EXPIRED",
+      "to": "SUPERSEDED",
+      "description": "Cannot supersede an expired override",
+      "reason": "EXPIRED is a terminal state; no transitions are allowed",
+      "expectedError": "INVALID_STATE_TRANSITION"
+    },
+    {
+      "id": "IT-06",
+      "from": "APPROVED",
+      "to": "DECLINED",
+      "description": "Cannot decline an already approved override",
+      "reason": "APPROVED can only transition to SUPERSEDED or EXPIRED, not DECLINED",
+      "expectedError": "INVALID_STATE_TRANSITION"
+    },
+    {
+      "id": "IT-07",
+      "from": "PROPOSED",
+      "to": "EXPIRED",
+      "description": "Cannot expire a proposed override (only APPROVED can expire)",
+      "reason": "PROPOSED can only go to APPROVED, DECLINED, or CANCELLED; not EXPIRED",
+      "expectedError": "INVALID_STATE_TRANSITION"
+    },
+    {
+      "id": "IT-08",
+      "from": "PROPOSED",
+      "to": "SUPERSEDED",
+      "description": "Cannot supersede a proposed override (only APPROVED can be superseded)",
+      "reason": "PROPOSED can only go to APPROVED, DECLINED, or CANCELLED; not SUPERSEDED",
+      "expectedError": "INVALID_STATE_TRANSITION"
+    },
+    {
+      "id": "IT-09",
+      "from": "SUPERSEDED",
+      "to": "APPROVED",
+      "description": "Cannot re-approve a superseded override",
+      "reason": "SUPERSEDED is a terminal state; no transitions are allowed",
+      "expectedError": "INVALID_STATE_TRANSITION"
+    },
+    {
+      "id": "IT-10",
+      "from": "DECLINED",
+      "to": "CANCELLED",
+      "description": "Cannot cancel a declined override",
+      "reason": "DECLINED is a terminal state; no transitions are allowed",
+      "expectedError": "INVALID_STATE_TRANSITION"
+    }
+  ],
+  "authorityConstraints": [
+    {
+      "id": "AC-01",
+      "transition": "PROPOSED -> APPROVED",
+      "attemptedBy": "proposer",
+      "description": "Proposer tries to approve their own override",
+      "testCase": {
+        "proposerId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+        "responderId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+        "note": "responderId == proposerId, which is NOT allowed for APPROVED"
+      },
+      "expectedError": "TRANSITION_NOT_AUTHORIZED",
+      "reason": "responderId MUST NOT equal proposerId for APPROVED transitions; only the non-proposing parent may approve"
+    },
+    {
+      "id": "AC-02",
+      "transition": "PROPOSED -> DECLINED",
+      "attemptedBy": "proposer",
+      "description": "Proposer tries to decline their own override",
+      "testCase": {
+        "proposerId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+        "responderId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+        "note": "responderId == proposerId, which is NOT allowed for DECLINED"
+      },
+      "expectedError": "TRANSITION_NOT_AUTHORIZED",
+      "reason": "responderId MUST NOT equal proposerId for DECLINED transitions; only the non-proposing parent may decline"
+    },
+    {
+      "id": "AC-03",
+      "transition": "PROPOSED -> CANCELLED",
+      "attemptedBy": "non-proposer",
+      "description": "Non-proposer tries to cancel the override",
+      "testCase": {
+        "proposerId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+        "cancelledByDeviceOwner": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+        "note": "Only the proposer may cancel; Parent B did not propose this override"
+      },
+      "expectedError": "TRANSITION_NOT_AUTHORIZED",
+      "reason": "CANCELLED transitions may only be performed by the proposer"
+    },
+    {
+      "id": "AC-04",
+      "transition": "PROPOSED -> APPROVED",
+      "attemptedBy": "non-proposer",
+      "description": "Non-proposer correctly approves the override",
+      "testCase": {
+        "proposerId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+        "responderId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+        "note": "responderId != proposerId; Parent B (non-proposer) approves"
+      },
+      "expectedResult": "ACCEPTED",
+      "reason": "Non-proposer is authorized to approve"
+    },
+    {
+      "id": "AC-05",
+      "transition": "PROPOSED -> CANCELLED",
+      "attemptedBy": "proposer",
+      "description": "Proposer correctly cancels their own override",
+      "testCase": {
+        "proposerId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+        "cancelledByDeviceOwner": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+        "note": "Proposer cancels their own override"
+      },
+      "expectedResult": "ACCEPTED",
+      "reason": "Proposer is authorized to cancel their own override"
+    }
+  ],
+  "stateTransitionMatrix": {
+    "description": "Complete matrix of all from->to state pairs and their validity",
+    "matrix": {
+      "PROPOSED": {
+        "PROPOSED": "INVALID (cannot re-propose)",
+        "APPROVED": "VALID (by non-proposer only)",
+        "DECLINED": "VALID (by non-proposer only)",
+        "CANCELLED": "VALID (by proposer only)",
+        "SUPERSEDED": "INVALID (only APPROVED can be superseded)",
+        "EXPIRED": "INVALID (only APPROVED can expire)"
+      },
+      "APPROVED": {
+        "PROPOSED": "INVALID (no reverse transition)",
+        "APPROVED": "INVALID (already approved)",
+        "DECLINED": "INVALID (cannot decline after approval)",
+        "CANCELLED": "INVALID (cannot cancel after approval)",
+        "SUPERSEDED": "VALID (system only)",
+        "EXPIRED": "VALID (system only)"
+      },
+      "DECLINED": {
+        "PROPOSED": "INVALID (terminal state)",
+        "APPROVED": "INVALID (terminal state)",
+        "DECLINED": "INVALID (terminal state)",
+        "CANCELLED": "INVALID (terminal state)",
+        "SUPERSEDED": "INVALID (terminal state)",
+        "EXPIRED": "INVALID (terminal state)"
+      },
+      "CANCELLED": {
+        "PROPOSED": "INVALID (terminal state)",
+        "APPROVED": "INVALID (terminal state)",
+        "DECLINED": "INVALID (terminal state)",
+        "CANCELLED": "INVALID (terminal state)",
+        "SUPERSEDED": "INVALID (terminal state)",
+        "EXPIRED": "INVALID (terminal state)"
+      },
+      "SUPERSEDED": {
+        "PROPOSED": "INVALID (terminal state)",
+        "APPROVED": "INVALID (terminal state)",
+        "DECLINED": "INVALID (terminal state)",
+        "CANCELLED": "INVALID (terminal state)",
+        "SUPERSEDED": "INVALID (terminal state)",
+        "EXPIRED": "INVALID (terminal state)"
+      },
+      "EXPIRED": {
+        "PROPOSED": "INVALID (terminal state)",
+        "APPROVED": "INVALID (terminal state)",
+        "DECLINED": "INVALID (terminal state)",
+        "CANCELLED": "INVALID (terminal state)",
+        "SUPERSEDED": "INVALID (terminal state)",
+        "EXPIRED": "INVALID (terminal state)"
+      }
+    }
+  }
+}

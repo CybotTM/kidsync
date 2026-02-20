@@ -1,0 +1,230 @@
+{
+  "id": "TV07",
+  "title": "Canonical Serialization Test Vectors",
+  "description": "Canonical serialization test vectors verifying the rules from wire-format.md Section 3.7 and Section 12.4. Keys are sorted lexicographically (Unicode code point order) at every nesting level. Output is compact (no whitespace). Null/absent fields are omitted. All SHA-256 hashes are computed over the UTF-8 byte representation of the canonical JSON string.",
+  "protocolVersion": 1,
+  "specReferences": [
+    "wire-format.md Section 3.7 (Canonical Serialization for Hashing)",
+    "wire-format.md Section 3.2 (Field Ordering)",
+    "wire-format.md Section 3.3 (Null Handling)",
+    "wire-format.md Section 3.4 (Date and Time Formats)",
+    "wire-format.md Section 3.5 (String Formats)",
+    "wire-format.md Section 3.6 (Numeric Types)",
+    "wire-format.md Section 12.4 (Canonical Serialization Example)"
+  ],
+  "serializationRules": {
+    "rule1": "Object keys MUST be sorted lexicographically (Unicode code point order) at every nesting level",
+    "rule2": "No whitespace between tokens (compact form: separators are ',' and ':')",
+    "rule3": "Null/absent optional fields MUST be omitted (not serialized as null)",
+    "rule4": "The resulting UTF-8 byte sequence is the canonical form",
+    "rule5": "UUIDs are lowercase hex with hyphens",
+    "rule6": "Timestamps use ISO 8601 with exactly 3 fractional digits and Z suffix",
+    "rule7": "Integer values have no fractional parts",
+    "rule8": "payerResponsibilityRatio is a JSON number with at most 4 decimal places"
+  },
+  "testCases": [
+    {
+      "id": "CS-01",
+      "description": "CreateEvent with minimal fields (no optional fields). Verifies that optional fields (time, location, notes) are omitted, not serialized as null.",
+      "input": {
+        "payloadType": "CreateEvent",
+        "entityId": "11223344-5566-7788-99aa-bbccddeeff00",
+        "timestamp": "2026-03-16T12:00:00.000Z",
+        "operationType": "CREATE",
+        "eventId": "11223344-5566-7788-99aa-bbccddeeff00",
+        "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+        "title": "Doctor visit",
+        "date": "2026-04-10"
+      },
+      "expectedCanonicalJson": "{\"childId\":\"c1d2e3f4-5678-9abc-def0-123456789012\",\"date\":\"2026-04-10\",\"entityId\":\"11223344-5566-7788-99aa-bbccddeeff00\",\"eventId\":\"11223344-5566-7788-99aa-bbccddeeff00\",\"operationType\":\"CREATE\",\"payloadType\":\"CreateEvent\",\"timestamp\":\"2026-03-16T12:00:00.000Z\",\"title\":\"Doctor visit\"}",
+      "expectedSha256": "6976b87b304f356672fe22cfef97bc106ad58652af03505268282b5f87ca0b0f",
+      "notes": [
+        "Optional fields (time, location, notes) are NOT present in the output",
+        "Keys are alphabetically sorted: childId < date < entityId < eventId < operationType < payloadType < timestamp < title"
+      ]
+    },
+    {
+      "id": "CS-02",
+      "description": "CreateEvent with ALL optional fields present. Verifies that optional fields are included when present and sorted among other keys.",
+      "input": {
+        "payloadType": "CreateEvent",
+        "entityId": "11223344-5566-7788-99aa-bbccddeeff00",
+        "timestamp": "2026-03-16T12:00:00.000Z",
+        "operationType": "CREATE",
+        "eventId": "11223344-5566-7788-99aa-bbccddeeff00",
+        "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+        "title": "Parent-teacher conference",
+        "date": "2026-04-10",
+        "time": "15:30:00",
+        "location": "Grundschule am Park, Room 201",
+        "notes": "Bring last semester's report card."
+      },
+      "expectedCanonicalJson": "{\"childId\":\"c1d2e3f4-5678-9abc-def0-123456789012\",\"date\":\"2026-04-10\",\"entityId\":\"11223344-5566-7788-99aa-bbccddeeff00\",\"eventId\":\"11223344-5566-7788-99aa-bbccddeeff00\",\"location\":\"Grundschule am Park, Room 201\",\"notes\":\"Bring last semester's report card.\",\"operationType\":\"CREATE\",\"payloadType\":\"CreateEvent\",\"time\":\"15:30:00\",\"timestamp\":\"2026-03-16T12:00:00.000Z\",\"title\":\"Parent-teacher conference\"}",
+      "expectedSha256": "eb057bc007e33ddd29ed4543d816c08776a8fe742521da724cf2f8871173b58f",
+      "notes": [
+        "location sorts between eventId and notes",
+        "notes sorts between location and operationType",
+        "time sorts between payloadType and timestamp"
+      ]
+    },
+    {
+      "id": "CS-03",
+      "description": "CreateExpense with numeric precision edge case. payerResponsibilityRatio of 0.6 must serialize as '0.6' (not '0.60' or '0.6000').",
+      "input": {
+        "payloadType": "CreateExpense",
+        "entityId": "aabbccdd-1122-3344-5566-778899aabb00",
+        "timestamp": "2026-03-25T18:45:00.000Z",
+        "operationType": "CREATE",
+        "expenseId": "aabbccdd-1122-3344-5566-778899aabb00",
+        "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+        "paidByUserId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+        "amountCents": 15099,
+        "currencyCode": "USD",
+        "category": "TRANSPORT",
+        "description": "Airport taxi for custody exchange",
+        "incurredAt": "2026-03-25",
+        "payerResponsibilityRatio": 0.6
+      },
+      "expectedCanonicalJson": "{\"amountCents\":15099,\"category\":\"TRANSPORT\",\"childId\":\"c1d2e3f4-5678-9abc-def0-123456789012\",\"currencyCode\":\"USD\",\"description\":\"Airport taxi for custody exchange\",\"entityId\":\"aabbccdd-1122-3344-5566-778899aabb00\",\"expenseId\":\"aabbccdd-1122-3344-5566-778899aabb00\",\"incurredAt\":\"2026-03-25\",\"operationType\":\"CREATE\",\"paidByUserId\":\"d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa\",\"payerResponsibilityRatio\":0.6,\"payloadType\":\"CreateExpense\",\"timestamp\":\"2026-03-25T18:45:00.000Z\"}",
+      "expectedSha256": "4d4f480ccfcf834a9d1c5103780820eb13c2db4c40d3e354c9df3b98609422de",
+      "notes": [
+        "amountCents is an integer (15099 not 15099.0)",
+        "payerResponsibilityRatio is 0.6 (not 0.60 or 0.6000)",
+        "currencyCode is uppercase 3-letter ISO 4217"
+      ]
+    },
+    {
+      "id": "CS-04",
+      "description": "CancelEvent with very minimal fields. Smallest possible OperationPayload.",
+      "input": {
+        "payloadType": "CancelEvent",
+        "entityId": "11223344-5566-7788-99aa-bbccddeeff00",
+        "timestamp": "2026-03-17T10:00:00.000Z",
+        "operationType": "DELETE",
+        "eventId": "11223344-5566-7788-99aa-bbccddeeff00"
+      },
+      "expectedCanonicalJson": "{\"entityId\":\"11223344-5566-7788-99aa-bbccddeeff00\",\"eventId\":\"11223344-5566-7788-99aa-bbccddeeff00\",\"operationType\":\"DELETE\",\"payloadType\":\"CancelEvent\",\"timestamp\":\"2026-03-17T10:00:00.000Z\"}",
+      "expectedSha256": "25c0f1558000973561ed7ecdf914769b43ee37c5e1cc60d67f0766b3ddc6f1fc",
+      "notes": [
+        "Only 5 fields in the output",
+        "entityId sorts before eventId (third char 't' vs 'v')",
+        "operationType is DELETE (used only by CancelEvent)"
+      ]
+    },
+    {
+      "id": "CS-05",
+      "description": "UpdateExpenseStatus WITH optional note field. Verifies that the note field is included when present.",
+      "input": {
+        "payloadType": "UpdateExpenseStatus",
+        "entityId": "a1234567-b890-cdef-1234-567890abcdef",
+        "timestamp": "2026-03-19T09:00:00.000Z",
+        "operationType": "UPDATE",
+        "expenseId": "a1234567-b890-cdef-1234-567890abcdef",
+        "status": "DISPUTED",
+        "responderId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+        "note": "Amount seems too high for a standard visit. Can you share the invoice?"
+      },
+      "expectedCanonicalJson": "{\"entityId\":\"a1234567-b890-cdef-1234-567890abcdef\",\"expenseId\":\"a1234567-b890-cdef-1234-567890abcdef\",\"note\":\"Amount seems too high for a standard visit. Can you share the invoice?\",\"operationType\":\"UPDATE\",\"payloadType\":\"UpdateExpenseStatus\",\"responderId\":\"e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb\",\"status\":\"DISPUTED\",\"timestamp\":\"2026-03-19T09:00:00.000Z\"}",
+      "expectedSha256": "0d2b1f680c7dd0471aa5ac408e4e7810009c8912a7b49ab16358f17d8dc30638",
+      "notes": [
+        "note field is present and sorts between expenseId and operationType",
+        "status is an enum string in UPPERCASE"
+      ]
+    },
+    {
+      "id": "CS-06",
+      "description": "UpdateExpenseStatus WITHOUT optional note field. Verifies that the note field is omitted (not null).",
+      "input": {
+        "payloadType": "UpdateExpenseStatus",
+        "entityId": "a1234567-b890-cdef-1234-567890abcdef",
+        "timestamp": "2026-03-19T09:00:00.000Z",
+        "operationType": "UPDATE",
+        "expenseId": "a1234567-b890-cdef-1234-567890abcdef",
+        "status": "ACKNOWLEDGED",
+        "responderId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb"
+      },
+      "expectedCanonicalJson": "{\"entityId\":\"a1234567-b890-cdef-1234-567890abcdef\",\"expenseId\":\"a1234567-b890-cdef-1234-567890abcdef\",\"operationType\":\"UPDATE\",\"payloadType\":\"UpdateExpenseStatus\",\"responderId\":\"e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb\",\"status\":\"ACKNOWLEDGED\",\"timestamp\":\"2026-03-19T09:00:00.000Z\"}",
+      "expectedSha256": "048319bc43fedd256be41d58d6c251c3e424fb2cee5c7c55a578abfbc9f37a39",
+      "notes": [
+        "note field is absent (NOT serialized as 'note':null)",
+        "Compare with CS-05: same payload type but note is omitted, producing a different hash",
+        "Only 7 fields vs 8 fields in CS-05"
+      ]
+    },
+    {
+      "id": "CS-07",
+      "description": "CreateExpense with receipt blob fields. Verifies that receiptBlobId and receiptDecryptionKey are included and sorted correctly.",
+      "input": {
+        "payloadType": "CreateExpense",
+        "entityId": "dddddddd-1111-2222-3333-444444444444",
+        "timestamp": "2026-03-18T16:22:00.000Z",
+        "operationType": "CREATE",
+        "expenseId": "dddddddd-1111-2222-3333-444444444444",
+        "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+        "paidByUserId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+        "amountCents": 4500,
+        "currencyCode": "EUR",
+        "category": "MEDICAL",
+        "description": "Pediatrician visit",
+        "incurredAt": "2026-03-18",
+        "payerResponsibilityRatio": 0.5,
+        "receiptBlobId": "deadbeef-1234-5678-9abc-def012345678",
+        "receiptDecryptionKey": "c2VjcmV0LWJsb2Ita2V5LTMyLWJ5dGVzLWhlcmUtcGFkZGVk"
+      },
+      "expectedCanonicalJson": "{\"amountCents\":4500,\"category\":\"MEDICAL\",\"childId\":\"c1d2e3f4-5678-9abc-def0-123456789012\",\"currencyCode\":\"EUR\",\"description\":\"Pediatrician visit\",\"entityId\":\"dddddddd-1111-2222-3333-444444444444\",\"expenseId\":\"dddddddd-1111-2222-3333-444444444444\",\"incurredAt\":\"2026-03-18\",\"operationType\":\"CREATE\",\"paidByUserId\":\"d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa\",\"payerResponsibilityRatio\":0.5,\"payloadType\":\"CreateExpense\",\"receiptBlobId\":\"deadbeef-1234-5678-9abc-def012345678\",\"receiptDecryptionKey\":\"c2VjcmV0LWJsb2Ita2V5LTMyLWJ5dGVzLWhlcmUtcGFkZGVk\",\"timestamp\":\"2026-03-18T16:22:00.000Z\"}",
+      "expectedSha256": "4efa7234e685d6f7d389b43d1dd29f99158bcf33bbd33f8dbe1c9092bd60bd5b",
+      "notes": [
+        "receiptBlobId sorts after payloadType and before receiptDecryptionKey",
+        "receiptDecryptionKey is a base64 string (not raw bytes in the JSON)",
+        "Both receipt fields are present together (dependentRequired)"
+      ]
+    }
+  ],
+  "antiPatterns": {
+    "description": "Examples of INCORRECT canonical serialization that implementations MUST NOT produce",
+    "examples": [
+      {
+        "id": "AP-01",
+        "error": "Null field included instead of omitted",
+        "incorrect": "{\"entityId\":\"...\",\"note\":null,\"operationType\":\"UPDATE\"}",
+        "correct": "{\"entityId\":\"...\",\"operationType\":\"UPDATE\"}",
+        "rule": "wire-format.md Section 3.3: Fields with null values MUST be omitted"
+      },
+      {
+        "id": "AP-02",
+        "error": "Keys not sorted",
+        "incorrect": "{\"payloadType\":\"CreateEvent\",\"entityId\":\"...\",\"childId\":\"...\"}",
+        "correct": "{\"childId\":\"...\",\"entityId\":\"...\",\"payloadType\":\"CreateEvent\"}",
+        "rule": "wire-format.md Section 3.7: Object keys MUST be sorted lexicographically"
+      },
+      {
+        "id": "AP-03",
+        "error": "Whitespace between tokens",
+        "incorrect": "{\"childId\": \"...\", \"entityId\": \"...\"}",
+        "correct": "{\"childId\":\"...\",\"entityId\":\"...\"}",
+        "rule": "wire-format.md Section 3.7: No whitespace between tokens (compact form)"
+      },
+      {
+        "id": "AP-04",
+        "error": "Trailing zeros on numeric values",
+        "incorrect": "{\"amountCents\":4500.0,\"payerResponsibilityRatio\":0.50}",
+        "correct": "{\"amountCents\":4500,\"payerResponsibilityRatio\":0.5}",
+        "rule": "wire-format.md Section 3.6: Integer values without fractional parts; ratio with minimal precision"
+      },
+      {
+        "id": "AP-05",
+        "error": "Timestamp missing milliseconds or Z suffix",
+        "incorrect": "{\"timestamp\":\"2026-03-16T12:00:00Z\"}",
+        "correct": "{\"timestamp\":\"2026-03-16T12:00:00.000Z\"}",
+        "rule": "wire-format.md Section 3.4: Instant values MUST include exactly 3 fractional digits"
+      },
+      {
+        "id": "AP-06",
+        "error": "UUID with uppercase letters",
+        "incorrect": "{\"entityId\":\"11223344-5566-7788-99AA-BBCCDDEEFF00\"}",
+        "correct": "{\"entityId\":\"11223344-5566-7788-99aa-bbccddeeff00\"}",
+        "rule": "wire-format.md Section 3.5: UUID lowercase hex with hyphens"
+      }
+    ]
+  }
+}
