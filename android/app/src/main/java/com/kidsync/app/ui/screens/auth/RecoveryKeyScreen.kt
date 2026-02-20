@@ -1,5 +1,7 @@
 package com.kidsync.app.ui.screens.auth
 
+import android.app.Activity
+import android.view.WindowManager
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -22,11 +24,13 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
@@ -54,6 +58,19 @@ fun RecoveryKeyScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+
+    // SEC-C1: Prevent screenshots/screen recording while recovery key is visible
+    val context = LocalContext.current
+    DisposableEffect(Unit) {
+        val window = (context as? Activity)?.window
+        window?.setFlags(
+            WindowManager.LayoutParams.FLAG_SECURE,
+            WindowManager.LayoutParams.FLAG_SECURE
+        )
+        onDispose {
+            window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+    }
 
     // Generate recovery key on first composition
     LaunchedEffect(Unit) {
@@ -174,7 +191,11 @@ fun RecoveryKeyScreen(
 
             LoadingButton(
                 text = stringResource(R.string.recovery_continue),
-                onClick = onContinue,
+                onClick = {
+                    // SEC-C3: Clear recovery words from memory before navigating away
+                    viewModel.confirmRecoveryKeySaved()
+                    onContinue()
+                },
                 isLoading = false,
                 enabled = uiState.hasSavedRecoveryKey && uiState.recoveryWords.isNotEmpty(),
                 modifier = Modifier

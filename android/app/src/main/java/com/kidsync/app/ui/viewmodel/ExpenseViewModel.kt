@@ -4,13 +4,13 @@ import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.kidsync.app.data.local.dao.ExpenseDao
 import com.kidsync.app.data.local.entity.ExpenseEntity
 import com.kidsync.app.data.local.entity.ExpenseStatusEntity
 import com.kidsync.app.domain.model.Expense
 import com.kidsync.app.domain.model.ExpenseCategory
 import com.kidsync.app.domain.model.ExpenseStatusType
 import com.kidsync.app.domain.repository.AuthRepository
+import com.kidsync.app.domain.repository.ExpenseRepository
 import com.kidsync.app.domain.usecase.expense.CreateExpenseUseCase
 import com.kidsync.app.domain.usecase.expense.ExpenseSummary
 import com.kidsync.app.domain.usecase.expense.GetExpenseSummaryUseCase
@@ -94,7 +94,7 @@ class ExpenseViewModel @Inject constructor(
     private val createExpenseUseCase: CreateExpenseUseCase,
     private val updateExpenseStatusUseCase: UpdateExpenseStatusUseCase,
     private val getExpenseSummaryUseCase: GetExpenseSummaryUseCase,
-    private val expenseDao: ExpenseDao,
+    private val expenseRepository: ExpenseRepository,
     private val authRepository: AuthRepository,
     private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
@@ -117,12 +117,12 @@ class ExpenseViewModel @Inject constructor(
             _uiState.update { it.copy(isLoading = true, error = null) }
 
             try {
-                val allExpenses = expenseDao.getAllExpenses()
+                val allExpenses = expenseRepository.getAllExpenses()
                 val session = authRepository.getSession()
 
                 val expensesWithStatus = allExpenses.map { entity ->
-                    val latestStatus = expenseDao.getLatestStatusForExpense(entity.expenseId)
-                    val statusHistory = expenseDao.getStatusHistoryForExpense(entity.expenseId)
+                    val latestStatus = expenseRepository.getLatestStatusForExpense(entity.expenseId)
+                    val statusHistory = expenseRepository.getStatusHistoryForExpense(entity.expenseId)
                     val statusType = latestStatus?.let {
                         try { ExpenseStatusType.valueOf(it.status) }
                         catch (_: IllegalArgumentException) { ExpenseStatusType.PENDING }
@@ -211,9 +211,9 @@ class ExpenseViewModel @Inject constructor(
             val uuid = try { UUID.fromString(expenseId) }
             catch (_: IllegalArgumentException) { return@launch }
 
-            val entity = expenseDao.getExpenseById(uuid) ?: return@launch
-            val latestStatus = expenseDao.getLatestStatusForExpense(uuid)
-            val statusHistory = expenseDao.getStatusHistoryForExpense(uuid)
+            val entity = expenseRepository.getExpenseById(uuid) ?: return@launch
+            val latestStatus = expenseRepository.getLatestStatusForExpense(uuid)
+            val statusHistory = expenseRepository.getStatusHistoryForExpense(uuid)
             val statusType = latestStatus?.let {
                 try { ExpenseStatusType.valueOf(it.status) }
                 catch (_: IllegalArgumentException) { ExpenseStatusType.PENDING }
@@ -417,7 +417,7 @@ class ExpenseViewModel @Inject constructor(
             _uiState.update { it.copy(isLoading = true, error = null) }
 
             try {
-                val allExpenses = expenseDao.getAllExpenses()
+                val allExpenses = expenseRepository.getAllExpenses()
 
                 val period = _uiState.value.summaryPeriod
                 val month = _uiState.value.summaryMonth

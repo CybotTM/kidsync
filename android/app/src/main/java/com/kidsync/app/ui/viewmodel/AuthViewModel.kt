@@ -97,8 +97,14 @@ class AuthViewModel @Inject constructor(
             _uiState.update { it.copy(error = "Email is required") }
             return
         }
-        if (state.registerPassword.length < 8) {
-            _uiState.update { it.copy(error = "Password must be at least 8 characters") }
+        if (state.registerPassword.length < 12) {
+            _uiState.update { it.copy(error = "Password must be at least 12 characters") }
+            return
+        }
+        if (!state.registerPassword.any { it.isUpperCase() } ||
+            !state.registerPassword.any { it.isLowerCase() } ||
+            !state.registerPassword.any { it.isDigit() }) {
+            _uiState.update { it.copy(error = "Password must contain uppercase, lowercase, and a number") }
             return
         }
         if (state.registerPassword != state.registerConfirmPassword) {
@@ -121,7 +127,10 @@ class AuthViewModel @Inject constructor(
                         it.copy(
                             isLoading = false,
                             session = session,
-                            isLoggedIn = true
+                            isLoggedIn = true,
+                            // SEC-C3: Clear credentials from memory after successful registration
+                            registerPassword = "",
+                            registerConfirmPassword = ""
                         )
                     }
                 },
@@ -177,7 +186,10 @@ class AuthViewModel @Inject constructor(
                         it.copy(
                             isLoading = false,
                             session = session,
-                            isLoggedIn = true
+                            isLoggedIn = true,
+                            // SEC-C3: Clear credentials from memory after successful login
+                            loginPassword = "",
+                            loginTotpCode = ""
                         )
                     }
                 },
@@ -245,6 +257,8 @@ class AuthViewModel @Inject constructor(
                         it.copy(
                             isLoading = false,
                             isTotpVerified = verified,
+                            // SEC-C3: Clear TOTP code from memory after verification attempt
+                            totpVerificationCode = if (verified) "" else it.totpVerificationCode,
                             error = if (!verified) "Invalid code, please try again" else null
                         )
                     }
@@ -294,6 +308,14 @@ class AuthViewModel @Inject constructor(
 
     fun onRecoverySavedChecked(checked: Boolean) {
         _uiState.update { it.copy(hasSavedRecoveryKey = checked) }
+    }
+
+    /**
+     * SEC-C3: Called when the user confirms they have saved their recovery key
+     * and navigates away. Clears recovery words from memory.
+     */
+    fun confirmRecoveryKeySaved() {
+        _uiState.update { it.copy(recoveryWords = emptyList(), hasSavedRecoveryKey = true) }
     }
 
     // -- Recovery Restore --

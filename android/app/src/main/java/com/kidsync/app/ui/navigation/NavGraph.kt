@@ -1,7 +1,11 @@
 package com.kidsync.app.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -11,6 +15,7 @@ import com.kidsync.app.ui.screens.auth.RecoveryRestoreScreen
 import com.kidsync.app.ui.screens.auth.RegisterScreen
 import com.kidsync.app.ui.screens.auth.TotpSetupScreen
 import com.kidsync.app.ui.screens.auth.WelcomeScreen
+import com.kidsync.app.ui.viewmodel.AuthViewModel
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
 import com.kidsync.app.ui.screens.calendar.AnchorDateScreen
@@ -35,6 +40,28 @@ import com.kidsync.app.ui.screens.settings.ServerConfigScreen
 import com.kidsync.app.ui.screens.settings.SettingsScreen
 
 /**
+ * SEC-C2: Auth guard wrapper that redirects unauthenticated users to Welcome.
+ */
+@Composable
+fun AuthenticatedRoute(
+    authViewModel: AuthViewModel,
+    navController: NavHostController,
+    content: @Composable () -> Unit
+) {
+    val uiState by authViewModel.uiState.collectAsState()
+    LaunchedEffect(uiState.isLoggedIn) {
+        if (!uiState.isLoggedIn) {
+            navController.navigate(Routes.Welcome.route) {
+                popUpTo(0) { inclusive = true }
+            }
+        }
+    }
+    if (uiState.isLoggedIn) {
+        content()
+    }
+}
+
+/**
  * Main navigation graph for the KidSync app.
  *
  * Flow:
@@ -50,6 +77,9 @@ fun KidSyncNavGraph(
     modifier: Modifier = Modifier,
     startDestination: String = Routes.Splash.route
 ) {
+    // SEC-C2: Shared auth view model for navigation-level auth checks
+    val authViewModel: AuthViewModel = hiltViewModel()
+
     NavHost(
         navController = navController,
         startDestination = startDestination,
@@ -203,33 +233,37 @@ fun KidSyncNavGraph(
         }
 
         composable(Routes.Dashboard.route) {
-            DashboardScreen(
-                onNavigateToSettings = {
-                    navController.navigate(Routes.Settings.route)
-                },
-                onNavigateToExpenses = {
-                    navController.navigate(Routes.ExpenseList.route)
-                },
-                onNavigateToCalendar = {
-                    navController.navigate(Routes.Calendar.route)
-                }
-            )
+            AuthenticatedRoute(authViewModel, navController) {
+                DashboardScreen(
+                    onNavigateToSettings = {
+                        navController.navigate(Routes.Settings.route)
+                    },
+                    onNavigateToExpenses = {
+                        navController.navigate(Routes.ExpenseList.route)
+                    },
+                    onNavigateToCalendar = {
+                        navController.navigate(Routes.Calendar.route)
+                    }
+                )
+            }
         }
 
         // Calendar flow
         composable(Routes.Calendar.route) {
-            CalendarScreen(
-                onBack = { navController.popBackStack() },
-                onDayClick = { date ->
-                    navController.navigate(Routes.DayDetail.createRoute(date))
-                },
-                onRequestSwap = {
-                    navController.navigate(Routes.SwapRequest.createRoute())
-                },
-                onSetupSchedule = {
-                    navController.navigate(Routes.ScheduleSetup.route)
-                }
-            )
+            AuthenticatedRoute(authViewModel, navController) {
+                CalendarScreen(
+                    onBack = { navController.popBackStack() },
+                    onDayClick = { date ->
+                        navController.navigate(Routes.DayDetail.createRoute(date))
+                    },
+                    onRequestSwap = {
+                        navController.navigate(Routes.SwapRequest.createRoute())
+                    },
+                    onSetupSchedule = {
+                        navController.navigate(Routes.ScheduleSetup.route)
+                    }
+                )
+            }
         }
 
         composable(
@@ -238,49 +272,57 @@ fun KidSyncNavGraph(
                 navArgument("date") { type = NavType.StringType }
             )
         ) { backStackEntry ->
-            val date = backStackEntry.arguments?.getString("date") ?: ""
-            DayDetailScreen(
-                date = date,
-                onBack = { navController.popBackStack() },
-                onAddEvent = { eventDate ->
-                    navController.navigate(Routes.EventForm.createRoute(date = eventDate))
-                },
-                onRequestSwap = { swapDate ->
-                    navController.navigate(Routes.SwapRequest.createRoute(startDate = swapDate))
-                }
-            )
+            AuthenticatedRoute(authViewModel, navController) {
+                val date = backStackEntry.arguments?.getString("date") ?: ""
+                DayDetailScreen(
+                    date = date,
+                    onBack = { navController.popBackStack() },
+                    onAddEvent = { eventDate ->
+                        navController.navigate(Routes.EventForm.createRoute(date = eventDate))
+                    },
+                    onRequestSwap = { swapDate ->
+                        navController.navigate(Routes.SwapRequest.createRoute(startDate = swapDate))
+                    }
+                )
+            }
         }
 
         composable(Routes.ScheduleSetup.route) {
-            ScheduleSetupScreen(
-                onBack = { navController.popBackStack() },
-                onPresetSelected = {
-                    navController.navigate(Routes.AnchorDate.route)
-                },
-                onCustomSelected = {
-                    navController.navigate(Routes.CustomPattern.route)
-                }
-            )
+            AuthenticatedRoute(authViewModel, navController) {
+                ScheduleSetupScreen(
+                    onBack = { navController.popBackStack() },
+                    onPresetSelected = {
+                        navController.navigate(Routes.AnchorDate.route)
+                    },
+                    onCustomSelected = {
+                        navController.navigate(Routes.CustomPattern.route)
+                    }
+                )
+            }
         }
 
         composable(Routes.CustomPattern.route) {
-            CustomPatternScreen(
-                onBack = { navController.popBackStack() },
-                onContinue = {
-                    navController.navigate(Routes.AnchorDate.route)
-                }
-            )
+            AuthenticatedRoute(authViewModel, navController) {
+                CustomPatternScreen(
+                    onBack = { navController.popBackStack() },
+                    onContinue = {
+                        navController.navigate(Routes.AnchorDate.route)
+                    }
+                )
+            }
         }
 
         composable(Routes.AnchorDate.route) {
-            AnchorDateScreen(
-                onBack = { navController.popBackStack() },
-                onScheduleSaved = {
-                    navController.navigate(Routes.Calendar.route) {
-                        popUpTo(Routes.ScheduleSetup.route) { inclusive = true }
+            AuthenticatedRoute(authViewModel, navController) {
+                AnchorDateScreen(
+                    onBack = { navController.popBackStack() },
+                    onScheduleSaved = {
+                        navController.navigate(Routes.Calendar.route) {
+                            popUpTo(Routes.ScheduleSetup.route) { inclusive = true }
+                        }
                     }
-                }
-            )
+                )
+            }
         }
 
         composable(
@@ -293,20 +335,24 @@ fun KidSyncNavGraph(
                 }
             )
         ) { backStackEntry ->
-            val startDate = backStackEntry.arguments?.getString("startDate")
-            SwapRequestScreen(
-                startDate = startDate,
-                onBack = { navController.popBackStack() },
-                onSwapSubmitted = {
-                    navController.popBackStack()
-                }
-            )
+            AuthenticatedRoute(authViewModel, navController) {
+                val startDate = backStackEntry.arguments?.getString("startDate")
+                SwapRequestScreen(
+                    startDate = startDate,
+                    onBack = { navController.popBackStack() },
+                    onSwapSubmitted = {
+                        navController.popBackStack()
+                    }
+                )
+            }
         }
 
         composable(Routes.SwapApproval.route) {
-            SwapApprovalScreen(
-                onBack = { navController.popBackStack() }
-            )
+            AuthenticatedRoute(authViewModel, navController) {
+                SwapApprovalScreen(
+                    onBack = { navController.popBackStack() }
+                )
+            }
         }
 
         composable(
@@ -324,30 +370,34 @@ fun KidSyncNavGraph(
                 }
             )
         ) { backStackEntry ->
-            val date = backStackEntry.arguments?.getString("date")
-            val eventId = backStackEntry.arguments?.getString("eventId")
-            EventFormScreen(
-                date = date,
-                eventId = eventId,
-                onBack = { navController.popBackStack() },
-                onSaved = { navController.popBackStack() }
-            )
+            AuthenticatedRoute(authViewModel, navController) {
+                val date = backStackEntry.arguments?.getString("date")
+                val eventId = backStackEntry.arguments?.getString("eventId")
+                EventFormScreen(
+                    date = date,
+                    eventId = eventId,
+                    onBack = { navController.popBackStack() },
+                    onSaved = { navController.popBackStack() }
+                )
+            }
         }
 
         // Expense flow
         composable(Routes.ExpenseList.route) {
-            ExpenseListScreen(
-                onNavigateToDetail = { expenseId ->
-                    navController.navigate(Routes.ExpenseDetail.createRoute(expenseId))
-                },
-                onNavigateToAddExpense = {
-                    navController.navigate(Routes.AddExpense.route)
-                },
-                onNavigateToSummary = {
-                    navController.navigate(Routes.ExpenseSummary.route)
-                },
-                onBack = { navController.popBackStack() }
-            )
+            AuthenticatedRoute(authViewModel, navController) {
+                ExpenseListScreen(
+                    onNavigateToDetail = { expenseId ->
+                        navController.navigate(Routes.ExpenseDetail.createRoute(expenseId))
+                    },
+                    onNavigateToAddExpense = {
+                        navController.navigate(Routes.AddExpense.route)
+                    },
+                    onNavigateToSummary = {
+                        navController.navigate(Routes.ExpenseSummary.route)
+                    },
+                    onBack = { navController.popBackStack() }
+                )
+            }
         }
 
         composable(
@@ -356,53 +406,65 @@ fun KidSyncNavGraph(
                 navArgument("expenseId") { type = NavType.StringType }
             )
         ) { backStackEntry ->
-            val expenseId = backStackEntry.arguments?.getString("expenseId") ?: ""
-            ExpenseDetailScreen(
-                expenseId = expenseId,
-                onBack = { navController.popBackStack() }
-            )
+            AuthenticatedRoute(authViewModel, navController) {
+                val expenseId = backStackEntry.arguments?.getString("expenseId") ?: ""
+                ExpenseDetailScreen(
+                    expenseId = expenseId,
+                    onBack = { navController.popBackStack() }
+                )
+            }
         }
 
         composable(Routes.AddExpense.route) {
-            AddExpenseScreen(
-                onBack = { navController.popBackStack() },
-                onSaved = { navController.popBackStack() }
-            )
+            AuthenticatedRoute(authViewModel, navController) {
+                AddExpenseScreen(
+                    onBack = { navController.popBackStack() },
+                    onSaved = { navController.popBackStack() }
+                )
+            }
         }
 
         composable(Routes.ExpenseSummary.route) {
-            ExpenseSummaryScreen(
-                onBack = { navController.popBackStack() }
-            )
+            AuthenticatedRoute(authViewModel, navController) {
+                ExpenseSummaryScreen(
+                    onBack = { navController.popBackStack() }
+                )
+            }
         }
 
         composable(Routes.Settings.route) {
-            SettingsScreen(
-                onNavigateToDeviceList = {
-                    navController.navigate(Routes.DeviceList.route)
-                },
-                onNavigateToServerConfig = {
-                    navController.navigate(Routes.ServerConfig.route)
-                },
-                onLogout = {
-                    navController.navigate(Routes.Welcome.route) {
-                        popUpTo(Routes.Dashboard.route) { inclusive = true }
-                    }
-                },
-                onBack = { navController.popBackStack() }
-            )
+            AuthenticatedRoute(authViewModel, navController) {
+                SettingsScreen(
+                    onNavigateToDeviceList = {
+                        navController.navigate(Routes.DeviceList.route)
+                    },
+                    onNavigateToServerConfig = {
+                        navController.navigate(Routes.ServerConfig.route)
+                    },
+                    onLogout = {
+                        navController.navigate(Routes.Welcome.route) {
+                            popUpTo(Routes.Dashboard.route) { inclusive = true }
+                        }
+                    },
+                    onBack = { navController.popBackStack() }
+                )
+            }
         }
 
         composable(Routes.DeviceList.route) {
-            DeviceListScreen(
-                onBack = { navController.popBackStack() }
-            )
+            AuthenticatedRoute(authViewModel, navController) {
+                DeviceListScreen(
+                    onBack = { navController.popBackStack() }
+                )
+            }
         }
 
         composable(Routes.ServerConfig.route) {
-            ServerConfigScreen(
-                onBack = { navController.popBackStack() }
-            )
+            AuthenticatedRoute(authViewModel, navController) {
+                ServerConfigScreen(
+                    onBack = { navController.popBackStack() }
+                )
+            }
         }
     }
 }
