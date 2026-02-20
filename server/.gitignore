@@ -1,0 +1,10 @@
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+data/
+*.db
+*.db-journal
+*.db-wal
+.idea/
+*.iml
+out/
