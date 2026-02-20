@@ -1,0 +1,202 @@
+{
+  "id": "TV06",
+  "title": "Clock Skew and Server Ordering",
+  "description": "Two devices with clocks 2 hours apart creating conflicting custody schedules for the same child with the same effectiveFrom. Demonstrates that globalSequence (server ordering) determines application order, while clientTimestamp is only used for tie-breaking within conflict resolution. Even though Device B's clock is 2 hours ahead, the conflict resolution result is deterministic.",
+  "protocolVersion": 1,
+  "specReferences": [
+    "sync-protocol.md Section 8.3 (Client-Side Application Order)",
+    "sync-protocol.md Section 9.1 (CustodySchedule Conflict Resolution)",
+    "sync-protocol.md Section 13.5 (Clock Skew)"
+  ],
+  "context": {
+    "familyId": "fam00006-aaaa-bbbb-cccc-dddddddddddd",
+    "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+    "parentA": {
+      "userId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+      "name": "Parent A (Alice)"
+    },
+    "parentB": {
+      "userId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+      "name": "Parent B (Bob)"
+    },
+    "deviceA": {
+      "deviceId": "aaaaaaaa-cccc-dddd-eeee-ffffffffffff",
+      "name": "Alice's Phone",
+      "clockOffset": "ACCURATE (NTP synced)"
+    },
+    "deviceB": {
+      "deviceId": "bbbbbbbb-cccc-dddd-eeee-ffffffffffff",
+      "name": "Bob's Phone",
+      "clockOffset": "+2 hours AHEAD of actual UTC (clock skew)"
+    }
+  },
+  "scenario": {
+    "actualTime": "2026-03-28T10:00:00.000Z (true UTC)",
+    "deviceASeesTime": "2026-03-28T10:00:00.000Z (accurate)",
+    "deviceBSeesTime": "2026-03-28T12:00:00.000Z (2 hours ahead)",
+    "step1": "Both devices go offline around the same real-world moment.",
+    "step2": "Device A creates a custody schedule. Its clientTimestamp is 2026-03-28T10:00:00.000Z (accurate).",
+    "step3": "Device B creates a competing custody schedule seconds later in real time. Its clientTimestamp is 2026-03-28T12:00:30.000Z (2h ahead + 30s real elapsed).",
+    "step4": "Device B comes online first and uploads. Server assigns globalSequence=1.",
+    "step5": "Device A comes online second and uploads. Server assigns globalSequence=2.",
+    "step6": "Key insight: Device B uploaded first (got lower globalSequence) but Device A has the earlier clientTimestamp."
+  },
+  "deviceBOp": {
+    "description": "Device B creates schedule (uploads FIRST, gets lower globalSequence)",
+    "decryptedPayload": {
+      "payloadType": "SetCustodySchedule",
+      "entityId": "sched-bb-1111-2222-3333-444444444444",
+      "timestamp": "2026-03-28T12:00:30.000Z",
+      "operationType": "CREATE",
+      "scheduleId": "sched-bb-1111-2222-3333-444444444444",
+      "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+      "anchorDate": "2026-04-06",
+      "cycleLengthDays": 14,
+      "pattern": [
+        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa"
+      ],
+      "effectiveFrom": "2026-04-06T00:00:00.000Z",
+      "timeZone": "Europe/Berlin"
+    },
+    "envelope": {
+      "deviceId": "bbbbbbbb-cccc-dddd-eeee-ffffffffffff",
+      "deviceSequence": 1,
+      "entityType": "CustodySchedule",
+      "operation": "CREATE",
+      "keyEpoch": 1,
+      "clientTimestamp": "2026-03-28T12:00:30.000Z"
+    },
+    "serverAssigned": {
+      "globalSequence": 1,
+      "serverTimestamp": "2026-03-28T10:01:00.000Z"
+    }
+  },
+  "deviceAOp": {
+    "description": "Device A creates schedule (uploads SECOND, gets higher globalSequence)",
+    "decryptedPayload": {
+      "payloadType": "SetCustodySchedule",
+      "entityId": "sched-aa-1111-2222-3333-444444444444",
+      "timestamp": "2026-03-28T10:00:00.000Z",
+      "operationType": "CREATE",
+      "scheduleId": "sched-aa-1111-2222-3333-444444444444",
+      "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+      "anchorDate": "2026-04-06",
+      "cycleLengthDays": 14,
+      "pattern": [
+        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb"
+      ],
+      "effectiveFrom": "2026-04-06T00:00:00.000Z",
+      "timeZone": "Europe/Berlin"
+    },
+    "envelope": {
+      "deviceId": "aaaaaaaa-cccc-dddd-eeee-ffffffffffff",
+      "deviceSequence": 1,
+      "entityType": "CustodySchedule",
+      "operation": "CREATE",
+      "keyEpoch": 1,
+      "clientTimestamp": "2026-03-28T10:00:00.000Z"
+    },
+    "serverAssigned": {
+      "globalSequence": 2,
+      "serverTimestamp": "2026-03-28T10:02:00.000Z"
+    }
+  },
+  "applicationOrder": {
+    "description": "Clients MUST apply ops in globalSequence order, regardless of clientTimestamp",
+    "order": [
+      {
+        "step": 1,
+        "globalSequence": 1,
+        "source": "Device B",
+        "clientTimestamp": "2026-03-28T12:00:30.000Z",
+        "action": "Apply Device B's schedule. It becomes the active schedule for the child."
+      },
+      {
+        "step": 2,
+        "globalSequence": 2,
+        "source": "Device A",
+        "clientTimestamp": "2026-03-28T10:00:00.000Z",
+        "action": "Apply Device A's schedule. Same effectiveFrom triggers conflict resolution."
+      }
+    ]
+  },
+  "conflictResolution": {
+    "step1": {
+      "comparison": "effectiveFrom",
+      "deviceAValue": "2026-04-06T00:00:00.000Z",
+      "deviceBValue": "2026-04-06T00:00:00.000Z",
+      "result": "TIE - same effectiveFrom"
+    },
+    "step2": {
+      "comparison": "clientTimestamp (later wins)",
+      "deviceAValue": "2026-03-28T10:00:00.000Z",
+      "deviceBValue": "2026-03-28T12:00:30.000Z",
+      "result": "DEVICE B WINS - later clientTimestamp",
+      "caveat": "Device B's clock was 2 hours ahead, giving it an artificially later timestamp. The protocol accepts this because clientTimestamp is only a tie-breaker, not a source of truth for ordering."
+    },
+    "winner": "Device B (sched-bb-1111-2222-3333-444444444444)",
+    "loser": "Device A (sched-aa-1111-2222-3333-444444444444)"
+  },
+  "keyInsights": [
+    {
+      "insight": "globalSequence determines APPLICATION ORDER",
+      "detail": "Device B's op (globalSeq=1) is applied BEFORE Device A's op (globalSeq=2), even though Device B's clientTimestamp (12:00:30) is later than Device A's (10:00:00). The server arrival order determines when ops are processed."
+    },
+    {
+      "insight": "clientTimestamp is ONLY for tie-breaking within conflict resolution",
+      "detail": "When two schedules have the same effectiveFrom, clientTimestamp breaks the tie. It does NOT affect the order in which ops are applied to the local database."
+    },
+    {
+      "insight": "Clock skew can influence conflict resolution outcomes",
+      "detail": "A device with a clock running ahead gets an advantage in timestamp-based tie-breaks. This is a known and accepted tradeoff. The protocol recommends NTP synchronization and warns users about clock skew exceeding 5 minutes."
+    },
+    {
+      "insight": "serverTimestamp vs clientTimestamp",
+      "detail": "serverTimestamp (10:01:00 for Device B, 10:02:00 for Device A) shows the real arrival order, but it is NOT used in conflict resolution. Only clientTimestamp is used for tie-breaking."
+    },
+    {
+      "insight": "Deterministic outcome",
+      "detail": "Despite the clock skew, both devices arrive at the same final state after applying ops in globalSequence order. The algorithm is deterministic regardless of which device processes first."
+    }
+  ],
+  "expectedFinalState": {
+    "activeSchedule": {
+      "scheduleId": "sched-bb-1111-2222-3333-444444444444",
+      "source": "Device B",
+      "status": "ACTIVE",
+      "reason": "Won conflict resolution via later clientTimestamp (even though clock was skewed)"
+    },
+    "supersededSchedule": {
+      "scheduleId": "sched-aa-1111-2222-3333-444444444444",
+      "source": "Device A",
+      "status": "SUPERSEDED",
+      "reason": "Lost conflict resolution: same effectiveFrom, earlier clientTimestamp"
+    }
+  }
+}

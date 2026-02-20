@@ -1,0 +1,203 @@
+{
+  "id": "TV02",
+  "title": "Concurrent Offline Merge",
+  "description": "Two devices (device-A, device-B) each create a custody schedule offline then sync. Both target the same child with the SAME effectiveFrom. Device B has a LATER clientTimestamp and therefore wins the tie-break per the conflict resolution rules in sync-protocol.md Section 9.1.",
+  "protocolVersion": 1,
+  "specReferences": [
+    "sync-protocol.md Section 8 (Canonical Linearization)",
+    "sync-protocol.md Section 9.1 (CustodySchedule Conflict Resolution)",
+    "wire-format.md Section 3.7 (Canonical Serialization)"
+  ],
+  "context": {
+    "familyId": "fam00002-aaaa-bbbb-cccc-dddddddddddd",
+    "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+    "parentA": {
+      "userId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+      "name": "Parent A (Alice)"
+    },
+    "parentB": {
+      "userId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+      "name": "Parent B (Bob)"
+    },
+    "deviceA": {
+      "deviceId": "aaaaaaaa-1111-2222-3333-444444444444",
+      "name": "Alice's Phone"
+    },
+    "deviceB": {
+      "deviceId": "bbbbbbbb-1111-2222-3333-444444444444",
+      "name": "Bob's Phone"
+    },
+    "keyEpoch": 1
+  },
+  "scenario": {
+    "step1": "Both devices go offline.",
+    "step2": "Device A creates a custody schedule at clientTimestamp 2026-03-28T10:00:00.000Z.",
+    "step3": "Device B creates a custody schedule at clientTimestamp 2026-03-28T10:05:00.000Z (5 minutes later).",
+    "step4": "Both schedules have identical effectiveFrom: 2026-04-01T00:00:00.000Z.",
+    "step5": "Device A comes online first and uploads. Server assigns globalSequence=1.",
+    "step6": "Device B comes online second and uploads. Server assigns globalSequence=2.",
+    "step7": "Both devices pull and apply conflict resolution."
+  },
+  "deviceAOps": [
+    {
+      "description": "Device A creates week-on/week-off: Parent A gets Mon-Sun, Parent B gets Mon-Sun",
+      "decryptedPayload": {
+        "payloadType": "SetCustodySchedule",
+        "entityId": "aaaa1111-2222-3333-4444-555566667777",
+        "timestamp": "2026-03-28T10:00:00.000Z",
+        "operationType": "CREATE",
+        "scheduleId": "aaaa1111-2222-3333-4444-555566667777",
+        "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+        "anchorDate": "2026-04-01",
+        "cycleLengthDays": 14,
+        "pattern": [
+          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb"
+        ],
+        "effectiveFrom": "2026-04-01T00:00:00.000Z",
+        "timeZone": "America/New_York"
+      },
+      "canonicalSha256": "f06fd00ed9d4d7d2da3873b56f2cc52856cc73b84efba2e40ad182645923c3ba",
+      "envelope": {
+        "deviceId": "aaaaaaaa-1111-2222-3333-444444444444",
+        "deviceSequence": 1,
+        "entityType": "CustodySchedule",
+        "entityId": "aaaa1111-2222-3333-4444-555566667777",
+        "operation": "CREATE",
+        "keyEpoch": 1,
+        "clientTimestamp": "2026-03-28T10:00:00.000Z"
+      },
+      "serverAssigned": {
+        "globalSequence": 1,
+        "serverTimestamp": "2026-03-29T08:00:00.000Z"
+      }
+    }
+  ],
+  "deviceBOps": [
+    {
+      "description": "Device B creates 3-on/4-off then 4-on/3-off pattern: Parent B gets first 3 days, then alternating blocks",
+      "decryptedPayload": {
+        "payloadType": "SetCustodySchedule",
+        "entityId": "bbbb1111-2222-3333-4444-555566667777",
+        "timestamp": "2026-03-28T10:05:00.000Z",
+        "operationType": "CREATE",
+        "scheduleId": "bbbb1111-2222-3333-4444-555566667777",
+        "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+        "anchorDate": "2026-04-01",
+        "cycleLengthDays": 14,
+        "pattern": [
+          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb"
+        ],
+        "effectiveFrom": "2026-04-01T00:00:00.000Z",
+        "timeZone": "America/New_York"
+      },
+      "canonicalSha256": "d57515e13c90fe4399f149e5554fe07129d2eb440922a1be1a74e627d3dc6586",
+      "envelope": {
+        "deviceId": "bbbbbbbb-1111-2222-3333-444444444444",
+        "deviceSequence": 1,
+        "entityType": "CustodySchedule",
+        "entityId": "bbbb1111-2222-3333-4444-555566667777",
+        "operation": "CREATE",
+        "keyEpoch": 1,
+        "clientTimestamp": "2026-03-28T10:05:00.000Z"
+      },
+      "serverAssigned": {
+        "globalSequence": 2,
+        "serverTimestamp": "2026-03-29T08:00:01.000Z"
+      }
+    }
+  ],
+  "canonicalMergeOrder": [
+    {
+      "globalSequence": 1,
+      "deviceId": "aaaaaaaa-1111-2222-3333-444444444444",
+      "entityId": "aaaa1111-2222-3333-4444-555566667777",
+      "note": "Applied first in globalSequence order"
+    },
+    {
+      "globalSequence": 2,
+      "deviceId": "bbbbbbbb-1111-2222-3333-444444444444",
+      "entityId": "bbbb1111-2222-3333-4444-555566667777",
+      "note": "Applied second; triggers conflict resolution"
+    }
+  ],
+  "conflictResolution": {
+    "entityType": "CustodySchedule",
+    "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+    "strategy": "Latest effectiveFrom wins; tie-break by clientTimestamp; second tie-break by deviceId",
+    "step1": {
+      "comparison": "effectiveFrom",
+      "deviceAValue": "2026-04-01T00:00:00.000Z",
+      "deviceBValue": "2026-04-01T00:00:00.000Z",
+      "result": "TIE - same effectiveFrom"
+    },
+    "step2": {
+      "comparison": "clientTimestamp (later wins)",
+      "deviceAValue": "2026-03-28T10:00:00.000Z",
+      "deviceBValue": "2026-03-28T10:05:00.000Z",
+      "result": "DEVICE B WINS - later clientTimestamp (10:05 > 10:00)"
+    },
+    "winner": "Device B (bbbb1111-2222-3333-4444-555566667777)",
+    "loser": "Device A (aaaa1111-2222-3333-4444-555566667777)",
+    "loserDisposition": "Stored but marked as SUPERSEDED; not the active schedule"
+  },
+  "expectedFinalState": {
+    "activeSchedule": {
+      "scheduleId": "bbbb1111-2222-3333-4444-555566667777",
+      "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+      "anchorDate": "2026-04-01",
+      "cycleLengthDays": 14,
+      "pattern": [
+        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb"
+      ],
+      "effectiveFrom": "2026-04-01T00:00:00.000Z",
+      "timeZone": "America/New_York",
+      "status": "ACTIVE"
+    },
+    "supersededSchedule": {
+      "scheduleId": "aaaa1111-2222-3333-4444-555566667777",
+      "status": "SUPERSEDED",
+      "note": "Lost conflict resolution: same effectiveFrom, earlier clientTimestamp"
+    },
+    "deterministic": true,
+    "note": "Both Device A and Device B MUST arrive at the same final state after applying ops in globalSequence order and running the conflict resolution algorithm."
+  }
+}
