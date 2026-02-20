@@ -99,21 +99,16 @@ fun Route.syncRoutes(
                         ?: throw ApiException(403, "FORBIDDEN", "User is not a member of any family")
 
                     val request = call.receive<UploadOpsRequest>()
-                    val result = syncService.uploadOps(principal.userId, familyId, request)
+                    val response = syncService.uploadOps(principal.userId, familyId, request)
 
-                    result.fold(
-                        onSuccess = { response ->
-                            call.respond(HttpStatusCode.OK, response)
+                    call.respond(HttpStatusCode.OK, response)
 
-                            // Notify via WebSocket and push
-                            val latestSeq = response.accepted.lastOrNull()?.globalSequence ?: 0L
-                            val sourceDeviceId = request.ops.firstOrNull()?.deviceId ?: principal.deviceId
+                    // Notify via WebSocket and push
+                    val latestSeq = response.accepted.lastOrNull()?.globalSequence ?: 0L
+                    val sourceDeviceId = request.ops.firstOrNull()?.deviceId ?: principal.deviceId
 
-                            wsManager.notifyOpsAvailable(familyId, latestSeq, sourceDeviceId)
-                            pushService.notifyFamilyDevices(familyId, sourceDeviceId, latestSeq)
-                        },
-                        onFailure = { throw it },
-                    )
+                    wsManager.notifyOpsAvailable(familyId, latestSeq, sourceDeviceId)
+                    pushService.notifyFamilyDevices(familyId, sourceDeviceId, latestSeq)
                 }
             }
 
@@ -331,7 +326,7 @@ fun Route.syncRoutes(
                                 Frame.Text(
                                     json.encodeToString(
                                         WsAuthFailed.serializer(),
-                                        WsAuthFailed(error = "TOKEN_INVALID", message = e.message ?: "Token verification failed")
+                                        WsAuthFailed(error = "TOKEN_INVALID", message = "Token verification failed")
                                     )
                                 )
                             )

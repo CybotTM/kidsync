@@ -117,7 +117,7 @@ object Invites : Table("invites") {
 object RefreshTokens : Table("refresh_tokens") {
     val id = varchar("id", 36)
     val userId = varchar("user_id", 36).references(Users.id)
-    val tokenHash = varchar("token_hash", 64)
+    val tokenHash = varchar("token_hash", 64).index()
     val expiresAt = datetime("expires_at")
     val revokedAt = datetime("revoked_at").nullable()
     val createdAt = datetime("created_at")

@@ -26,12 +26,12 @@ class SyncService(private val config: AppConfig) {
         userId: String,
         familyId: String,
         request: UploadOpsRequest,
-    ): Result<UploadOpsResponse> {
+    ): UploadOpsResponse {
         if (request.ops.isEmpty()) {
-            return Result.failure(ApiException(400, "INVALID_REQUEST", "ops array must contain at least 1 entry"))
+            throw ApiException(400, "INVALID_REQUEST", "ops array must contain at least 1 entry")
         }
         if (request.ops.size > 100) {
-            return Result.failure(ApiException(400, "BATCH_TOO_LARGE", "ops array must contain at most 100 entries"))
+            throw ApiException(400, "BATCH_TOO_LARGE", "ops array must contain at most 100 entries")
         }
 
         return dbQuery {
@@ -44,31 +44,20 @@ class SyncService(private val config: AppConfig) {
                 val device = Devices.selectAll().where {
                     (Devices.id eq op.deviceId) and (Devices.userId eq userId)
                 }.firstOrNull()
-
-                if (device == null) {
-                    return@dbQuery Result.failure(
-                        ApiException(400, "INVALID_REQUEST", "Device ${op.deviceId} not found or not owned by user")
-                    )
-                }
+                    ?: throw ApiException(400, "INVALID_REQUEST", "Device ${op.deviceId} not found or not owned by user")
 
                 if (device[Devices.revokedAt] != null) {
-                    return@dbQuery Result.failure(
-                        ApiException(403, "DEVICE_REVOKED", "Device ${op.deviceId} has been revoked")
-                    )
+                    throw ApiException(403, "DEVICE_REVOKED", "Device ${op.deviceId} has been revoked")
                 }
 
                 // Validate entity type if provided
                 if (op.entityType != null && op.entityType !in ValidationUtil.VALID_ENTITY_TYPES) {
-                    return@dbQuery Result.failure(
-                        ApiException(400, "INVALID_ENTITY_TYPE", "Unknown entity type: ${op.entityType}")
-                    )
+                    throw ApiException(400, "INVALID_ENTITY_TYPE", "Unknown entity type: ${op.entityType}")
                 }
 
                 // Validate operation if provided
                 if (op.operation != null && op.operation !in ValidationUtil.VALID_OPERATIONS) {
-                    return@dbQuery Result.failure(
-                        ApiException(400, "INVALID_REQUEST", "Unknown operation: ${op.operation}")
-                    )
+                    throw ApiException(400, "INVALID_REQUEST", "Unknown operation: ${op.operation}")
                 }
 
                 // Validate hash chain: check devicePrevHash matches the last known hash for this device
@@ -81,12 +70,10 @@ class SyncService(private val config: AppConfig) {
                 if (lastOp != null) {
                     val expectedPrevHash = lastOp[OpLog.currentHash] ?: lastOp[OpLog.devicePrevHash]
                     if (op.devicePrevHash != expectedPrevHash) {
-                        return@dbQuery Result.failure(
-                            ApiException(
-                                409,
-                                "HASH_CHAIN_BREAK",
-                                "Expected devicePrevHash '$expectedPrevHash' but got '${op.devicePrevHash}'"
-                            )
+                        throw ApiException(
+                            409,
+                            "HASH_CHAIN_BREAK",
+                            "Expected devicePrevHash '$expectedPrevHash' but got '${op.devicePrevHash}'"
                         )
                     }
 
@@ -95,34 +82,26 @@ class SyncService(private val config: AppConfig) {
                         val expectedSeq = lastOp[OpLog.deviceSequence]!! + 1
                         if (op.deviceSequence != expectedSeq) {
                             if (op.deviceSequence <= lastOp[OpLog.deviceSequence]!!) {
-                                return@dbQuery Result.failure(
-                                    ApiException(409, "SEQUENCE_DUPLICATE", "deviceSequence ${op.deviceSequence} already used")
-                                )
+                                throw ApiException(409, "SEQUENCE_DUPLICATE", "deviceSequence ${op.deviceSequence} already used")
                             }
-                            return@dbQuery Result.failure(
-                                ApiException(400, "SEQUENCE_GAP", "Expected deviceSequence $expectedSeq but got ${op.deviceSequence}")
-                            )
+                            throw ApiException(400, "SEQUENCE_GAP", "Expected deviceSequence $expectedSeq but got ${op.deviceSequence}")
                         }
                     }
                 } else {
                     // First op from this device: devicePrevHash should be all zeros
                     val sentinel = "0".repeat(64)
                     if (op.devicePrevHash != sentinel && op.deviceSequence == 1) {
-                        return@dbQuery Result.failure(
-                            ApiException(
-                                409,
-                                "HASH_CHAIN_BREAK",
-                                "First op from device must have devicePrevHash of 64 zeros"
-                            )
+                        throw ApiException(
+                            409,
+                            "HASH_CHAIN_BREAK",
+                            "First op from device must have devicePrevHash of 64 zeros"
                         )
                     }
                 }
 
                 // Validate hash correctness: currentHash is now required
                 if (!HashUtil.verifyHashChain(op.devicePrevHash, op.encryptedPayload, op.currentHash)) {
-                    return@dbQuery Result.failure(
-                        ApiException(409, "HASH_MISMATCH", "currentHash does not match computed hash")
-                    )
+                    throw ApiException(409, "HASH_MISMATCH", "currentHash does not match computed hash")
                 }
 
                 // Validate ScheduleOverride state transitions
@@ -134,7 +113,7 @@ class SyncService(private val config: AppConfig) {
                         actingUserId = userId,
                     )
                     if (validationResult != null) {
-                        return@dbQuery Result.failure(validationResult)
+                        throw validationResult
                     }
                 }
 
@@ -185,7 +164,7 @@ class SyncService(private val config: AppConfig) {
             // Check if we crossed a checkpoint boundary
             maybeCreateCheckpoint(familyId)
 
-            Result.success(UploadOpsResponse(accepted = accepted))
+            UploadOpsResponse(accepted = accepted)
         }
     }
 

@@ -5,8 +5,18 @@ import io.ktor.server.application.*
 import io.ktor.server.plugins.cors.routing.*
 
 fun Application.configureCORS() {
+    val allowedOrigins = System.getenv("KIDSYNC_CORS_ORIGINS")
+        ?.split(",")
+        ?.map { it.trim() }
+        ?: emptyList()
+
     install(CORS) {
-        anyHost()
+        if (allowedOrigins.isEmpty()) {
+            // Development mode: allow all origins
+            anyHost()
+        } else {
+            allowedOrigins.forEach { origin -> allowHost(origin, schemes = listOf("https")) }
+        }
         allowMethod(HttpMethod.Get)
         allowMethod(HttpMethod.Post)
         allowMethod(HttpMethod.Put)

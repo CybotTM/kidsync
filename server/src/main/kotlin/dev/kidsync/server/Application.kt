@@ -1,14 +1,17 @@
 package dev.kidsync.server
 
 import dev.kidsync.server.db.DatabaseFactory
+import dev.kidsync.server.db.DatabaseFactory.dbQuery
 import dev.kidsync.server.plugins.*
 import dev.kidsync.server.routes.*
 import dev.kidsync.server.services.*
 import dev.kidsync.server.util.JwtUtil
+import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.engine.*
 import io.ktor.server.netty.*
 import io.ktor.server.plugins.calllogging.*
+import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import org.slf4j.LoggerFactory
 import org.slf4j.event.Level
@@ -50,6 +53,17 @@ fun Application.module(config: AppConfig = AppConfig()) {
 
     // Configure routes
     routing {
+        // Health check (unauthenticated)
+        get("/health") {
+            val dbOk = try {
+                dbQuery { true }
+            } catch (_: Exception) {
+                false
+            }
+            val status = if (dbOk) HttpStatusCode.OK else HttpStatusCode.ServiceUnavailable
+            call.respond(status, mapOf("status" to if (dbOk) "ok" else "degraded", "db" to dbOk))
+        }
+
         authRoutes(authService)
         familyRoutes()
         deviceRoutes()
