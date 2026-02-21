@@ -56,6 +56,16 @@ fun Route.bucketRoutes(bucketService: BucketService, wsManager: WebSocketManager
                             throw ApiException(400, "INVALID_REQUEST", "tokenHash is required")
                         }
 
+                        // SEC2-S-22: Max length validation for tokenHash
+                        if (request.tokenHash.length > 128) {
+                            throw ApiException(400, "INVALID_REQUEST", "tokenHash exceeds maximum length")
+                        }
+
+                        // SEC2-S-13: Validate tokenHash is a valid SHA-256 hex string (64 hex chars)
+                        if (!ValidationUtil.isValidSha256Hex(request.tokenHash)) {
+                            throw ApiException(400, "INVALID_REQUEST", "tokenHash must be exactly 64 lowercase hex characters (SHA-256)")
+                        }
+
                         val response = bucketService.createInvite(bucketId, principal.deviceId, request.tokenHash)
                         call.respond(HttpStatusCode.Created, response)
                     }

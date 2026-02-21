@@ -16,6 +16,37 @@ import org.bouncycastle.crypto.signers.Ed25519Signer
 import org.jetbrains.exposed.sql.selectAll
 import java.time.Instant
 import java.util.Base64
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
+
+/**
+ * SEC2-S-11: Per-signing-key rate limiter for challenge requests.
+ * Limits each signing key to MAX_CHALLENGES_PER_KEY_PER_MINUTE requests per minute.
+ */
+private object ChallengeKeyRateLimiter {
+    private const val MAX_CHALLENGES_PER_KEY_PER_MINUTE = 5
+    private const val WINDOW_MS = 60_000L
+
+    private data class KeyWindow(val count: AtomicInteger = AtomicInteger(0), val windowStart: AtomicLong = AtomicLong(0))
+    private val windows = ConcurrentHashMap<String, KeyWindow>()
+
+    fun checkAndIncrement(signingKey: String): Boolean {
+        val now = System.currentTimeMillis()
+        val window = windows.computeIfAbsent(signingKey) { KeyWindow() }
+
+        // Reset window if expired
+        val start = window.windowStart.get()
+        if (now - start > WINDOW_MS) {
+            window.windowStart.set(now)
+            window.count.set(1)
+            return true
+        }
+
+        val current = window.count.incrementAndGet()
+        return current <= MAX_CHALLENGES_PER_KEY_PER_MINUTE
+    }
+}
 
 fun Route.authRoutes(config: AppConfig, sessionUtil: SessionUtil) {
     route("/auth") {
@@ -29,6 +60,11 @@ fun Route.authRoutes(config: AppConfig, sessionUtil: SessionUtil) {
 
                 if (request.signingKey.isBlank()) {
                     throw ApiException(400, "INVALID_REQUEST", "signingKey is required")
+                }
+
+                // SEC2-S-11: Per-signing-key rate limit to prevent challenge DoS
+                if (!ChallengeKeyRateLimiter.checkAndIncrement(request.signingKey)) {
+                    throw ApiException(429, "RATE_LIMITED", "Too many challenge requests for this key")
                 }
 
                 // Verify the signing key is registered

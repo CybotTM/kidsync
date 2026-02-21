@@ -30,24 +30,30 @@ class WebSocketManager {
 
     /**
      * Add a connection. Returns false if connection limits are exceeded.
+     *
+     * SEC2-S-09: Uses synchronized block to make the count-check-and-add atomic,
+     * preventing race conditions where concurrent connections could both pass the
+     * limit check before either is added.
      */
     fun addConnection(bucketId: String, connection: WsConnection): Boolean {
         val bucketConnections = connections.computeIfAbsent(bucketId) { ConcurrentHashMap.newKeySet() }
 
-        // SEC-S-06: Enforce per-device connection limit
-        val deviceCount = bucketConnections.count { it.deviceId == connection.deviceId }
-        if (deviceCount >= MAX_CONNECTIONS_PER_DEVICE) {
-            logger.warn("WebSocket connection limit per device reached: device={} bucket={}", connection.deviceId, bucketId)
-            return false
-        }
+        synchronized(bucketConnections) {
+            // SEC-S-06: Enforce per-device connection limit
+            val deviceCount = bucketConnections.count { it.deviceId == connection.deviceId }
+            if (deviceCount >= MAX_CONNECTIONS_PER_DEVICE) {
+                logger.warn("WebSocket connection limit per device reached: device={} bucket={}", connection.deviceId, bucketId)
+                return false
+            }
 
-        // SEC-S-06: Enforce per-bucket connection limit
-        if (bucketConnections.size >= MAX_CONNECTIONS_PER_BUCKET) {
-            logger.warn("WebSocket connection limit per bucket reached: bucket={}", bucketId)
-            return false
-        }
+            // SEC-S-06: Enforce per-bucket connection limit
+            if (bucketConnections.size >= MAX_CONNECTIONS_PER_BUCKET) {
+                logger.warn("WebSocket connection limit per bucket reached: bucket={}", bucketId)
+                return false
+            }
 
-        bucketConnections.add(connection)
+            bucketConnections.add(connection)
+        }
         logger.info("WebSocket connected: device={} bucket={}", connection.deviceId, bucketId)
         return true
     }

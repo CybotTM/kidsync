@@ -46,9 +46,20 @@ class KeyService {
                 throw ApiException(403, "BUCKET_ACCESS_DENIED", "Devices must share a bucket")
             }
 
-            // Upsert: replace existing wrapped key for this device + epoch
-            WrappedKeys.deleteWhere {
-                (targetDevice eq request.targetDevice) and (keyEpoch eq request.keyEpoch)
+            // SEC2-S-23: Check if a wrapped key already exists for this target + epoch.
+            // Return 409 Conflict instead of silently overwriting, so clients are aware
+            // of potential key epoch collisions and can handle them explicitly.
+            val existing = WrappedKeys.selectAll().where {
+                (WrappedKeys.targetDevice eq request.targetDevice) and
+                    (WrappedKeys.keyEpoch eq request.keyEpoch)
+            }.firstOrNull()
+
+            if (existing != null) {
+                throw ApiException(
+                    409,
+                    "KEY_ALREADY_EXISTS",
+                    "A wrapped key already exists for this target device and epoch"
+                )
             }
 
             WrappedKeys.insert {
@@ -94,6 +105,11 @@ class KeyService {
     /**
      * Upload a key cross-signature (attestation).
      * The signer device attests that the attested device owns the specified encryption key.
+     *
+     * SEC2-S-19: The attestation signature is NOT verified server-side. This is by design:
+     * the server operates in a zero-knowledge model where it stores but does not interpret
+     * cryptographic material. Clients are responsible for verifying attestation signatures
+     * when consuming them. The server merely provides authenticated storage and relay.
      */
     suspend fun uploadAttestation(signerDeviceId: String, request: KeyAttestationRequest) {
         if (request.signature.length > 4096) {

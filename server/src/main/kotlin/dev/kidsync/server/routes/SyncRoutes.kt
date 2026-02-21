@@ -21,6 +21,7 @@ import io.ktor.websocket.*
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.*
 import org.jetbrains.exposed.sql.*
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.security.MessageDigest
 import java.time.Instant
@@ -112,13 +113,23 @@ fun Route.syncRoutes(
                             }
                             is PartData.FileItem -> {
                                 if (part.name == "snapshot") {
-                                    // SEC-S-05: Check size immediately after reading to fail fast
-                                    val bytes = part.provider().toByteArray()
-                                    if (bytes.size > config.maxSnapshotSizeBytes) {
-                                        part.dispose()
-                                        throw ApiException(413, "SNAPSHOT_TOO_LARGE", "Snapshot exceeds size limit")
+                                    // SEC2-S-04: Track bytes read during multipart processing to
+                                    // guard against chunked transfer encoding bypassing Content-Length.
+                                    val channel = part.provider()
+                                    val buffer = ByteArrayOutputStream()
+                                    val chunk = ByteArray(8192)
+                                    var totalRead = 0L
+                                    while (!channel.isClosedForRead) {
+                                        val read = channel.readAvailable(chunk)
+                                        if (read == -1) break
+                                        totalRead += read
+                                        if (totalRead > config.maxSnapshotSizeBytes) {
+                                            part.dispose()
+                                            throw ApiException(413, "SNAPSHOT_TOO_LARGE", "Snapshot exceeds size limit")
+                                        }
+                                        buffer.write(chunk, 0, read)
                                     }
-                                    snapshotBytes = bytes
+                                    snapshotBytes = buffer.toByteArray()
                                 }
                             }
                             else -> {}

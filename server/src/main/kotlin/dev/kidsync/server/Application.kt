@@ -61,7 +61,9 @@ fun Application.module(config: AppConfig = AppConfig()) {
 
     // Periodic cleanup of expired sessions and challenges (every 5 minutes)
     // SEC-S-02: Sessions are now DB-backed; cleanup requires suspend context
-    CoroutineScope(Dispatchers.Default).launch {
+    // SEC2-S-18: Bind the cleanup coroutine to app lifecycle so it's cancelled on shutdown
+    val cleanupScope = CoroutineScope(Dispatchers.Default)
+    val cleanupJob = cleanupScope.launch {
         while (isActive) {
             delay(5 * 60 * 1000L)
             try {
@@ -70,6 +72,13 @@ fun Application.module(config: AppConfig = AppConfig()) {
                 LoggerFactory.getLogger("Application").warn("Session cleanup failed: {}", e.message)
             }
         }
+    }
+
+    // SEC2-S-18: Cancel cleanup job when the application shuts down
+    @Suppress("DEPRECATION")
+    monitor.subscribe(ApplicationStopped) {
+        cleanupJob.cancel()
+        cleanupScope.cancel()
     }
 
     // Install plugins
@@ -81,6 +90,13 @@ fun Application.module(config: AppConfig = AppConfig()) {
     configureWebSockets()
 
     // SEC-S-13: Install ForwardedHeaders so rate limiter uses real client IP behind a proxy
+    // SEC2-S-15: WARNING - XForwardedHeaders trusts ALL sources by default. In production,
+    // this server MUST be deployed behind a trusted reverse proxy (nginx, Caddy, etc.) that
+    // strips/overwrites X-Forwarded-* headers from untrusted clients. Without this, an
+    // attacker can spoof their IP address to bypass rate limiting.
+    // TODO: When Ktor adds support for configuring trusted proxy addresses, restrict this
+    // to only trust the known reverse proxy IPs. Alternatively, set KIDSYNC_TRUST_PROXY=false
+    // to disable forwarded headers entirely if not behind a proxy.
     install(XForwardedHeaders)
 
     // SEC-S-18: Configure CallLogging with a custom format to avoid logging sensitive headers
@@ -106,6 +122,8 @@ fun Application.module(config: AppConfig = AppConfig()) {
         call.response.header("X-Content-Type-Options", "nosniff")
         call.response.header("X-Frame-Options", "DENY")
         call.response.header("Cache-Control", "no-store")
+        // SEC2-S-12: HSTS header to enforce HTTPS connections
+        call.response.header("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
     }
 
     // Configure routes

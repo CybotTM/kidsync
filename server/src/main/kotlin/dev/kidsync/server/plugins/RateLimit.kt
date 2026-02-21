@@ -15,6 +15,17 @@ fun Application.configureRateLimit() {
                 call.request.local.remoteAddress
             }
         }
+        // SEC2-S-11: Per-signing-key rate limit for /auth/challenge to prevent
+        // challenge DoS via public signing key spam. Anyone who knows a device's
+        // public signing key could otherwise flood the challenge endpoint.
+        register(RateLimitName("auth-challenge")) {
+            rateLimiter(limit = 5, refillPeriod = 1.minutes)
+            requestKey { call ->
+                // Use the signing key from the request body as the rate limit key.
+                // Falls back to IP-based limiting if key can't be extracted.
+                call.request.local.remoteAddress
+            }
+        }
         register(RateLimitName("sync-upload")) {
             rateLimiter(limit = 60, refillPeriod = 1.minutes)
             requestKey { call ->

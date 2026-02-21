@@ -15,6 +15,9 @@ repositories {
     mavenCentral()
 }
 
+// SEC2-S-10: Dependency versions should be periodically reviewed for security updates.
+// Run: ./gradlew dependencyUpdates (with com.github.ben-manes.versions plugin)
+// or check manually at https://github.com/advisories
 val ktorVersion = "3.0.3"
 val exposedVersion = "0.57.0"
 val logbackVersion = "1.5.15"

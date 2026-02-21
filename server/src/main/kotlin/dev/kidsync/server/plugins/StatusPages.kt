@@ -26,13 +26,14 @@ fun Application.configureStatusPages() {
             )
         }
 
+        // SEC2-S-17: BadRequest errors may leak internal details. Return a generic message.
         exception<BadRequestException> { call, cause ->
             logger.warn("Bad request: {}", cause.message)
             call.respond(
                 HttpStatusCode.BadRequest,
                 ErrorResponse(
                     error = "INVALID_REQUEST",
-                    message = cause.message ?: "Bad request",
+                    message = "Bad request",
                 )
             )
         }
@@ -43,29 +44,32 @@ fun Application.configureStatusPages() {
                 HttpStatusCode.BadRequest,
                 ErrorResponse(
                     error = "INVALID_REQUEST",
-                    message = cause.message ?: "Invalid request body",
+                    message = "Invalid request body",
                 )
             )
         }
 
+        // SEC2-S-16: SerializationException may leak internal type information.
+        // Return a generic message instead of the exception details.
         exception<SerializationException> { call, cause ->
             logger.warn("Serialization error: {}", cause.message)
             call.respond(
                 HttpStatusCode.BadRequest,
                 ErrorResponse(
                     error = "INVALID_REQUEST",
-                    message = cause.message ?: "Invalid request body",
+                    message = "Invalid request body",
                 )
             )
         }
 
+        // SEC2-S-17: IllegalArgumentException may leak internal details. Return a generic message.
         exception<IllegalArgumentException> { call, cause ->
             logger.warn("Bad request (IllegalArgument): {}", cause.message)
             call.respond(
                 HttpStatusCode.BadRequest,
                 ErrorResponse(
                     error = "INVALID_REQUEST",
-                    message = cause.message ?: "Bad request",
+                    message = "Bad request",
                 )
             )
         }

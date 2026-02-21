@@ -11,6 +11,15 @@ import org.sqlite.SQLiteDataSource
 import java.io.File
 import java.util.concurrent.atomic.AtomicLong
 
+/**
+ * SEC2-S-20: The SQLite database is not encrypted at rest by default. For production
+ * deployments handling sensitive data, consider:
+ * 1. Using SQLCipher (drop-in replacement for sqlite-jdbc) for encryption at rest
+ * 2. Deploying on an encrypted filesystem (LUKS, dm-crypt, etc.)
+ * 3. Using full-disk encryption on the host
+ * To enable SQLCipher, replace the sqlite-jdbc dependency with sqlcipher-android or
+ * a JVM SQLCipher driver, and provide the encryption key via KIDSYNC_DB_KEY env var.
+ */
 object DatabaseFactory {
 
     private lateinit var database: Database

@@ -11,6 +11,9 @@ import java.security.SecureRandom
 import java.time.Instant
 import java.util.*
 
+/** SEC2-S-07: Maximum number of concurrent sessions per device */
+private const val MAX_SESSIONS_PER_DEVICE = 5
+
 /**
  * Session data stored server-side for authenticated devices.
  * SEC-S-02: Sessions are now persisted in the database to survive server restarts.
@@ -101,6 +104,9 @@ class SessionUtil(private val config: AppConfig) {
 
     /**
      * Create a new session for a device. Returns the opaque session token.
+     *
+     * SEC2-S-07: Enforces MAX_SESSIONS_PER_DEVICE limit. When the limit is reached,
+     * the oldest sessions are deleted to make room for the new one.
      */
     suspend fun createSession(deviceId: String, signingKey: String): Pair<String, Session> {
         val tokenBytes = ByteArray(32)
@@ -115,6 +121,26 @@ class SessionUtil(private val config: AppConfig) {
         )
 
         dbQuery {
+            // SEC2-S-07: Enforce max sessions per device (limit 5).
+            // Delete oldest sessions if limit would be exceeded.
+            val existingCount = Sessions.selectAll()
+                .where { Sessions.deviceId eq deviceId }
+                .count()
+
+            if (existingCount >= MAX_SESSIONS_PER_DEVICE) {
+                // Find the oldest sessions to delete
+                val sessionsToKeep = MAX_SESSIONS_PER_DEVICE - 1
+                val oldestTokens = Sessions.selectAll()
+                    .where { Sessions.deviceId eq deviceId }
+                    .orderBy(Sessions.createdAt, SortOrder.ASC)
+                    .limit((existingCount - sessionsToKeep).toInt())
+                    .map { it[Sessions.token] }
+
+                for (oldToken in oldestTokens) {
+                    Sessions.deleteWhere { Sessions.token eq oldToken }
+                }
+            }
+
             Sessions.insert {
                 it[Sessions.token] = token
                 it[Sessions.deviceId] = deviceId

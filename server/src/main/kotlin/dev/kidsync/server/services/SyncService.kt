@@ -16,6 +16,23 @@ import java.time.format.DateTimeFormatter
  */
 data class CheckpointCreated(val startSequence: Long, val endSequence: Long)
 
+/**
+ * SEC2-S-05: DESIGN NOTE - Per-device hash chains.
+ * Each device maintains its own independent hash chain that does not cross-reference
+ * other devices' chains. This is by design: it allows devices to operate independently
+ * and upload ops without coordinating hash state with other devices. The trade-off is
+ * that independent forks are possible -- each device's chain can be verified in isolation,
+ * but the server cannot detect if two devices diverge. Cross-device consistency is
+ * ensured at the application layer via the encrypted CRDT payloads, not at the hash
+ * chain layer.
+ *
+ * SEC2-S-14: DESIGN NOTE - Global sequence and checkpoint sparsity.
+ * The global sequence number is shared across all devices in a bucket. Checkpoints
+ * are created at fixed global sequence intervals (e.g., every 100 ops). For buckets
+ * with sparse activity from many devices, checkpoints may contain ops from multiple
+ * devices. This is by design: checkpoints provide an integrity anchor for the global
+ * op stream, not per-device streams.
+ */
 class SyncService(private val config: AppConfig) {
 
     private val isoFormatter = DateTimeFormatter.ISO_INSTANT
@@ -83,12 +100,13 @@ class SyncService(private val config: AppConfig) {
                 }
 
                 // Validate hash chain using in-memory running hash
+                // SEC2-S-08: Error message does not expose server-side expected hash
                 if (runningHash != null) {
                     if (op.prevHash != runningHash) {
                         throw ApiException(
                             409,
                             "HASH_CHAIN_BREAK",
-                            "Expected prevHash '$runningHash' but got '${op.prevHash}'"
+                            "Hash chain mismatch: prevHash does not match expected value"
                         )
                     }
                 } else {

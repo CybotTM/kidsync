@@ -133,20 +133,28 @@ class BucketService(
 
     /**
      * Redeem an invite token to join a bucket.
+     *
+     * SEC2-S-01: Uses atomic UPDATE with WHERE status='unused' (usedAt IS NULL) to prevent
+     * race conditions where two concurrent joins could both read the same invite as pending
+     * and both succeed. Only the first UPDATE that sets usedAt will affect 1 row.
+     *
+     * SEC2-S-02: Checks for previously revoked access and rejects the join. A device that
+     * was removed from a bucket cannot rejoin using any invite -- it must be explicitly
+     * re-invited by another device that creates a new invite after the revocation.
      */
     suspend fun joinBucket(bucketId: String, deviceId: String, inviteToken: String): JoinResponse {
         return dbQuery {
             val tokenHash = HashUtil.sha256HexString(inviteToken)
             val now = LocalDateTime.now(ZoneOffset.UTC)
 
-            // Stage 1: Find token by hash + bucketId
+            // Stage 1: Find token by hash + bucketId (for error differentiation)
             val invite = InviteTokens.selectAll().where {
                 (InviteTokens.tokenHash eq tokenHash) and
                     (InviteTokens.bucketId eq bucketId)
             }.firstOrNull()
                 ?: throw ApiException(404, "INVITE_INVALID", "Invalid invite token")
 
-            // Stage 2: Check if already used
+            // Stage 2: Check if already used (for better error message)
             if (invite[InviteTokens.usedAt] != null) {
                 throw ApiException(410, "INVITE_CONSUMED", "Invite token has already been used")
             }
@@ -154,6 +162,28 @@ class BucketService(
             // Stage 3: Check if expired
             if (invite[InviteTokens.expiresAt] <= now) {
                 throw ApiException(410, "INVITE_EXPIRED", "Invite token has expired")
+            }
+
+            // SEC2-S-02: Check if this device was previously revoked from this bucket.
+            // A revoked device cannot rejoin without an explicit new invitation created
+            // after the revocation.
+            val existingRevoked = BucketAccess.selectAll().where {
+                (BucketAccess.bucketId eq bucketId) and
+                    (BucketAccess.deviceId eq deviceId) and
+                    BucketAccess.revokedAt.isNotNull()
+            }.firstOrNull()
+
+            if (existingRevoked != null) {
+                // Verify the invite was created AFTER the revocation (explicit re-invitation)
+                val revokedAt = existingRevoked[BucketAccess.revokedAt]!!
+                val inviteCreatedAt = invite[InviteTokens.createdAt]
+                if (inviteCreatedAt <= revokedAt) {
+                    throw ApiException(
+                        403,
+                        "DEVICE_REVOKED",
+                        "Device was removed from this bucket and cannot rejoin with this invite"
+                    )
+                }
             }
 
             // Check if already has active access
@@ -167,20 +197,23 @@ class BucketService(
                 throw ApiException(409, "INVALID_REQUEST", "Device already has access to this bucket")
             }
 
-            // Mark invite as used
-            InviteTokens.update({ InviteTokens.tokenHash eq tokenHash }) {
+            // SEC2-S-01: Atomic invite consumption -- use UPDATE with WHERE usedAt IS NULL
+            // to prevent race conditions. Only the first concurrent request will match.
+            val updatedRows = InviteTokens.update({
+                (InviteTokens.tokenHash eq tokenHash) and
+                    InviteTokens.usedAt.isNull() and
+                    (InviteTokens.expiresAt greater now)
+            }) {
                 it[usedAt] = now
             }
 
-            // Check for a previously revoked access record and re-activate it
-            val existingRevoked = BucketAccess.selectAll().where {
-                (BucketAccess.bucketId eq bucketId) and
-                    (BucketAccess.deviceId eq deviceId) and
-                    BucketAccess.revokedAt.isNotNull()
-            }.firstOrNull()
+            if (updatedRows == 0) {
+                // Another concurrent request consumed the invite first
+                throw ApiException(410, "INVITE_CONSUMED", "Invite token has already been used")
+            }
 
+            // Re-activate previously revoked access or grant new
             if (existingRevoked != null) {
-                // Re-activate existing revoked record
                 BucketAccess.update({
                     (BucketAccess.bucketId eq bucketId) and
                         (BucketAccess.deviceId eq deviceId) and

@@ -12,6 +12,7 @@ import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.utils.io.*
+import java.io.ByteArrayOutputStream
 
 fun Route.blobRoutes(blobService: BlobService) {
     authenticate("auth-session") {
@@ -25,6 +26,7 @@ fun Route.blobRoutes(blobService: BlobService) {
                     val principal = call.devicePrincipal()
                     val bucketId = ValidationUtil.requireUuidPathParam(call, "id", "bucket id")
 
+                    val maxBlobSize = 10 * 1024 * 1024L // 10 MB max
                     val multipart = call.receiveMultipart()
                     var fileBytes: ByteArray? = null
                     var clientSha256: String? = null
@@ -33,13 +35,23 @@ fun Route.blobRoutes(blobService: BlobService) {
                         when (part) {
                             is PartData.FileItem -> {
                                 if (part.name == "file") {
-                                    // SEC-S-05: Check size immediately after reading to fail fast
-                                    val bytes = part.provider().toByteArray()
-                                    if (bytes.size > 10 * 1024 * 1024) { // 10 MB max
-                                        part.dispose()
-                                        throw ApiException(413, "PAYLOAD_TOO_LARGE", "File exceeds size limit")
+                                    // SEC2-S-04: Track bytes read during multipart processing to
+                                    // guard against chunked transfer encoding bypassing Content-Length.
+                                    val channel = part.provider()
+                                    val buffer = ByteArrayOutputStream()
+                                    val chunk = ByteArray(8192)
+                                    var totalRead = 0L
+                                    while (!channel.isClosedForRead) {
+                                        val read = channel.readAvailable(chunk)
+                                        if (read == -1) break
+                                        totalRead += read
+                                        if (totalRead > maxBlobSize) {
+                                            part.dispose()
+                                            throw ApiException(413, "PAYLOAD_TOO_LARGE", "File exceeds size limit")
+                                        }
+                                        buffer.write(chunk, 0, read)
                                     }
-                                    fileBytes = bytes
+                                    fileBytes = buffer.toByteArray()
                                 }
                             }
                             is PartData.FormItem -> {

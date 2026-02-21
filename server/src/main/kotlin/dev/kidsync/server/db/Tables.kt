@@ -49,6 +49,13 @@ object Ops : Table("ops") {
     val createdAt = datetime("created_at")
 
     override val primaryKey = PrimaryKey(sequence)
+
+    init {
+        // SEC2-S-06: Unique constraint to prevent concurrent op uploads from the same device
+        // with the same prevHash from both succeeding. The first insert wins; the second
+        // will fail with a constraint violation and should be retried.
+        uniqueIndex(deviceId, bucketId, prevHash)
+    }
 }
 
 // ---- Blobs ----

@@ -18,5 +18,7 @@
 
     <logger name="io.ktor" level="INFO" />
     <logger name="org.jetbrains.exposed" level="INFO" />
-    <logger name="dev.kidsync" level="DEBUG" />
+    <!-- SEC2-S-21: Default to INFO in production. Override via KIDSYNC_LOG_LEVEL env var
+         or -Dlogback.configurationFile=/path/to/custom-logback.xml for DEBUG in development. -->
+    <logger name="dev.kidsync" level="${KIDSYNC_LOG_LEVEL:-INFO}" />
 </configuration>
