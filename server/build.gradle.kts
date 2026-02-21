@@ -44,6 +44,9 @@ dependencies {
     // kotlinx.serialization
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
+    // Cryptography (Ed25519 signature verification)
+    implementation("org.bouncycastle:bcprov-jdk18on:1.79")
+
     // Logging
     implementation("ch.qos.logback:logback-classic:$logbackVersion")
     implementation("net.logstash.logback:logstash-logback-encoder:8.0")

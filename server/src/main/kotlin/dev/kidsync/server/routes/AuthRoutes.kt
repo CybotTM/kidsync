@@ -11,8 +11,11 @@ import io.ktor.server.plugins.ratelimit.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters
+import org.bouncycastle.crypto.signers.Ed25519Signer
 import org.jetbrains.exposed.sql.selectAll
 import java.time.Instant
+import java.util.Base64
 
 fun Route.authRoutes(config: AppConfig, sessionUtil: SessionUtil) {
     route("/auth") {
@@ -54,11 +57,8 @@ fun Route.authRoutes(config: AppConfig, sessionUtil: SessionUtil) {
              * POST /auth/verify
              * Verify a signed challenge nonce and issue a session token.
              *
-             * Note: In the zero-knowledge design, the server cannot verify Ed25519 signatures
-             * without importing a crypto library. For this implementation, the server trusts
-             * that the client possesses the private key based on the challenge-response protocol.
-             * The signature field is stored for audit purposes and can be verified by adding
-             * an Ed25519 library (e.g., Bouncy Castle) in production.
+             * The server verifies the Ed25519 signature using BouncyCastle to prove
+             * the client possesses the private key corresponding to the registered public key.
              *
              * The challenge message the client signs is: nonce || signingKey || serverOrigin || timestamp
              */
@@ -85,6 +85,46 @@ fun Route.authRoutes(config: AppConfig, sessionUtil: SessionUtil) {
                 // Consume the nonce (one-time use)
                 val challenge = sessionUtil.consumeChallenge(request.nonce, request.signingKey)
                     ?: throw ApiException(401, "UNAUTHORIZED", "Invalid, expired, or already-used nonce")
+
+                // Verify Ed25519 signature
+                val challengeMessage = "${request.nonce}${request.signingKey}${config.serverOrigin}${request.timestamp}"
+                val messageBytes = challengeMessage.toByteArray(Charsets.UTF_8)
+
+                val signatureBytes = try {
+                    Base64.getDecoder().decode(request.signature)
+                } catch (_: Exception) {
+                    throw ApiException(401, "UNAUTHORIZED", "Invalid signature encoding")
+                }
+
+                val publicKeyEncoded = try {
+                    Base64.getDecoder().decode(request.signingKey)
+                } catch (_: Exception) {
+                    throw ApiException(401, "UNAUTHORIZED", "Invalid signing key encoding")
+                }
+
+                // Extract raw 32-byte Ed25519 key from X.509 SubjectPublicKeyInfo encoding
+                // JDK Ed25519 public keys are encoded as: 12-byte X.509 prefix + 32-byte raw key
+                val rawKeyBytes = if (publicKeyEncoded.size == 44) {
+                    publicKeyEncoded.copyOfRange(12, 44)
+                } else if (publicKeyEncoded.size == 32) {
+                    publicKeyEncoded
+                } else {
+                    throw ApiException(401, "UNAUTHORIZED", "Invalid public key format")
+                }
+
+                val verified = try {
+                    val pubKeyParams = Ed25519PublicKeyParameters(rawKeyBytes, 0)
+                    val verifier = Ed25519Signer()
+                    verifier.init(false, pubKeyParams)
+                    verifier.update(messageBytes, 0, messageBytes.size)
+                    verifier.verifySignature(signatureBytes)
+                } catch (_: Exception) {
+                    false
+                }
+
+                if (!verified) {
+                    throw ApiException(401, "UNAUTHORIZED", "Invalid signature")
+                }
 
                 // Look up the device
                 val device = dbQuery {

@@ -194,10 +194,9 @@ class AuthTest {
     }
 
     @Test
-    fun `verify with different private key but correct signing key succeeds without server-side signature verification`() = testApplication {
-        // Note: The server does NOT verify Ed25519 signatures server-side.
-        // It trusts the challenge-response protocol (nonce + signing key match).
-        // A production deployment would add an Ed25519 verification library.
+    fun `verify with different private key returns 401`() = testApplication {
+        // The server verifies Ed25519 signatures using BouncyCastle,
+        // so signing with a different private key must be rejected.
         application { module(testConfig()) }
         val client = createJsonClient()
 
@@ -209,7 +208,6 @@ class AuthTest {
         }.body<ChallengeResponse>()
 
         // Sign with a DIFFERENT key (not the one registered)
-        // Server does not verify the signature, so this will succeed
         val wrongKeyPair = generateSigningKeyPair()
         val (wrongSignature, timestamp) = signChallenge(
             privateKey = wrongKeyPair.private,
@@ -227,8 +225,8 @@ class AuthTest {
             ))
         }
 
-        // Server trusts challenge-response without verifying signature
-        assertEquals(HttpStatusCode.OK, response.status)
+        // Server verifies Ed25519 signature and rejects wrong key
+        assertEquals(HttpStatusCode.Unauthorized, response.status)
     }
 
     @Test
