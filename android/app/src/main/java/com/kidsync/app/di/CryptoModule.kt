@@ -30,8 +30,8 @@ object CryptoModule {
 
     @Provides
     @Singleton
-    fun provideCryptoManager(): CryptoManager {
-        return TinkCryptoManager()
+    fun provideCryptoManager(keyManager: dagger.Lazy<KeyManager>): CryptoManager {
+        return TinkCryptoManager(keyManager)
     }
 
     @Provides

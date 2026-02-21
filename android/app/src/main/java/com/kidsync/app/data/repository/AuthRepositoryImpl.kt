@@ -162,7 +162,7 @@ class AuthRepositoryImpl @Inject constructor(
     /**
      * Build the challenge message to sign.
      * Format: nonce || signingKey || serverOrigin || timestamp
-     * Each component is concatenated as UTF-8 bytes with "|" separator.
+     * Concatenated directly as UTF-8 string bytes (no separator), matching server-side construction.
      */
     private fun buildChallengeMessage(
         nonce: String,
@@ -170,7 +170,7 @@ class AuthRepositoryImpl @Inject constructor(
         serverOrigin: String,
         timestamp: String
     ): ByteArray {
-        return "$nonce|$signingKey|$serverOrigin|$timestamp".toByteArray(Charsets.UTF_8)
+        return "$nonce$signingKey$serverOrigin$timestamp".toByteArray(Charsets.UTF_8)
     }
 }
 

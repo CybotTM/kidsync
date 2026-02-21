@@ -6,6 +6,7 @@ import com.kidsync.app.domain.model.CalendarEvent
 import com.kidsync.app.domain.model.EntityType
 import com.kidsync.app.domain.model.OperationType
 import com.kidsync.app.domain.repository.AuthRepository
+import com.kidsync.app.domain.repository.BucketRepository
 import com.kidsync.app.domain.usecase.sync.CreateOperationUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -13,7 +14,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.time.Instant
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import java.time.LocalDate
 import java.time.LocalTime
 import java.util.UUID
@@ -47,7 +49,8 @@ data class EventFormUiState(
 @HiltViewModel
 class EventFormViewModel @Inject constructor(
     private val createOperationUseCase: CreateOperationUseCase,
-    private val authRepository: AuthRepository
+    private val authRepository: AuthRepository,
+    private val bucketRepository: BucketRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(EventFormUiState())
@@ -79,7 +82,7 @@ class EventFormViewModel @Inject constructor(
     fun startEditingEvent(event: CalendarEvent) {
         _uiState.update {
             it.copy(
-                editingEventId = event.eventId,
+                editingEventId = try { UUID.fromString(event.eventId) } catch (_: Exception) { null },
                 eventTitle = event.title,
                 eventDate = event.date,
                 eventTime = event.time,
@@ -148,31 +151,30 @@ class EventFormViewModel @Inject constructor(
                     return@launch
                 }
 
+                val bucketId = bucketRepository.getAccessibleBuckets().firstOrNull() ?: run {
+                    _uiState.update { it.copy(isSavingEvent = false, error = "No bucket available") }
+                    return@launch
+                }
+
                 val eventId = state.editingEventId ?: UUID.randomUUID()
                 val operationType = if (state.editingEventId != null) OperationType.UPDATE else OperationType.CREATE
-                val payloadType = if (state.editingEventId != null) "UpdateEvent" else "CreateEvent"
 
-                val payloadMap = buildMap<String, Any?> {
-                    put("payloadType", payloadType)
-                    put("entityId", eventId.toString())
-                    put("timestamp", Instant.now().toString())
-                    put("operationType", operationType.name)
-                    put("eventId", eventId.toString())
-                    put("childId", childId.toString())
-                    put("title", title)
-                    put("date", date.toString())
-                    state.eventTime?.let { put("time", it.toString()) }
-                    state.eventLocation.takeIf { it.isNotBlank() }?.let { put("location", it) }
-                    state.eventNotes.takeIf { it.isNotBlank() }?.let { put("notes", it) }
+                val contentData = buildJsonObject {
+                    put("eventId", JsonPrimitive(eventId.toString()))
+                    put("childId", JsonPrimitive(childId.toString()))
+                    put("title", JsonPrimitive(title))
+                    put("date", JsonPrimitive(date.toString()))
+                    state.eventTime?.let { put("time", JsonPrimitive(it.toString())) }
+                    state.eventLocation.takeIf { it.isNotBlank() }?.let { put("location", JsonPrimitive(it)) }
+                    state.eventNotes.takeIf { it.isNotBlank() }?.let { put("notes", JsonPrimitive(it)) }
                 }
 
                 val result = createOperationUseCase(
-                    familyId = session.familyId,
-                    deviceId = session.deviceId,
+                    bucketId = bucketId,
                     entityType = EntityType.Event,
-                    entityId = eventId,
+                    entityId = eventId.toString(),
                     operationType = operationType,
-                    payloadMap = payloadMap
+                    contentData = contentData
                 )
 
                 result.fold(
@@ -208,21 +210,22 @@ class EventFormViewModel @Inject constructor(
                     return@launch
                 }
 
-                val payloadMap = mapOf(
-                    "payloadType" to "CancelEvent",
-                    "entityId" to eventId.toString(),
-                    "timestamp" to Instant.now().toString(),
-                    "operationType" to OperationType.UPDATE.name,
-                    "eventId" to eventId.toString()
-                )
+                val bucketId = bucketRepository.getAccessibleBuckets().firstOrNull() ?: run {
+                    _uiState.update { it.copy(isLoading = false, error = "No bucket available") }
+                    return@launch
+                }
+
+                val contentData = buildJsonObject {
+                    put("eventId", JsonPrimitive(eventId.toString()))
+                    put("cancelled", JsonPrimitive(true))
+                }
 
                 val result = createOperationUseCase(
-                    familyId = session.familyId,
-                    deviceId = session.deviceId,
+                    bucketId = bucketId,
                     entityType = EntityType.Event,
-                    entityId = eventId,
+                    entityId = eventId.toString(),
                     operationType = OperationType.UPDATE,
-                    payloadMap = payloadMap
+                    contentData = contentData
                 )
 
                 result.fold(

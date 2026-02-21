@@ -8,6 +8,7 @@ import com.kidsync.app.domain.model.EntityType
 import com.kidsync.app.domain.model.InfoBankCategory
 import com.kidsync.app.domain.model.OperationType
 import com.kidsync.app.domain.repository.AuthRepository
+import com.kidsync.app.domain.repository.BucketRepository
 import com.kidsync.app.domain.usecase.sync.CreateOperationUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,6 +16,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import java.time.Instant
 import java.util.UUID
 import javax.inject.Inject
@@ -72,7 +75,8 @@ data class InfoBankUiState(
 class InfoBankViewModel @Inject constructor(
     private val infoBankDao: InfoBankDao,
     private val createOperationUseCase: CreateOperationUseCase,
-    private val authRepository: AuthRepository
+    private val authRepository: AuthRepository,
+    private val bucketRepository: BucketRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(InfoBankUiState())
@@ -331,60 +335,62 @@ class InfoBankViewModel @Inject constructor(
                 return@launch
             }
 
+            val bucketId = bucketRepository.getAccessibleBuckets().firstOrNull()
+            if (bucketId == null) {
+                _uiState.update {
+                    it.copy(isSaving = false, error = "No bucket available")
+                }
+                return@launch
+            }
+
             val entryId = state.editingEntryId ?: UUID.randomUUID()
             val isUpdate = state.isEditing
             val operationType = if (isUpdate) OperationType.UPDATE else OperationType.CREATE
-            val payloadType = if (isUpdate) "UpdateInfoBankEntry" else "CreateInfoBankEntry"
 
-            val payloadMap = buildMap<String, Any?> {
-                put("payloadType", payloadType)
-                put("entityId", entryId.toString())
-                put("timestamp", Instant.now().toString())
-                put("operationType", operationType.name)
-                put("entryId", entryId.toString())
-                put("childId", state.formChildId.toString())
-                put("category", state.formCategory.name)
+            val contentData = buildJsonObject {
+                put("entryId", JsonPrimitive(entryId.toString()))
+                put("childId", JsonPrimitive(state.formChildId.toString()))
+                put("category", JsonPrimitive(state.formCategory.name))
 
                 when (state.formCategory) {
                     InfoBankCategory.MEDICAL -> {
-                        state.formAllergies.ifBlank { null }?.let { put("allergies", it) }
-                        state.formMedicationName.ifBlank { null }?.let { put("medicationName", it) }
-                        state.formMedicationDosage.ifBlank { null }?.let { put("medicationDosage", it) }
-                        state.formMedicationSchedule.ifBlank { null }?.let { put("medicationSchedule", it) }
-                        state.formDoctorName.ifBlank { null }?.let { put("doctorName", it) }
-                        state.formDoctorPhone.ifBlank { null }?.let { put("doctorPhone", it) }
-                        state.formInsuranceInfo.ifBlank { null }?.let { put("insuranceInfo", it) }
-                        state.formBloodType.ifBlank { null }?.let { put("bloodType", it) }
+                        state.formAllergies.ifBlank { null }?.let { put("allergies", JsonPrimitive(it)) }
+                        state.formMedicationName.ifBlank { null }?.let { put("medicationName", JsonPrimitive(it)) }
+                        state.formMedicationDosage.ifBlank { null }?.let { put("medicationDosage", JsonPrimitive(it)) }
+                        state.formMedicationSchedule.ifBlank { null }?.let { put("medicationSchedule", JsonPrimitive(it)) }
+                        state.formDoctorName.ifBlank { null }?.let { put("doctorName", JsonPrimitive(it)) }
+                        state.formDoctorPhone.ifBlank { null }?.let { put("doctorPhone", JsonPrimitive(it)) }
+                        state.formInsuranceInfo.ifBlank { null }?.let { put("insuranceInfo", JsonPrimitive(it)) }
+                        state.formBloodType.ifBlank { null }?.let { put("bloodType", JsonPrimitive(it)) }
                     }
                     InfoBankCategory.SCHOOL -> {
-                        state.formSchoolName.ifBlank { null }?.let { put("schoolName", it) }
-                        state.formTeacherNames.ifBlank { null }?.let { put("teacherNames", it) }
-                        state.formGradeClass.ifBlank { null }?.let { put("gradeClass", it) }
-                        state.formSchoolPhone.ifBlank { null }?.let { put("schoolPhone", it) }
-                        state.formScheduleNotes.ifBlank { null }?.let { put("scheduleNotes", it) }
+                        state.formSchoolName.ifBlank { null }?.let { put("schoolName", JsonPrimitive(it)) }
+                        state.formTeacherNames.ifBlank { null }?.let { put("teacherNames", JsonPrimitive(it)) }
+                        state.formGradeClass.ifBlank { null }?.let { put("gradeClass", JsonPrimitive(it)) }
+                        state.formSchoolPhone.ifBlank { null }?.let { put("schoolPhone", JsonPrimitive(it)) }
+                        state.formScheduleNotes.ifBlank { null }?.let { put("scheduleNotes", JsonPrimitive(it)) }
                     }
                     InfoBankCategory.EMERGENCY_CONTACT -> {
-                        put("contactName", state.formContactName.trim())
-                        state.formRelationship.ifBlank { null }?.let { put("relationship", it) }
-                        state.formPhone.ifBlank { null }?.let { put("phone", it) }
-                        state.formEmail.ifBlank { null }?.let { put("email", it) }
+                        put("contactName", JsonPrimitive(state.formContactName.trim()))
+                        state.formRelationship.ifBlank { null }?.let { put("relationship", JsonPrimitive(it)) }
+                        state.formPhone.ifBlank { null }?.let { put("phone", JsonPrimitive(it)) }
+                        state.formEmail.ifBlank { null }?.let { put("email", JsonPrimitive(it)) }
                     }
                     InfoBankCategory.NOTE -> {
-                        put("title", state.formTitle.trim())
-                        put("content", state.formContent.trim())
-                        state.formTag.ifBlank { null }?.let { put("tag", it) }
+                        put("title", JsonPrimitive(state.formTitle.trim()))
+                        put("content", JsonPrimitive(state.formContent.trim()))
+                        state.formTag.ifBlank { null }?.let { put("tag", JsonPrimitive(it)) }
                     }
                 }
-                state.formNotes.ifBlank { null }?.let { put("notes", it) }
+                state.formNotes.ifBlank { null }?.let { put("notes", JsonPrimitive(it)) }
             }
 
             val result = createOperationUseCase(
-                familyId = session.familyId,
-                deviceId = session.deviceId,
+                bucketId = bucketId,
                 entityType = EntityType.InfoBank,
-                entityId = entryId,
+                entityId = entryId.toString(),
                 operationType = operationType,
-                payloadMap = payloadMap
+                contentData = contentData
             )
 
             result.fold(
@@ -449,21 +455,24 @@ class InfoBankViewModel @Inject constructor(
                 return@launch
             }
 
-            val payloadMap = buildMap<String, Any?> {
-                put("payloadType", "DeleteInfoBankEntry")
-                put("entityId", entryId.toString())
-                put("timestamp", Instant.now().toString())
-                put("operationType", "DELETE")
-                put("entryId", entryId.toString())
+            val bucketId = bucketRepository.getAccessibleBuckets().firstOrNull()
+            if (bucketId == null) {
+                _uiState.update {
+                    it.copy(isLoading = false, error = "No bucket available")
+                }
+                return@launch
+            }
+
+            val contentData = buildJsonObject {
+                put("entryId", JsonPrimitive(entryId.toString()))
             }
 
             val result = createOperationUseCase(
-                familyId = session.familyId,
-                deviceId = session.deviceId,
+                bucketId = bucketId,
                 entityType = EntityType.InfoBank,
-                entityId = entryId,
+                entityId = entryId.toString(),
                 operationType = OperationType.DELETE,
-                payloadMap = payloadMap
+                contentData = contentData
             )
 
             result.fold(

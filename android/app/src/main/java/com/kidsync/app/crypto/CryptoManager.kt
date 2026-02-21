@@ -19,15 +19,13 @@ interface CryptoManager {
         /**
          * Build the Additional Authenticated Data string for AES-256-GCM payload encryption.
          *
-         * Format: "bucketId|deviceId|deviceSequence|keyEpoch"
+         * Format: "bucketId|deviceId"
          * All components are UTF-8 encoded.
          */
         fun buildPayloadAad(
             bucketId: String,
-            deviceId: String,
-            deviceSequence: Long,
-            keyEpoch: Int
-        ): String = "$bucketId|$deviceId|$deviceSequence|$keyEpoch"
+            deviceId: String
+        ): String = "$bucketId|$deviceId"
     }
 
     // ─── Ed25519 Signing ────────────────────────────────────────────────────────
@@ -117,7 +115,7 @@ interface CryptoManager {
      *
      * @param plaintext The canonical JSON string to encrypt
      * @param dek The 256-bit Data Encryption Key
-     * @param aad Additional Authenticated Data: "bucketId|deviceId|deviceSequence|keyEpoch"
+     * @param aad Additional Authenticated Data: "bucketId|deviceId"
      * @return Base64-encoded string: nonce (12 bytes) || ciphertext || tag (16 bytes)
      */
     fun encryptPayload(plaintext: String, dek: ByteArray, aad: String): String
@@ -129,7 +127,7 @@ interface CryptoManager {
      *
      * @param encryptedPayload Base64-encoded string: nonce || ciphertext || tag
      * @param dek The 256-bit Data Encryption Key
-     * @param aad Additional Authenticated Data: "bucketId|deviceId|deviceSequence|keyEpoch"
+     * @param aad Additional Authenticated Data: "bucketId|deviceId"
      * @return The decrypted canonical JSON string
      */
     fun decryptPayload(encryptedPayload: String, dek: ByteArray, aad: String): String

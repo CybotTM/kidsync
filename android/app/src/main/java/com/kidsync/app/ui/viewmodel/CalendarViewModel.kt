@@ -8,7 +8,7 @@ import com.kidsync.app.domain.model.CustodySchedule
 import com.kidsync.app.domain.model.ScheduleOverride
 import com.kidsync.app.domain.usecase.custody.GetCustodyCalendarUseCase
 import com.kidsync.app.domain.repository.AuthRepository
-import com.kidsync.app.domain.repository.FamilyRepository
+import com.kidsync.app.domain.repository.BucketRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -120,7 +120,7 @@ enum class PatternPreset(
 class CalendarViewModel @Inject constructor(
     private val getCustodyCalendarUseCase: GetCustodyCalendarUseCase,
     private val authRepository: AuthRepository,
-    private val familyRepository: FamilyRepository
+    private val bucketRepository: BucketRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(CalendarUiState())
@@ -134,8 +134,9 @@ class CalendarViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val session = authRepository.getSession() ?: return@launch
-                val family = familyRepository.getFamily(session.familyId)
-                if (family?.isSolo == true) {
+                val bucketId = bucketRepository.getAccessibleBuckets().firstOrNull() ?: return@launch
+                val isSolo = bucketRepository.getBucketDevices(bucketId).getOrDefault(emptyList()).size <= 1
+                if (isSolo) {
                     _uiState.update { it.copy(isSolo = true) }
                 }
             } catch (_: Exception) {

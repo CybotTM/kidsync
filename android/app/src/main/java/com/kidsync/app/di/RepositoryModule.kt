@@ -65,13 +65,15 @@ object RepositoryModule {
         apiService: ApiService,
         bucketDao: BucketDao,
         keyAttestationDao: KeyAttestationDao,
-        cryptoManager: CryptoManager
+        cryptoManager: CryptoManager,
+        @Named("encrypted_prefs") encryptedPrefs: SharedPreferences
     ): BucketRepository {
         return BucketRepositoryImpl(
             apiService = apiService,
             bucketDao = bucketDao,
             keyAttestationDao = keyAttestationDao,
-            cryptoManager = cryptoManager
+            cryptoManager = cryptoManager,
+            encryptedPrefs = encryptedPrefs
         )
     }
 }

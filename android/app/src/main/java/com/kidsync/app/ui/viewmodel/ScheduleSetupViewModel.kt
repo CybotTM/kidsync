@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.kidsync.app.domain.model.EntityType
 import com.kidsync.app.domain.model.OperationType
 import com.kidsync.app.domain.repository.AuthRepository
+import com.kidsync.app.domain.repository.BucketRepository
 import com.kidsync.app.domain.usecase.sync.CreateOperationUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -12,6 +13,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import java.time.Instant
 import java.time.LocalDate
 import java.util.UUID
@@ -45,7 +49,8 @@ data class ScheduleSetupUiState(
 @HiltViewModel
 class ScheduleSetupViewModel @Inject constructor(
     private val createOperationUseCase: CreateOperationUseCase,
-    private val authRepository: AuthRepository
+    private val authRepository: AuthRepository,
+    private val bucketRepository: BucketRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ScheduleSetupUiState())
@@ -135,32 +140,32 @@ class ScheduleSetupViewModel @Inject constructor(
                     return@launch
                 }
 
-                val scheduleId = UUID.randomUUID()
-                val patternUuids = pattern.map { isParentA ->
-                    if (isParentA) parentAId.toString() else parentBId.toString()
+                val bucketId = bucketRepository.getAccessibleBuckets().firstOrNull() ?: run {
+                    _uiState.update { it.copy(isLoading = false, error = "No bucket available") }
+                    return@launch
                 }
 
-                val payloadMap = mapOf(
-                    "payloadType" to "SetCustodySchedule",
-                    "entityId" to scheduleId.toString(),
-                    "timestamp" to Instant.now().toString(),
-                    "operationType" to OperationType.CREATE.name,
-                    "scheduleId" to scheduleId.toString(),
-                    "childId" to childId.toString(),
-                    "anchorDate" to anchorDate.toString(),
-                    "cycleLengthDays" to state.setupCycleLength,
-                    "pattern" to patternUuids,
-                    "effectiveFrom" to Instant.now().toString(),
-                    "timeZone" to state.setupTimeZone
-                )
+                val scheduleId = UUID.randomUUID()
+                val patternUuids = pattern.map { isParentA ->
+                    JsonPrimitive(if (isParentA) parentAId.toString() else parentBId.toString())
+                }
+
+                val contentData = buildJsonObject {
+                    put("scheduleId", JsonPrimitive(scheduleId.toString()))
+                    put("childId", JsonPrimitive(childId.toString()))
+                    put("anchorDate", JsonPrimitive(anchorDate.toString()))
+                    put("cycleLengthDays", JsonPrimitive(state.setupCycleLength))
+                    put("pattern", JsonArray(patternUuids))
+                    put("effectiveFrom", JsonPrimitive(Instant.now().toString()))
+                    put("timeZone", JsonPrimitive(state.setupTimeZone))
+                }
 
                 val result = createOperationUseCase(
-                    familyId = session.familyId,
-                    deviceId = session.deviceId,
+                    bucketId = bucketId,
                     entityType = EntityType.CustodySchedule,
-                    entityId = scheduleId,
+                    entityId = scheduleId.toString(),
                     operationType = OperationType.CREATE,
-                    payloadMap = payloadMap
+                    contentData = contentData
                 )
 
                 result.fold(

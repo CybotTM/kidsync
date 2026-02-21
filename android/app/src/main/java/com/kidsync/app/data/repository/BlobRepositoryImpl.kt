@@ -6,7 +6,6 @@ import com.kidsync.app.domain.repository.BlobUploadResult
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.toRequestBody
-import java.util.UUID
 import javax.inject.Inject
 
 class BlobRepositoryImpl @Inject constructor(
@@ -14,8 +13,8 @@ class BlobRepositoryImpl @Inject constructor(
 ) : BlobRepository {
 
     override suspend fun uploadBlob(
-        familyId: UUID,
-        blobId: UUID,
+        bucketId: String,
+        blobId: String,
         encryptedData: ByteArray,
         mimeType: String
     ): Result<BlobUploadResult> {
@@ -27,17 +26,11 @@ class BlobRepositoryImpl @Inject constructor(
                 requestBody
             )
 
-            val response = apiService.uploadBlob(part)
-            if (!response.isSuccessful) {
-                return Result.failure(ApiException(response.code(), response.message()))
-            }
-
-            val body = response.body()
-                ?: return Result.failure(ApiException(500, "Empty response body"))
+            val body = apiService.uploadBlob(bucketId, part)
 
             Result.success(
                 BlobUploadResult(
-                    blobId = UUID.fromString(body.blobId),
+                    blobId = body.blobId,
                     sizeBytes = body.sizeBytes
                 )
             )
@@ -46,33 +39,26 @@ class BlobRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun downloadBlob(familyId: UUID, blobId: UUID): Result<ByteArray> {
+    override suspend fun downloadBlob(bucketId: String, blobId: String): Result<ByteArray> {
         return try {
-            val response = apiService.downloadBlob(blobId.toString())
-            if (!response.isSuccessful) {
-                return Result.failure(ApiException(response.code(), response.message()))
-            }
-
-            val body = response.body()
-                ?: return Result.failure(ApiException(500, "Empty response body"))
-
+            val body = apiService.downloadBlob(bucketId, blobId)
             Result.success(body.bytes())
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    override suspend fun getUploadUrl(familyId: UUID, blobId: UUID, mimeType: String): Result<String> {
+    override suspend fun getUploadUrl(bucketId: String, blobId: String, mimeType: String): Result<String> {
         // Direct upload is used instead of pre-signed URLs in this implementation
         return Result.success("direct-upload")
     }
 
-    override suspend fun confirmUpload(familyId: UUID, blobId: UUID): Result<Unit> {
+    override suspend fun confirmUpload(bucketId: String, blobId: String): Result<Unit> {
         // Upload confirmation is implicit with direct upload
         return Result.success(Unit)
     }
 
-    override suspend fun retryPendingUploads(familyId: UUID): Result<Int> {
+    override suspend fun retryPendingUploads(bucketId: String): Result<Int> {
         // Pending upload retry logic would be implemented with a local queue
         return Result.success(0)
     }

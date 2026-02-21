@@ -65,12 +65,10 @@ class CreateOperationUseCase @Inject constructor(
             val payloadJson = json.encodeToString(decryptedPayload)
 
             // 5. Encrypt: JSON -> gzip -> AES-256-GCM
-            //    AAD = "bucketId|deviceId|deviceSequence|keyEpoch"
+            //    AAD = "bucketId|deviceId"
             val aad = CryptoManager.buildPayloadAad(
                 bucketId = bucketId,
-                deviceId = deviceId,
-                deviceSequence = deviceSequence,
-                keyEpoch = currentEpoch
+                deviceId = deviceId
             )
             val encryptedPayload = cryptoManager.encryptPayload(
                 plaintext = payloadJson,

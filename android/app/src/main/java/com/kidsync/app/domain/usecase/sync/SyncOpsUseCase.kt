@@ -52,15 +52,9 @@ class SyncOpsUseCase @Inject constructor(
                     ?: return Result.failure(IllegalStateException("Missing DEK for epoch ${op.keyEpoch}"))
 
                 // Build AAD from the envelope fields
-                // deviceSequence is inside the encrypted payload, but the sender also used it
-                // in the AAD. We need to reconstruct it. Since deviceSequence is embedded in
-                // the encrypted payload and was used to build the AAD, we decode it from the
-                // per-device sequence tracking.
                 val aad = buildPayloadAad(
                     bucketId = bucketId,
-                    deviceId = op.deviceId,
-                    deviceSequence = op.deviceSequence,
-                    keyEpoch = op.keyEpoch
+                    deviceId = op.deviceId
                 )
                 val decryptedJson = cryptoManager.decryptPayload(
                     encryptedPayload = op.encryptedPayload,

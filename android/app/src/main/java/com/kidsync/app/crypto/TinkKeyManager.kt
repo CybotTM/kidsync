@@ -203,7 +203,7 @@ class TinkKeyManager @Inject constructor(
         val keySpec = javax.crypto.spec.SecretKeySpec(recoveryKey, "AES")
         val gcmSpec = javax.crypto.spec.GCMParameterSpec(128, nonce)
         cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, keySpec, gcmSpec)
-        cipher.updateAAD("recovery-wrap".toByteArray())
+        cipher.updateAAD("recovery".toByteArray())
         val wrapped = cipher.doFinal(dek)
 
         val result = ByteArray(nonce.size + wrapped.size)
@@ -230,7 +230,7 @@ class TinkKeyManager @Inject constructor(
         val keySpec = javax.crypto.spec.SecretKeySpec(recoveryKey, "AES")
         val gcmSpec = javax.crypto.spec.GCMParameterSpec(128, nonce)
         cipher.init(javax.crypto.Cipher.DECRYPT_MODE, keySpec, gcmSpec)
-        cipher.updateAAD("recovery-wrap".toByteArray())
+        cipher.updateAAD("recovery".toByteArray())
         val dek = cipher.doFinal(wrapped)
 
         storeDek(bucketId, 1, dek)
@@ -280,9 +280,7 @@ class TinkKeyManager @Inject constructor(
     }
 
     override suspend fun storeSeed(seed: ByteArray) {
-        // Generate the keypair from seed and store both
-        val keyPair = cryptoManager.generateEd25519KeyPair() // uses seed internally
-        // Actually we need to derive from provided seed, so store seed directly
+        // Store seed directly
         encryptedPrefs.edit()
             .putString(PREF_SIGNING_SEED, Base64.getEncoder().encodeToString(seed))
             .apply()
@@ -301,16 +299,9 @@ class TinkKeyManager @Inject constructor(
     }
 
     override fun deriveSigningKeyPair(seed: ByteArray): Pair<ByteArray, ByteArray> {
-        // Ed25519 keypair from seed: the seed IS the private key
-        // The public key is derived from the seed
-        // For now, generate from seed using CryptoManager's internal logic
-        // The seed bytes are the Ed25519 private key seed
-        val ed25519PublicKey = cryptoManager.ed25519PublicToX25519(seed)
-        // Actually, Ed25519 public key derivation from seed is different from
-        // Ed25519->X25519 conversion. The CryptoManager.generateEd25519KeyPair()
-        // returns (publicKey, seed). So we re-derive using the same crypto.
-        // For now, use the stored public key if available, otherwise derive.
-        return Pair(seed, seed) // placeholder - actual derivation uses crypto internals
+        val privateParams = org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters(seed, 0)
+        val publicKey = privateParams.generatePublicKey().encoded
+        return Pair(publicKey, seed)
     }
 
     override fun deriveEncryptionKeyPair(seed: ByteArray): Pair<ByteArray, ByteArray> {

@@ -10,7 +10,7 @@ import com.kidsync.app.domain.model.OverrideStatus
 import com.kidsync.app.domain.model.OverrideType
 import com.kidsync.app.domain.model.ScheduleOverride
 import com.kidsync.app.domain.repository.AuthRepository
-import com.kidsync.app.domain.repository.FamilyRepository
+import com.kidsync.app.domain.repository.BucketRepository
 import com.kidsync.app.domain.usecase.sync.CreateOperationUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import java.time.Instant
 import java.time.LocalDate
 import java.util.UUID
@@ -64,7 +66,7 @@ data class SwapRequestUiState(
 class SwapRequestViewModel @Inject constructor(
     private val createOperationUseCase: CreateOperationUseCase,
     private val authRepository: AuthRepository,
-    private val familyRepository: FamilyRepository
+    private val bucketRepository: BucketRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SwapRequestUiState())
@@ -78,8 +80,9 @@ class SwapRequestViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val session = authRepository.getSession() ?: return@launch
-                val family = familyRepository.getFamily(session.familyId)
-                if (family?.isSolo == true) {
+                val bucketId = bucketRepository.getAccessibleBuckets().firstOrNull() ?: return@launch
+                val isSolo = bucketRepository.getBucketDevices(bucketId).getOrDefault(emptyList()).size <= 1
+                if (isSolo) {
                     _uiState.update { it.copy(isSolo = true) }
                 }
             } catch (_: Exception) {
@@ -88,7 +91,7 @@ class SwapRequestViewModel @Inject constructor(
         }
     }
 
-    // ── Context Setup ────────────────────────────────────────────────────
+    // ── Context Setup ────────────────────────────────────────────────
 
     fun setChildId(childId: UUID) {
         _uiState.update { it.copy(childId = childId) }
@@ -113,7 +116,7 @@ class SwapRequestViewModel @Inject constructor(
         _uiState.update { it.copy(pendingSwaps = swaps) }
     }
 
-    // ── Swap Request Form ────────────────────────────────────────────────
+    // ── Swap Request Form ────────────────────────────────────────────
 
     fun initializeSwapForDate(date: LocalDate) {
         _uiState.update {
@@ -193,34 +196,33 @@ class SwapRequestViewModel @Inject constructor(
                     return@launch
                 }
 
+                val bucketId = bucketRepository.getAccessibleBuckets().firstOrNull() ?: run {
+                    _uiState.update { it.copy(isSubmittingSwap = false, error = "No bucket available") }
+                    return@launch
+                }
+
                 val overrideId = UUID.randomUUID()
                 // The swap assigns the OTHER parent for the requested days
-                val assignedParentId = if (session.userId == parentAId) parentBId else parentAId
+                val assignedParentId = parentBId // Default swap target
 
-                val payloadMap = mapOf(
-                    "payloadType" to "UpsertOverride",
-                    "entityId" to overrideId.toString(),
-                    "timestamp" to Instant.now().toString(),
-                    "operationType" to OperationType.CREATE.name,
-                    "overrideId" to overrideId.toString(),
-                    "type" to OverrideType.SWAP_REQUEST.name,
-                    "childId" to childId.toString(),
-                    "startDate" to startDate.toString(),
-                    "endDate" to endDate.toString(),
-                    "assignedParentId" to assignedParentId.toString(),
-                    "status" to OverrideStatus.PROPOSED.name,
-                    "proposerId" to session.userId.toString(),
-                    "note" to state.swapNote.ifBlank { null }
-                )
+                val contentData = buildJsonObject {
+                    put("overrideId", JsonPrimitive(overrideId.toString()))
+                    put("type", JsonPrimitive(OverrideType.SWAP_REQUEST.name))
+                    put("childId", JsonPrimitive(childId.toString()))
+                    put("startDate", JsonPrimitive(startDate.toString()))
+                    put("endDate", JsonPrimitive(endDate.toString()))
+                    put("assignedParentId", JsonPrimitive(assignedParentId.toString()))
+                    put("status", JsonPrimitive(OverrideStatus.PROPOSED.name))
+                    put("proposerDeviceId", JsonPrimitive(session.deviceId))
+                    state.swapNote.ifBlank { null }?.let { put("note", JsonPrimitive(it)) }
+                }
 
                 val result = createOperationUseCase(
-                    familyId = session.familyId,
-                    deviceId = session.deviceId,
+                    bucketId = bucketId,
                     entityType = EntityType.ScheduleOverride,
-                    entityId = overrideId,
+                    entityId = overrideId.toString(),
                     operationType = OperationType.CREATE,
-                    payloadMap = payloadMap,
-                    transitionTo = OverrideStatus.PROPOSED.name
+                    contentData = contentData
                 )
 
                 result.fold(
@@ -250,7 +252,7 @@ class SwapRequestViewModel @Inject constructor(
         }
     }
 
-    // ── Swap Approval/Decline ────────────────────────────────────────────
+    // ── Swap Approval/Decline ────────────────────────────────────────
 
     fun approveSwap(overrideId: UUID) {
         respondToSwap(overrideId, OverrideStatus.APPROVED)
@@ -270,24 +272,23 @@ class SwapRequestViewModel @Inject constructor(
                     return@launch
                 }
 
-                val payloadMap = mapOf(
-                    "payloadType" to "UpsertOverride",
-                    "entityId" to overrideId.toString(),
-                    "timestamp" to Instant.now().toString(),
-                    "operationType" to OperationType.UPDATE.name,
-                    "overrideId" to overrideId.toString(),
-                    "status" to newStatus.name,
-                    "responderId" to session.userId.toString()
-                )
+                val bucketId = bucketRepository.getAccessibleBuckets().firstOrNull() ?: run {
+                    _uiState.update { it.copy(isLoading = false, error = "No bucket available") }
+                    return@launch
+                }
+
+                val contentData = buildJsonObject {
+                    put("overrideId", JsonPrimitive(overrideId.toString()))
+                    put("status", JsonPrimitive(newStatus.name))
+                    put("responderDeviceId", JsonPrimitive(session.deviceId))
+                }
 
                 val result = createOperationUseCase(
-                    familyId = session.familyId,
-                    deviceId = session.deviceId,
+                    bucketId = bucketId,
                     entityType = EntityType.ScheduleOverride,
-                    entityId = overrideId,
+                    entityId = overrideId.toString(),
                     operationType = OperationType.UPDATE,
-                    payloadMap = payloadMap,
-                    transitionTo = newStatus.name
+                    contentData = contentData
                 )
 
                 result.fold(
@@ -306,7 +307,7 @@ class SwapRequestViewModel @Inject constructor(
         }
     }
 
-    // ── Utility ──────────────────────────────────────────────────────────
+    // ── Utility ──────────────────────────────────────────────────────
 
     fun clearError() {
         _uiState.update { it.copy(error = null) }

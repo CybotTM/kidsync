@@ -10,8 +10,8 @@ import com.kidsync.app.domain.model.Expense
 import com.kidsync.app.domain.model.ExpenseCategory
 import com.kidsync.app.domain.model.ExpenseStatusType
 import com.kidsync.app.domain.repository.AuthRepository
+import com.kidsync.app.domain.repository.BucketRepository
 import com.kidsync.app.domain.repository.ExpenseRepository
-import com.kidsync.app.domain.repository.FamilyRepository
 import com.kidsync.app.domain.usecase.expense.CreateExpenseUseCase
 import com.kidsync.app.domain.usecase.expense.ExpenseSummary
 import com.kidsync.app.domain.usecase.expense.GetExpenseSummaryUseCase
@@ -100,7 +100,7 @@ class ExpenseViewModel @Inject constructor(
     private val getExpenseSummaryUseCase: GetExpenseSummaryUseCase,
     private val expenseRepository: ExpenseRepository,
     private val authRepository: AuthRepository,
-    private val familyRepository: FamilyRepository,
+    private val bucketRepository: BucketRepository,
     private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -120,8 +120,9 @@ class ExpenseViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val session = authRepository.getSession() ?: return@launch
-                val family = familyRepository.getFamily(session.familyId)
-                if (family?.isSolo == true) {
+                val bucketId = bucketRepository.getAccessibleBuckets().firstOrNull() ?: return@launch
+                val isSolo = bucketRepository.getBucketDevices(bucketId).getOrDefault(emptyList()).size <= 1
+                if (isSolo) {
                     _uiState.update {
                         it.copy(
                             isSolo = true,
@@ -163,7 +164,7 @@ class ExpenseViewModel @Inject constructor(
                 val filtered = applyFilters(expensesWithStatus, _uiState.value.filter)
 
                 // Calculate balance: positive means they owe you, negative means you owe them
-                val balance = calculateBalance(allExpenses, session?.userId)
+                val balance = calculateBalance(allExpenses, session?.deviceId)
 
                 // Determine currency from first expense or default
                 val currency = allExpenses.firstOrNull()?.currencyCode ?: "USD"
@@ -286,12 +287,19 @@ class ExpenseViewModel @Inject constructor(
                 return@launch
             }
 
+            val bucketId = bucketRepository.getAccessibleBuckets().firstOrNull()
+            if (bucketId == null) {
+                _uiState.update {
+                    it.copy(isLoading = false, error = "No bucket available")
+                }
+                return@launch
+            }
+
             val result = updateExpenseStatusUseCase(
-                familyId = session.familyId,
-                deviceId = session.deviceId,
-                expenseId = expenseId,
+                bucketId = bucketId,
+                expenseId = expenseId.toString(),
                 status = status,
-                responderId = session.userId,
+                responderDeviceId = session.deviceId,
                 note = note
             )
 
@@ -383,10 +391,18 @@ class ExpenseViewModel @Inject constructor(
                 return@launch
             }
 
+            val bucketId = bucketRepository.getAccessibleBuckets().firstOrNull()
+            if (bucketId == null) {
+                _uiState.update {
+                    it.copy(isSaving = false, error = "No bucket available")
+                }
+                return@launch
+            }
+
             val expense = Expense(
-                expenseId = UUID.randomUUID(),
-                childId = state.addChildId,
-                paidByUserId = session.userId,
+                expenseId = UUID.randomUUID().toString(),
+                childId = state.addChildId.toString(),
+                paidByDeviceId = session.deviceId,
                 amountCents = amountCents,
                 currencyCode = state.addCurrencyCode,
                 category = state.addCategory,
@@ -396,8 +412,7 @@ class ExpenseViewModel @Inject constructor(
             )
 
             val result = createExpenseUseCase(
-                familyId = session.familyId,
-                deviceId = session.deviceId,
+                bucketId = bucketId,
                 expense = expense
             )
 
@@ -471,13 +486,13 @@ class ExpenseViewModel @Inject constructor(
 
                 val session = authRepository.getSession()
                 val totalCents = periodExpenses.sumOf { it.amountCents.toLong() }
-                val userId = session?.userId
+                val deviceId = session?.deviceId
 
                 var yourShare = 0L
                 var theirShare = 0L
                 for (expense in periodExpenses) {
                     val ratio = expense.payerResponsibilityRatio
-                    if (userId != null && expense.paidByUserId == userId) {
+                    if (deviceId != null && expense.paidByUserId.toString() == deviceId) {
                         yourShare += (expense.amountCents * ratio).toLong()
                         theirShare += (expense.amountCents * (1 - ratio)).toLong()
                     } else {
@@ -553,15 +568,15 @@ class ExpenseViewModel @Inject constructor(
         return (amount * 100).toInt()
     }
 
-    private fun calculateBalance(expenses: List<ExpenseEntity>, userId: UUID?): Long {
-        if (userId == null) return 0L
+    private fun calculateBalance(expenses: List<ExpenseEntity>, deviceId: String?): Long {
+        if (deviceId == null) return 0L
 
         var youPaid = 0L
         var yourResponsibility = 0L
 
         for (expense in expenses) {
             val ratio = expense.payerResponsibilityRatio
-            if (expense.paidByUserId == userId) {
+            if (expense.paidByUserId.toString() == deviceId) {
                 youPaid += expense.amountCents
                 yourResponsibility += (expense.amountCents * ratio).toLong()
             } else {
