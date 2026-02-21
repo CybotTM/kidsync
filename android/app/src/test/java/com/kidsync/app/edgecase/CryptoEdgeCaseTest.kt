@@ -16,6 +16,8 @@ import io.kotest.property.arbitrary.int
 import io.kotest.property.checkAll
 import io.mockk.mockk
 import kotlinx.coroutines.*
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 
@@ -263,11 +265,12 @@ class CryptoEdgeCaseTest : FunSpec({
     test("all EntityType values exist") {
         val types = com.kidsync.app.domain.model.EntityType.entries
         types.size shouldBe 8
-        "CustodySchedule" in types.map { it.name } shouldBe true
-        "ScheduleOverride" in types.map { it.name } shouldBe true
-        "Expense" in types.map { it.name } shouldBe true
-        "CalendarEvent" in types.map { it.name } shouldBe true
-        "InfoBankEntry" in types.map { it.name } shouldBe true
+        val names = types.map { it.name }
+        names.contains("CustodySchedule") shouldBe true
+        names.contains("ScheduleOverride") shouldBe true
+        names.contains("Expense") shouldBe true
+        names.contains("CalendarEvent") shouldBe true
+        names.contains("InfoBankEntry") shouldBe true
     }
 
     test("OverrideType precedence ordering") {
