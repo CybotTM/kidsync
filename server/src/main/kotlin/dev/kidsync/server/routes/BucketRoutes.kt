@@ -1,5 +1,7 @@
 package dev.kidsync.server.routes
 
+import dev.kidsync.server.db.Devices
+import dev.kidsync.server.db.DatabaseFactory.dbQuery
 import dev.kidsync.server.models.*
 import dev.kidsync.server.plugins.devicePrincipal
 import dev.kidsync.server.services.ApiException
@@ -11,6 +13,7 @@ import io.ktor.server.plugins.ratelimit.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import org.jetbrains.exposed.sql.selectAll
 
 fun Route.bucketRoutes(bucketService: BucketService, wsManager: WebSocketManager) {
     authenticate("auth-session") {
@@ -74,8 +77,16 @@ fun Route.bucketRoutes(bucketService: BucketService, wsManager: WebSocketManager
 
                         val response = bucketService.joinBucket(bucketId, principal.deviceId, request.inviteToken)
 
+                        // Look up the joining device's encryption key for the WS notification
+                        val encryptionKey = dbQuery {
+                            Devices.selectAll()
+                                .where { Devices.id eq principal.deviceId }
+                                .firstOrNull()
+                                ?.get(Devices.encryptionKey) ?: ""
+                        }
+
                         // Notify existing devices about new device joining
-                        wsManager.notifyDeviceJoined(bucketId, principal.deviceId)
+                        wsManager.notifyDeviceJoined(bucketId, principal.deviceId, encryptionKey)
 
                         call.respond(HttpStatusCode.OK, response)
                     }

@@ -8,6 +8,7 @@ import kotlinx.serialization.Serializable
 data class ErrorResponse(
     val error: String,
     val message: String,
+    val details: kotlinx.serialization.json.JsonObject? = null,
 )
 
 // ---- Device Registration ----
@@ -76,8 +77,15 @@ data class OpResponse(
 )
 
 @Serializable
+data class AcceptedOp(
+    val index: Int,
+    val globalSequence: Long,
+    val serverTimestamp: String,
+)
+
+@Serializable
 data class OpsBatchResponse(
-    val accepted: Int,
+    val accepted: List<AcceptedOp>,
     val latestSequence: Long,
 )
 
@@ -117,6 +125,7 @@ data class AttestationListResponse(
 @Serializable
 data class SnapshotResponse(
     val snapshotId: String,
+    val deviceId: String,
     val atSequence: Long,
     val keyEpoch: Int,
     val sizeBytes: Long,

@@ -84,8 +84,8 @@ object TestHelper {
 
     /**
      * Sign a challenge message with an Ed25519 private key.
-     * Message format: nonce || signingKey || serverOrigin || timestamp
-     * All components are concatenated as UTF-8 bytes.
+     * Message format: base64Decode(nonce) || base64Decode(signingKey) || utf8(serverOrigin) || utf8(timestamp)
+     * Binary concatenation of raw bytes.
      */
     fun signChallenge(
         privateKey: PrivateKey,
@@ -94,10 +94,14 @@ object TestHelper {
         serverOrigin: String = "https://test.kidsync.app",
         timestamp: String = Instant.now().toString(),
     ): Pair<String, String> {
-        val message = "$nonce$signingKeyBase64$serverOrigin$timestamp"
+        val nonceBytes = Base64.getUrlDecoder().decode(nonce)
+        val signingKeyBytes = decoder.decode(signingKeyBase64)
+        val originBytes = serverOrigin.toByteArray(Charsets.UTF_8)
+        val timestampBytes = timestamp.toByteArray(Charsets.UTF_8)
+        val message = nonceBytes + signingKeyBytes + originBytes + timestampBytes
         val signer = Signature.getInstance("Ed25519")
         signer.initSign(privateKey)
-        signer.update(message.toByteArray(Charsets.UTF_8))
+        signer.update(message)
         val signatureBytes = signer.sign()
         return Pair(encoder.encodeToString(signatureBytes), timestamp)
     }
@@ -328,7 +332,7 @@ object TestHelper {
         }
         assertEquals(HttpStatusCode.Created, response.status, "Batch upload failed: ${response.bodyAsText()}")
         val body = response.body<OpsBatchResponse>()
-        assertEquals(count, body.accepted, "Expected $count accepted ops")
+        assertEquals(count, body.accepted.size, "Expected $count accepted ops")
         return prevHash
     }
 }

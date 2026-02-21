@@ -41,9 +41,19 @@ class SyncService(private val config: AppConfig) {
             BucketService.requireBucketAccess(bucketId, deviceId)
 
             val now = LocalDateTime.now(ZoneOffset.UTC)
+            val serverTimestamp = now.atOffset(ZoneOffset.UTC).format(isoFormatter)
             var latestSequence = 0L
+            val acceptedOps = mutableListOf<AcceptedOp>()
 
-            for (op in request.ops) {
+            // Query the last op once before the loop, then track running hash in memory
+            val lastExistingOp = Ops.selectAll()
+                .where { (Ops.deviceId eq deviceId) and (Ops.bucketId eq bucketId) }
+                .orderBy(Ops.sequence, SortOrder.DESC)
+                .limit(1)
+                .firstOrNull()
+            var runningHash: String? = lastExistingOp?.get(Ops.currentHash)
+
+            for ((index, op) in request.ops.withIndex()) {
                 // Verify the op's deviceId matches the authenticated device
                 if (op.deviceId != deviceId) {
                     throw ApiException(403, "FORBIDDEN", "Op deviceId does not match authenticated device")
@@ -72,20 +82,13 @@ class SyncService(private val config: AppConfig) {
                     throw ApiException(413, "PAYLOAD_TOO_LARGE", "Encrypted payload exceeds size limit")
                 }
 
-                // Validate hash chain: check prevHash matches the last known hash for this device in this bucket
-                val lastOp = Ops.selectAll()
-                    .where { (Ops.deviceId eq op.deviceId) and (Ops.bucketId eq bucketId) }
-                    .orderBy(Ops.sequence, SortOrder.DESC)
-                    .limit(1)
-                    .firstOrNull()
-
-                if (lastOp != null) {
-                    val expectedPrevHash = lastOp[Ops.currentHash]
-                    if (op.prevHash != expectedPrevHash) {
+                // Validate hash chain using in-memory running hash
+                if (runningHash != null) {
+                    if (op.prevHash != runningHash) {
                         throw ApiException(
                             409,
                             "HASH_CHAIN_BREAK",
-                            "Expected prevHash '$expectedPrevHash' but got '${op.prevHash}'"
+                            "Expected prevHash '$runningHash' but got '${op.prevHash}'"
                         )
                     }
                 } else {
@@ -117,6 +120,12 @@ class SyncService(private val config: AppConfig) {
                 } get Ops.sequence
 
                 latestSequence = seq
+                runningHash = op.currentHash
+                acceptedOps.add(AcceptedOp(
+                    index = index,
+                    globalSequence = seq,
+                    serverTimestamp = serverTimestamp,
+                ))
             }
 
             // Check if we crossed a checkpoint boundary
@@ -124,7 +133,7 @@ class SyncService(private val config: AppConfig) {
 
             Pair(
                 OpsBatchResponse(
-                    accepted = request.ops.size,
+                    accepted = acceptedOps,
                     latestSequence = latestSequence,
                 ),
                 checkpoint,

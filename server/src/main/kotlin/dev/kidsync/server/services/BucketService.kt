@@ -50,16 +50,12 @@ class BucketService(
                 ?: throw ApiException(404, "NOT_FOUND", "Bucket not found")
 
             if (bucket[Buckets.createdBy] != deviceId) {
-                throw ApiException(403, "FORBIDDEN", "Only the bucket creator can delete it")
+                throw ApiException(403, "NOT_BUCKET_CREATOR", "Only the bucket creator can delete it")
             }
 
-            // Delete wrapped keys for devices that had access to this bucket
-            val deviceIds = BucketAccess.selectAll()
-                .where { BucketAccess.bucketId eq bucketId }
-                .map { it[BucketAccess.deviceId] }
-            for (devId in deviceIds) {
-                WrappedKeys.deleteWhere { WrappedKeys.targetDevice eq devId }
-            }
+            // Wrapped keys for devices in this bucket are intentionally NOT deleted here.
+            // They are harmless since the bucket's data is already deleted, and deleting
+            // them would over-delete keys for devices that have access to other buckets.
 
             // Delete all related data
             Ops.deleteWhere { Ops.bucketId eq bucketId }
@@ -247,7 +243,7 @@ class BucketService(
             }.firstOrNull()
 
             if (access == null) {
-                throw ApiException(403, "FORBIDDEN", "Device does not have access to this bucket")
+                throw ApiException(403, "BUCKET_ACCESS_DENIED", "Device does not have access to this bucket")
             }
         }
     }

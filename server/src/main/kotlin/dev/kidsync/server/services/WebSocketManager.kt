@@ -42,15 +42,18 @@ class WebSocketManager {
             WsOpsAvailable(latestSequence = latestSequence, sourceDeviceId = sourceDeviceId),
         )
 
+        val deadConnections = mutableListOf<WsConnection>()
         for (conn in bucketConnections) {
             if (conn.deviceId != sourceDeviceId) {
                 try {
                     conn.session.send(Frame.Text(message))
                 } catch (e: Exception) {
                     logger.warn("Failed to send WS message to device={}: {}", conn.deviceId, e.message)
+                    deadConnections.add(conn)
                 }
             }
         }
+        bucketConnections.removeAll(deadConnections.toSet())
     }
 
     /**
@@ -63,13 +66,16 @@ class WebSocketManager {
             WsCheckpointAvailable(startSequence = startSequence, endSequence = endSequence),
         )
 
+        val deadConnections = mutableListOf<WsConnection>()
         for (conn in bucketConnections) {
             try {
                 conn.session.send(Frame.Text(message))
             } catch (e: Exception) {
                 logger.warn("Failed to send WS checkpoint to device={}: {}", conn.deviceId, e.message)
+                deadConnections.add(conn)
             }
         }
+        bucketConnections.removeAll(deadConnections.toSet())
     }
 
     /**
@@ -82,34 +88,40 @@ class WebSocketManager {
             WsSnapshotAvailable(atSequence = atSequence, snapshotId = snapshotId),
         )
 
+        val deadConnections = mutableListOf<WsConnection>()
         for (conn in bucketConnections) {
             try {
                 conn.session.send(Frame.Text(message))
             } catch (e: Exception) {
                 logger.warn("Failed to send WS snapshot to device={}: {}", conn.deviceId, e.message)
+                deadConnections.add(conn)
             }
         }
+        bucketConnections.removeAll(deadConnections.toSet())
     }
 
     /**
      * Notify bucket about new device joining.
      */
-    suspend fun notifyDeviceJoined(bucketId: String, newDeviceId: String) {
+    suspend fun notifyDeviceJoined(bucketId: String, newDeviceId: String, encryptionKey: String) {
         val bucketConnections = connections[bucketId] ?: return
         val message = json.encodeToString(
             WsDeviceJoined.serializer(),
-            WsDeviceJoined(deviceId = newDeviceId),
+            WsDeviceJoined(deviceId = newDeviceId, encryptionKey = encryptionKey),
         )
 
+        val deadConnections = mutableListOf<WsConnection>()
         for (conn in bucketConnections) {
             if (conn.deviceId != newDeviceId) {
                 try {
                     conn.session.send(Frame.Text(message))
                 } catch (e: Exception) {
                     logger.warn("Failed to send WS device-joined to device={}: {}", conn.deviceId, e.message)
+                    deadConnections.add(conn)
                 }
             }
         }
+        bucketConnections.removeAll(deadConnections.toSet())
     }
 }
 
@@ -140,6 +152,7 @@ data class WsSnapshotAvailable(
 data class WsDeviceJoined(
     val type: String = "device_joined",
     val deviceId: String,
+    val encryptionKey: String,
 )
 
 @Serializable

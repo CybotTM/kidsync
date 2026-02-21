@@ -21,6 +21,7 @@ fun Application.configureStatusPages() {
                 ErrorResponse(
                     error = cause.errorCode,
                     message = cause.message,
+                    details = cause.details,
                 )
             )
         }

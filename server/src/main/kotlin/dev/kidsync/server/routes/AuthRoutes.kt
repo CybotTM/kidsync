@@ -39,7 +39,7 @@ fun Route.authRoutes(config: AppConfig, sessionUtil: SessionUtil) {
                 }
 
                 if (device == null) {
-                    throw ApiException(404, "NOT_FOUND", "Device not registered")
+                    throw ApiException(404, "UNKNOWN_SIGNING_KEY", "Device not registered")
                 }
 
                 val challenge = sessionUtil.createChallenge(request.signingKey)
@@ -84,11 +84,25 @@ fun Route.authRoutes(config: AppConfig, sessionUtil: SessionUtil) {
 
                 // Consume the nonce (one-time use)
                 val challenge = sessionUtil.consumeChallenge(request.nonce, request.signingKey)
-                    ?: throw ApiException(401, "UNAUTHORIZED", "Invalid, expired, or already-used nonce")
+                    ?: throw ApiException(401, "NONCE_EXPIRED", "Invalid, expired, or already-used nonce")
 
                 // Verify Ed25519 signature
-                val challengeMessage = "${request.nonce}${request.signingKey}${config.serverOrigin}${request.timestamp}"
-                val messageBytes = challengeMessage.toByteArray(Charsets.UTF_8)
+                // Challenge message is binary concatenation:
+                // base64Decode(nonce) || base64Decode(signingKey) || utf8(serverOrigin) || utf8(timestamp)
+                val nonceBytes = try {
+                    // Nonce is base64url-encoded (no padding)
+                    Base64.getUrlDecoder().decode(request.nonce)
+                } catch (_: Exception) {
+                    throw ApiException(400, "INVALID_REQUEST", "Invalid nonce encoding")
+                }
+                val signingKeyBytes = try {
+                    Base64.getDecoder().decode(request.signingKey)
+                } catch (_: Exception) {
+                    throw ApiException(400, "INVALID_REQUEST", "Invalid signing key encoding")
+                }
+                val originBytes = config.serverOrigin.toByteArray(Charsets.UTF_8)
+                val timestampBytes = request.timestamp.toByteArray(Charsets.UTF_8)
+                val messageBytes = nonceBytes + signingKeyBytes + originBytes + timestampBytes
 
                 val signatureBytes = try {
                     Base64.getDecoder().decode(request.signature)
@@ -123,7 +137,7 @@ fun Route.authRoutes(config: AppConfig, sessionUtil: SessionUtil) {
                 }
 
                 if (!verified) {
-                    throw ApiException(401, "UNAUTHORIZED", "Invalid signature")
+                    throw ApiException(401, "INVALID_SIGNATURE", "Invalid signature")
                 }
 
                 // Look up the device

@@ -136,7 +136,11 @@ fun Route.syncRoutes(
                         throw ApiException(
                             400,
                             "SIZE_MISMATCH",
-                            "Declared sizeBytes (${meta.sizeBytes}) does not match actual upload size (${blob.size})"
+                            "Declared sizeBytes (${meta.sizeBytes}) does not match actual upload size (${blob.size})",
+                            details = kotlinx.serialization.json.buildJsonObject {
+                                put("declared", kotlinx.serialization.json.JsonPrimitive(meta.sizeBytes))
+                                put("actual", kotlinx.serialization.json.JsonPrimitive(blob.size.toLong()))
+                            },
                         )
                     }
 
@@ -148,7 +152,11 @@ fun Route.syncRoutes(
                         throw ApiException(
                             400,
                             "HASH_MISMATCH",
-                            "Snapshot SHA-256 mismatch: expected ${meta.sha256}, got $computedHash"
+                            "Snapshot SHA-256 mismatch: expected ${meta.sha256}, got $computedHash",
+                            details = kotlinx.serialization.json.buildJsonObject {
+                                put("declared", kotlinx.serialization.json.JsonPrimitive(meta.sha256))
+                                put("actual", kotlinx.serialization.json.JsonPrimitive(computedHash))
+                            },
                         )
                     }
 
@@ -185,6 +193,7 @@ fun Route.syncRoutes(
                         HttpStatusCode.Created,
                         SnapshotResponse(
                             snapshotId = snapshotId,
+                            deviceId = principal.deviceId,
                             atSequence = meta.atSequence,
                             keyEpoch = meta.keyEpoch,
                             sizeBytes = meta.sizeBytes,
@@ -221,6 +230,7 @@ fun Route.syncRoutes(
                         HttpStatusCode.OK,
                         SnapshotResponse(
                             snapshotId = snapshot[Snapshots.id],
+                            deviceId = snapshot[Snapshots.deviceId],
                             atSequence = snapshot[Snapshots.atSequence],
                             keyEpoch = snapshot[Snapshots.keyEpoch],
                             sizeBytes = snapshot[Snapshots.sizeBytes],

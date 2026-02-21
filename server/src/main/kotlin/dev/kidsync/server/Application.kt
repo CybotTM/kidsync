@@ -32,6 +32,8 @@ fun Application.module(config: AppConfig = AppConfig()) {
     // Initialize database
     DatabaseFactory.init(config)
 
+    val startTime = System.currentTimeMillis()
+
     // Initialize utilities and services
     val sessionUtil = SessionUtil(config)
     val bucketService = BucketService(config.blobStoragePath, config.snapshotStoragePath)
@@ -68,10 +70,12 @@ fun Application.module(config: AppConfig = AppConfig()) {
                 false
             }
             val status = if (dbOk) HttpStatusCode.OK else HttpStatusCode.ServiceUnavailable
+            val uptimeMs = System.currentTimeMillis() - startTime
             call.respond(status, mapOf(
-                "status" to if (dbOk) "ok" else "degraded",
+                "status" to if (dbOk) "healthy" else "degraded",
                 "version" to config.serverVersion,
                 "db" to dbOk.toString(),
+                "uptime" to "${uptimeMs}ms",
             ))
         }
 

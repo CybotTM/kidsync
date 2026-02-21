@@ -50,8 +50,11 @@ class SyncTest {
 
         assertEquals(HttpStatusCode.Created, response.status)
         val body = response.body<OpsBatchResponse>()
-        assertEquals(1, body.accepted)
+        assertEquals(1, body.accepted.size)
         assertTrue(body.latestSequence > 0)
+        assertEquals(0, body.accepted[0].index)
+        assertTrue(body.accepted[0].globalSequence > 0)
+        assertTrue(body.accepted[0].serverTimestamp.isNotEmpty())
     }
 
     @Test
@@ -84,7 +87,7 @@ class SyncTest {
 
         assertEquals(HttpStatusCode.Created, response.status)
         val body = response.body<OpsBatchResponse>()
-        assertEquals(3, body.accepted)
+        assertEquals(3, body.accepted.size)
     }
 
     @Test

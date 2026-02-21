@@ -48,7 +48,7 @@ fun Route.deviceRoutes() {
                     .firstOrNull()
 
                 if (existing != null) {
-                    throw ApiException(409, "CONFLICT", "Signing key already registered")
+                    throw ApiException(409, "SIGNING_KEY_EXISTS", "Signing key already registered")
                 }
 
                 Devices.insert {
