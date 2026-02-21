@@ -3,19 +3,22 @@ package com.kidsync.app.data.local.entity
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
-import java.util.UUID
 
+/**
+ * Local device identity entity.
+ *
+ * In the zero-knowledge architecture, devices are identified by their
+ * cryptographic keys, not by user IDs or names. The server does not
+ * know which user a device belongs to.
+ */
 @Entity(
     tableName = "devices",
-    indices = [Index("userId"), Index("status")]
+    indices = [Index("signingKey")]
 )
 data class DeviceEntity(
     @PrimaryKey
-    val deviceId: UUID,
-    val userId: UUID,
-    val name: String,
-    val publicKey: String,
-    val status: String,
-    val registeredAt: String,
-    val revokedAt: String? = null
+    val deviceId: String,
+    val signingKey: String,
+    val encryptionKey: String,
+    val createdAt: String
 )

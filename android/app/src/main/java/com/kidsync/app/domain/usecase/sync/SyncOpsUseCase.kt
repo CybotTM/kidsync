@@ -6,15 +6,15 @@ import com.kidsync.app.crypto.KeyManager
 import com.kidsync.app.domain.model.*
 import com.kidsync.app.domain.repository.SyncRepository
 import com.kidsync.app.domain.usecase.custody.ConflictResolver
+import kotlinx.serialization.json.Json
 import java.time.Instant
-import java.util.UUID
 import javax.inject.Inject
 
 /**
  * Core sync use case implementing the full operation pipeline:
  * 1. Pull new ops from server
  * 2. Decrypt and verify hash chains
- * 3. Apply ops with conflict resolution
+ * 3. Apply ops with conflict resolution (metadata extracted from decrypted payload)
  * 4. Push local pending ops
  */
 class SyncOpsUseCase @Inject constructor(
@@ -23,15 +23,16 @@ class SyncOpsUseCase @Inject constructor(
     private val keyManager: KeyManager,
     private val hashChainVerifier: HashChainVerifier,
     private val conflictResolver: ConflictResolver,
-    private val opApplier: OpApplier
+    private val opApplier: OpApplier,
+    private val json: Json
 ) {
-    suspend operator fun invoke(familyId: UUID): Result<SyncResult> {
+    suspend operator fun invoke(bucketId: String): Result<SyncResult> {
         return try {
-            val syncState = syncRepository.getSyncState(familyId)
+            val syncState = syncRepository.getSyncState(bucketId)
             val lastSeq = syncState?.lastGlobalSequence ?: 0L
 
             // 1. Pull new ops
-            val pullResult = syncRepository.pullOps(familyId, afterSequence = lastSeq)
+            val pullResult = syncRepository.pullOps(bucketId, afterSequence = lastSeq)
             if (pullResult.isFailure) return Result.failure(pullResult.exceptionOrNull()!!)
 
             val newOps = pullResult.getOrThrow()
@@ -47,20 +48,28 @@ class SyncOpsUseCase @Inject constructor(
             var conflictsResolved = 0
 
             for (op in newOps.sortedBy { it.globalSequence }) {
-                val dek = keyManager.getDek(familyId, op.keyEpoch)
+                val dek = keyManager.getDek(bucketId, op.keyEpoch)
                     ?: return Result.failure(IllegalStateException("Missing DEK for epoch ${op.keyEpoch}"))
 
+                // Build AAD from the envelope fields
+                // deviceSequence is inside the encrypted payload, but the sender also used it
+                // in the AAD. We need to reconstruct it. Since deviceSequence is embedded in
+                // the encrypted payload and was used to build the AAD, we decode it from the
+                // per-device sequence tracking.
                 val aad = buildPayloadAad(
-                    familyId = familyId.toString(),
-                    deviceId = op.deviceId.toString(),
+                    bucketId = bucketId,
+                    deviceId = op.deviceId,
                     deviceSequence = op.deviceSequence,
                     keyEpoch = op.keyEpoch
                 )
-                val decryptedPayload = cryptoManager.decryptPayload(
+                val decryptedJson = cryptoManager.decryptPayload(
                     encryptedPayload = op.encryptedPayload,
                     dek = dek,
                     aad = aad
                 )
+
+                // Parse the decrypted payload to extract metadata
+                val decryptedPayload = json.decodeFromString<DecryptedPayload>(decryptedJson)
 
                 val applyResult = opApplier.apply(op, decryptedPayload)
                 if (applyResult.conflictResolved) conflictsResolved++
@@ -72,7 +81,7 @@ class SyncOpsUseCase @Inject constructor(
                 val maxSeq = newOps.maxOf { it.globalSequence }
                 syncRepository.updateSyncState(
                     SyncState(
-                        familyId = familyId,
+                        bucketId = bucketId,
                         lastGlobalSequence = maxSeq,
                         lastSyncTimestamp = Instant.now()
                     )
@@ -80,9 +89,9 @@ class SyncOpsUseCase @Inject constructor(
             }
 
             // 5. Push pending local ops
-            val pendingOps = opApplier.getPendingOps(familyId)
+            val pendingOps = opApplier.getPendingOps(bucketId)
             if (pendingOps.isNotEmpty()) {
-                val pushResult = syncRepository.pushOps(familyId, pendingOps)
+                val pushResult = syncRepository.pushOps(bucketId, pendingOps)
                 if (pushResult.isFailure) {
                     return Result.failure(pushResult.exceptionOrNull()!!)
                 }

@@ -6,7 +6,6 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.kidsync.app.data.local.entity.SyncStateEntity
 import kotlinx.coroutines.flow.Flow
-import java.util.UUID
 
 @Dao
 interface SyncStateDao {
@@ -14,11 +13,11 @@ interface SyncStateDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertSyncState(syncState: SyncStateEntity)
 
-    @Query("SELECT * FROM sync_state WHERE familyId = :familyId")
-    suspend fun getSyncState(familyId: UUID): SyncStateEntity?
+    @Query("SELECT * FROM sync_state WHERE bucketId = :bucketId")
+    suspend fun getSyncState(bucketId: String): SyncStateEntity?
 
-    @Query("SELECT * FROM sync_state WHERE familyId = :familyId")
-    fun observeSyncState(familyId: UUID): Flow<SyncStateEntity?>
+    @Query("SELECT * FROM sync_state WHERE bucketId = :bucketId")
+    fun observeSyncState(bucketId: String): Flow<SyncStateEntity?>
 
     @Query("DELETE FROM sync_state")
     suspend fun deleteAll()

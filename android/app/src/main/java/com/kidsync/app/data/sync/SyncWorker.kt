@@ -10,12 +10,11 @@ import com.kidsync.app.domain.usecase.sync.SyncOpsUseCase
 import com.kidsync.app.domain.usecase.sync.SyncResult
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
-import java.util.UUID
 
 /**
  * WorkManager worker for background sync.
  *
- * Runs the full sync pipeline:
+ * Runs the full sync pipeline for a bucket:
  * 1. Pull new ops from server
  * 2. Verify hash chains
  * 3. Decrypt and apply with conflict resolution
@@ -37,32 +36,22 @@ class SyncWorker @AssistedInject constructor(
         const val TAG_SYNC = "kidsync_sync"
         const val TAG_PERIODIC = "kidsync_periodic"
         const val TAG_IMMEDIATE = "kidsync_immediate"
-        const val KEY_FAMILY_ID = "family_id"
+        const val KEY_BUCKET_ID = "bucket_id"
 
-        internal const val PREF_FAMILY_ID = "family_id"
+        internal const val PREF_BUCKET_ID = "bucket_id"
         internal const val MAX_RETRY_ATTEMPTS = 3
     }
 
     override suspend fun doWork(): Result {
-        val familyIdStr = inputData.getString(KEY_FAMILY_ID)
-            ?: prefs.getString(PREF_FAMILY_ID, null)
+        val bucketId = inputData.getString(KEY_BUCKET_ID)
+            ?: prefs.getString(PREF_BUCKET_ID, null)
             ?: return Result.failure(
                 Data.Builder()
-                    .putString("error", "No family ID available")
+                    .putString("error", "No bucket ID available")
                     .build()
             )
 
-        val familyId = try {
-            UUID.fromString(familyIdStr)
-        } catch (_: IllegalArgumentException) {
-            return Result.failure(
-                Data.Builder()
-                    .putString("error", "Invalid family ID: $familyIdStr")
-                    .build()
-            )
-        }
-
-        return when (val syncResult = syncOpsUseCase(familyId)) {
+        return when (val syncResult = syncOpsUseCase(bucketId)) {
             is kotlin.Result<*> -> {
                 if (syncResult.isSuccess) {
                     val result = syncResult.getOrNull()

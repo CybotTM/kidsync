@@ -66,6 +66,16 @@ object DatabaseModule {
     }
 
     @Provides
+    fun provideKeyAttestationDao(database: KidSyncDatabase): KeyAttestationDao {
+        return database.keyAttestationDao()
+    }
+
+    @Provides
+    fun provideBucketDao(database: KidSyncDatabase): BucketDao {
+        return database.bucketDao()
+    }
+
+    @Provides
     fun provideInfoBankDao(database: KidSyncDatabase): InfoBankDao {
         return database.infoBankDao()
     }

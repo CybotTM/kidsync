@@ -1,19 +1,21 @@
 package com.kidsync.app.domain.usecase.sync
 
-import com.kidsync.app.crypto.CanonicalJsonSerializer
 import com.kidsync.app.data.local.dao.*
 import com.kidsync.app.data.local.entity.*
 import com.kidsync.app.domain.model.*
 import com.kidsync.app.domain.usecase.custody.ConflictResolver
+import com.kidsync.app.domain.usecase.custody.OverrideStateMachine
 import kotlinx.serialization.json.*
 import java.time.Instant
-import java.time.LocalDate
 import java.util.UUID
 import javax.inject.Inject
 
 /**
  * Applies decrypted operation payloads to the local database.
- * Handles conflict resolution per entity type as defined in sync-protocol.md Section 9.
+ *
+ * In the zero-knowledge architecture, the OpApplier receives the already-decrypted
+ * [DecryptedPayload] which contains all metadata (entityType, entityId, operation,
+ * clientTimestamp) that was previously in plaintext columns.
  */
 class OpApplier @Inject constructor(
     private val custodyScheduleDao: CustodyScheduleDao,
@@ -22,55 +24,51 @@ class OpApplier @Inject constructor(
     private val infoBankDao: InfoBankDao,
     private val opLogDao: OpLogDao,
     private val conflictResolver: ConflictResolver,
+    private val overrideStateMachine: OverrideStateMachine,
     private val json: Json
 ) {
     data class ApplyResult(
         val conflictResolved: Boolean = false
     )
 
-    suspend fun apply(op: OpLogEntry, decryptedPayload: String): ApplyResult {
-        // Store the op in the log
+    suspend fun apply(op: OpLogEntry, decryptedPayload: DecryptedPayload): ApplyResult {
+        // Store the op in the local log
         opLogDao.insertOpLogEntry(op.toEntity())
 
-        // Parse the payload
-        val payload = json.parseToJsonElement(decryptedPayload).jsonObject
-        val payloadType = payload["payloadType"]?.jsonPrimitive?.content
-            ?: throw IllegalArgumentException("Missing payloadType in payload")
+        // Feed to the override state machine for deterministic state tracking
+        overrideStateMachine.apply(decryptedPayload)
 
-        return when (payloadType) {
-            "SetCustodySchedule" -> applyCustodySchedule(op, payload)
-            "UpsertOverride" -> applyOverride(op, payload)
-            "CreateExpense" -> applyExpense(op, payload)
-            "UpdateExpenseStatus" -> applyExpenseStatus(op, payload)
-            "CreateEvent" -> applyEvent(op, payload)
-            "UpdateEvent" -> applyEvent(op, payload)
-            "CancelEvent" -> applyCancelEvent(op, payload)
-            "CreateInfoBankEntry" -> applyInfoBankEntry(op, payload)
-            "UpdateInfoBankEntry" -> applyInfoBankEntry(op, payload)
-            "DeleteInfoBankEntry" -> applyDeleteInfoBankEntry(op, payload)
+        // Route by entity type (now extracted from decrypted payload)
+        return when (decryptedPayload.entityType) {
+            "CustodySchedule" -> applyCustodySchedule(decryptedPayload)
+            "ScheduleOverride" -> applyOverride(decryptedPayload)
+            "Expense" -> applyExpense(decryptedPayload)
+            "ExpenseStatus" -> applyExpenseStatus(decryptedPayload)
+            "Event" -> applyEvent(decryptedPayload)
+            "InfoBank" -> applyInfoBankEntry(decryptedPayload)
             else -> ApplyResult()
         }
     }
 
     private suspend fun applyCustodySchedule(
-        op: OpLogEntry,
-        payload: JsonObject
+        payload: DecryptedPayload
     ): ApplyResult {
-        val scheduleId = UUID.fromString(payload["scheduleId"]!!.jsonPrimitive.content)
-        val childId = UUID.fromString(payload["childId"]!!.jsonPrimitive.content)
-        val effectiveFrom = Instant.parse(payload["effectiveFrom"]!!.jsonPrimitive.content)
-        val pattern = payload["pattern"]!!.jsonArray.map { it.jsonPrimitive.content }
+        val data = payload.data
+        val scheduleId = UUID.fromString(payload.entityId)
+        val childId = UUID.fromString(data["childId"]!!.jsonPrimitive.content)
+        val effectiveFrom = Instant.parse(data["effectiveFrom"]!!.jsonPrimitive.content)
+        val pattern = data["pattern"]!!.jsonArray.map { it.jsonPrimitive.content }
 
         val newSchedule = CustodyScheduleEntity(
             scheduleId = scheduleId,
             childId = childId,
-            anchorDate = payload["anchorDate"]!!.jsonPrimitive.content,
-            cycleLengthDays = payload["cycleLengthDays"]!!.jsonPrimitive.int,
+            anchorDate = data["anchorDate"]!!.jsonPrimitive.content,
+            cycleLengthDays = data["cycleLengthDays"]!!.jsonPrimitive.int,
             patternJson = json.encodeToString(JsonArray.serializer(), JsonArray(pattern.map { JsonPrimitive(it) })),
             effectiveFrom = effectiveFrom.toString(),
-            timeZone = payload["timeZone"]!!.jsonPrimitive.content,
+            timeZone = data["timeZone"]!!.jsonPrimitive.content,
             status = "ACTIVE",
-            clientTimestamp = op.clientTimestamp.toString()
+            clientTimestamp = payload.clientTimestamp
         )
 
         // Conflict resolution: check for existing schedule with same effectiveFrom for same child
@@ -81,16 +79,13 @@ class OpApplier @Inject constructor(
             if (existingSchedule.scheduleId != scheduleId &&
                 existingSchedule.effectiveFrom == newSchedule.effectiveFrom
             ) {
-                // Same effectiveFrom - conflict resolution needed
                 val winner = conflictResolver.resolveCustodyScheduleConflict(
-                    existingSchedule, newSchedule, op.clientTimestamp
+                    existingSchedule, newSchedule, Instant.parse(payload.clientTimestamp)
                 )
 
                 if (winner.scheduleId == newSchedule.scheduleId) {
-                    // New schedule wins - supersede existing
                     custodyScheduleDao.updateStatus(existingSchedule.scheduleId, "SUPERSEDED")
                 } else {
-                    // Existing wins - mark new as superseded
                     custodyScheduleDao.insertSchedule(newSchedule.copy(status = "SUPERSEDED"))
                     return ApplyResult(conflictResolved = true)
                 }
@@ -103,35 +98,33 @@ class OpApplier @Inject constructor(
     }
 
     private suspend fun applyOverride(
-        op: OpLogEntry,
-        payload: JsonObject
+        payload: DecryptedPayload
     ): ApplyResult {
-        val overrideId = UUID.fromString(payload["overrideId"]!!.jsonPrimitive.content)
-        val status = payload["status"]!!.jsonPrimitive.content
+        val data = payload.data
+        val overrideId = UUID.fromString(payload.entityId)
+        val status = data["status"]?.jsonPrimitive?.content ?: "PROPOSED"
 
         val entity = ScheduleOverrideEntity(
             overrideId = overrideId,
-            type = payload["type"]!!.jsonPrimitive.content,
-            childId = UUID.fromString(payload["childId"]!!.jsonPrimitive.content),
-            startDate = payload["startDate"]!!.jsonPrimitive.content,
-            endDate = payload["endDate"]!!.jsonPrimitive.content,
-            assignedParentId = UUID.fromString(payload["assignedParentId"]!!.jsonPrimitive.content),
+            type = data["type"]!!.jsonPrimitive.content,
+            childId = UUID.fromString(data["childId"]!!.jsonPrimitive.content),
+            startDate = data["startDate"]!!.jsonPrimitive.content,
+            endDate = data["endDate"]!!.jsonPrimitive.content,
+            assignedParentId = UUID.fromString(data["assignedParentId"]!!.jsonPrimitive.content),
             status = status,
-            proposerId = UUID.fromString(payload["proposerId"]!!.jsonPrimitive.content),
-            responderId = payload["responderId"]?.jsonPrimitive?.content?.let { UUID.fromString(it) },
-            note = payload["note"]?.jsonPrimitive?.content,
-            clientTimestamp = op.clientTimestamp.toString()
+            proposerId = UUID.fromString(data["proposerId"]!!.jsonPrimitive.content),
+            responderId = data["responderId"]?.jsonPrimitive?.content?.let { UUID.fromString(it) },
+            note = data["note"]?.jsonPrimitive?.content,
+            clientTimestamp = payload.clientTimestamp
         )
 
         val existing = overrideDao.getOverrideById(overrideId)
-        if (existing != null && op.operationType == OperationType.UPDATE) {
-            // Validate state transition
+        if (existing != null && payload.operation == "UPDATE") {
             val validTransition = conflictResolver.isValidOverrideTransition(
                 OverrideStatus.valueOf(existing.status),
                 OverrideStatus.valueOf(status)
             )
             if (!validTransition) {
-                // Invalid transition - skip this op
                 return ApplyResult()
             }
             overrideDao.updateOverride(entity)
@@ -143,43 +136,41 @@ class OpApplier @Inject constructor(
     }
 
     private suspend fun applyExpense(
-        op: OpLogEntry,
-        payload: JsonObject
+        payload: DecryptedPayload
     ): ApplyResult {
+        val data = payload.data
         val entity = ExpenseEntity(
-            expenseId = UUID.fromString(payload["expenseId"]!!.jsonPrimitive.content),
-            childId = UUID.fromString(payload["childId"]!!.jsonPrimitive.content),
-            paidByUserId = UUID.fromString(payload["paidByUserId"]!!.jsonPrimitive.content),
-            amountCents = payload["amountCents"]!!.jsonPrimitive.int,
-            currencyCode = payload["currencyCode"]!!.jsonPrimitive.content,
-            category = payload["category"]!!.jsonPrimitive.content,
-            description = payload["description"]!!.jsonPrimitive.content,
-            incurredAt = payload["incurredAt"]!!.jsonPrimitive.content,
-            payerResponsibilityRatio = payload["payerResponsibilityRatio"]!!.jsonPrimitive.double,
-            receiptBlobId = payload["receiptBlobId"]?.jsonPrimitive?.content?.let { UUID.fromString(it) },
-            receiptDecryptionKey = payload["receiptDecryptionKey"]?.jsonPrimitive?.content,
-            clientTimestamp = op.clientTimestamp.toString()
+            expenseId = UUID.fromString(payload.entityId),
+            childId = UUID.fromString(data["childId"]!!.jsonPrimitive.content),
+            paidByUserId = UUID.fromString(data["paidByUserId"]!!.jsonPrimitive.content),
+            amountCents = data["amountCents"]!!.jsonPrimitive.int,
+            currencyCode = data["currencyCode"]!!.jsonPrimitive.content,
+            category = data["category"]!!.jsonPrimitive.content,
+            description = data["description"]!!.jsonPrimitive.content,
+            incurredAt = data["incurredAt"]!!.jsonPrimitive.content,
+            payerResponsibilityRatio = data["payerResponsibilityRatio"]!!.jsonPrimitive.double,
+            receiptBlobId = data["receiptBlobId"]?.jsonPrimitive?.content?.let { UUID.fromString(it) },
+            receiptDecryptionKey = data["receiptDecryptionKey"]?.jsonPrimitive?.content,
+            clientTimestamp = payload.clientTimestamp
         )
 
-        // Expenses are append-only (no conflict resolution)
         expenseDao.insertExpense(entity)
         return ApplyResult()
     }
 
     private suspend fun applyExpenseStatus(
-        op: OpLogEntry,
-        payload: JsonObject
+        payload: DecryptedPayload
     ): ApplyResult {
+        val data = payload.data
         val entity = ExpenseStatusEntity(
             id = UUID.randomUUID(),
-            expenseId = UUID.fromString(payload["expenseId"]!!.jsonPrimitive.content),
-            status = payload["status"]!!.jsonPrimitive.content,
-            responderId = UUID.fromString(payload["responderId"]!!.jsonPrimitive.content),
-            note = payload["note"]?.jsonPrimitive?.content,
-            clientTimestamp = op.clientTimestamp.toString()
+            expenseId = UUID.fromString(data["expenseId"]!!.jsonPrimitive.content),
+            status = data["status"]!!.jsonPrimitive.content,
+            responderId = UUID.fromString(data["responderId"]!!.jsonPrimitive.content),
+            note = data["note"]?.jsonPrimitive?.content,
+            clientTimestamp = payload.clientTimestamp
         )
 
-        // Last-write-wins by clientTimestamp
         val existing = expenseDao.getLatestStatusForExpense(entity.expenseId)
         if (existing == null ||
             Instant.parse(entity.clientTimestamp) > Instant.parse(existing.clientTimestamp)
@@ -191,89 +182,71 @@ class OpApplier @Inject constructor(
     }
 
     private suspend fun applyEvent(
-        op: OpLogEntry,
-        payload: JsonObject
+        payload: DecryptedPayload
     ): ApplyResult {
-        // Events are stored in the oplog but not yet materialized to a separate table
-        // in this phase. The oplog entry itself serves as the event record.
-        return ApplyResult()
-    }
-
-    private suspend fun applyCancelEvent(
-        op: OpLogEntry,
-        payload: JsonObject
-    ): ApplyResult {
-        // CancelEvent marks an event as cancelled in the oplog
+        // Events are stored in the oplog; the decrypted payload has all the data.
+        // Materialized event view can be derived from the oplog on demand.
         return ApplyResult()
     }
 
     private suspend fun applyInfoBankEntry(
-        op: OpLogEntry,
-        payload: JsonObject
+        payload: DecryptedPayload
     ): ApplyResult {
+        if (payload.operation == "DELETE") {
+            val entryId = UUID.fromString(payload.entityId)
+            infoBankDao.markDeleted(entryId)
+            return ApplyResult()
+        }
+
+        val data = payload.data
         val entity = InfoBankEntryEntity(
-            entryId = UUID.fromString(payload["entryId"]!!.jsonPrimitive.content),
-            childId = UUID.fromString(payload["childId"]!!.jsonPrimitive.content),
-            category = payload["category"]!!.jsonPrimitive.content,
-            allergies = payload["allergies"]?.jsonPrimitive?.content,
-            medicationName = payload["medicationName"]?.jsonPrimitive?.content,
-            medicationDosage = payload["medicationDosage"]?.jsonPrimitive?.content,
-            medicationSchedule = payload["medicationSchedule"]?.jsonPrimitive?.content,
-            doctorName = payload["doctorName"]?.jsonPrimitive?.content,
-            doctorPhone = payload["doctorPhone"]?.jsonPrimitive?.content,
-            insuranceInfo = payload["insuranceInfo"]?.jsonPrimitive?.content,
-            bloodType = payload["bloodType"]?.jsonPrimitive?.content,
-            schoolName = payload["schoolName"]?.jsonPrimitive?.content,
-            teacherNames = payload["teacherNames"]?.jsonPrimitive?.content,
-            gradeClass = payload["gradeClass"]?.jsonPrimitive?.content,
-            schoolPhone = payload["schoolPhone"]?.jsonPrimitive?.content,
-            scheduleNotes = payload["scheduleNotes"]?.jsonPrimitive?.content,
-            contactName = payload["contactName"]?.jsonPrimitive?.content,
-            relationship = payload["relationship"]?.jsonPrimitive?.content,
-            phone = payload["phone"]?.jsonPrimitive?.content,
-            email = payload["email"]?.jsonPrimitive?.content,
-            title = payload["title"]?.jsonPrimitive?.content,
-            content = payload["content"]?.jsonPrimitive?.content,
-            tag = payload["tag"]?.jsonPrimitive?.content,
-            notes = payload["notes"]?.jsonPrimitive?.content,
-            clientTimestamp = op.clientTimestamp.toString(),
-            updatedTimestamp = op.clientTimestamp.toString()
+            entryId = UUID.fromString(payload.entityId),
+            childId = UUID.fromString(data["childId"]!!.jsonPrimitive.content),
+            category = data["category"]!!.jsonPrimitive.content,
+            allergies = data["allergies"]?.jsonPrimitive?.content,
+            medicationName = data["medicationName"]?.jsonPrimitive?.content,
+            medicationDosage = data["medicationDosage"]?.jsonPrimitive?.content,
+            medicationSchedule = data["medicationSchedule"]?.jsonPrimitive?.content,
+            doctorName = data["doctorName"]?.jsonPrimitive?.content,
+            doctorPhone = data["doctorPhone"]?.jsonPrimitive?.content,
+            insuranceInfo = data["insuranceInfo"]?.jsonPrimitive?.content,
+            bloodType = data["bloodType"]?.jsonPrimitive?.content,
+            schoolName = data["schoolName"]?.jsonPrimitive?.content,
+            teacherNames = data["teacherNames"]?.jsonPrimitive?.content,
+            gradeClass = data["gradeClass"]?.jsonPrimitive?.content,
+            schoolPhone = data["schoolPhone"]?.jsonPrimitive?.content,
+            scheduleNotes = data["scheduleNotes"]?.jsonPrimitive?.content,
+            contactName = data["contactName"]?.jsonPrimitive?.content,
+            relationship = data["relationship"]?.jsonPrimitive?.content,
+            phone = data["phone"]?.jsonPrimitive?.content,
+            email = data["email"]?.jsonPrimitive?.content,
+            title = data["title"]?.jsonPrimitive?.content,
+            content = data["content"]?.jsonPrimitive?.content,
+            tag = data["tag"]?.jsonPrimitive?.content,
+            notes = data["notes"]?.jsonPrimitive?.content,
+            clientTimestamp = payload.clientTimestamp,
+            updatedTimestamp = payload.clientTimestamp
         )
 
-        // Last-write-wins via REPLACE
         infoBankDao.insertEntry(entity)
         return ApplyResult()
     }
 
-    private suspend fun applyDeleteInfoBankEntry(
-        op: OpLogEntry,
-        payload: JsonObject
-    ): ApplyResult {
-        val entryId = UUID.fromString(payload["entryId"]!!.jsonPrimitive.content)
-        infoBankDao.markDeleted(entryId)
-        return ApplyResult()
-    }
-
-    suspend fun getPendingOps(familyId: UUID): List<OpLogEntry> {
-        return opLogDao.getPendingOps(familyId).map { it.toDomain() }
+    suspend fun getPendingOps(bucketId: String): List<OpLogEntry> {
+        return opLogDao.getPendingOps(bucketId).map { it.toDomain() }
     }
 
     private fun OpLogEntry.toEntity(): OpLogEntryEntity {
         return OpLogEntryEntity(
             globalSequence = globalSequence,
-            familyId = familyId,
+            bucketId = bucketId,
             deviceId = deviceId,
             deviceSequence = deviceSequence,
-            entityType = entityType.name,
-            entityId = entityId,
-            operation = operation.name,
             keyEpoch = keyEpoch,
             encryptedPayload = encryptedPayload,
             devicePrevHash = devicePrevHash,
             currentHash = currentHash,
-            clientTimestamp = clientTimestamp.toString(),
             serverTimestamp = serverTimestamp?.toString(),
-            transitionTo = transitionTo,
             isPending = false
         )
     }
@@ -281,19 +254,14 @@ class OpApplier @Inject constructor(
     private fun OpLogEntryEntity.toDomain(): OpLogEntry {
         return OpLogEntry(
             globalSequence = globalSequence,
-            familyId = familyId,
+            bucketId = bucketId,
             deviceId = deviceId,
             deviceSequence = deviceSequence,
-            entityType = EntityType.valueOf(entityType),
-            entityId = entityId,
-            operation = OperationType.valueOf(operation),
             keyEpoch = keyEpoch,
             encryptedPayload = encryptedPayload,
             devicePrevHash = devicePrevHash,
             currentHash = currentHash,
-            clientTimestamp = Instant.parse(clientTimestamp),
-            serverTimestamp = serverTimestamp?.let { Instant.parse(it) },
-            transitionTo = transitionTo
+            serverTimestamp = serverTimestamp?.let { Instant.parse(it) }
         )
     }
 }

@@ -2,211 +2,115 @@ package com.kidsync.app.data.remote.dto
 
 import kotlinx.serialization.Serializable
 
-// ---- Auth ----
+// ── Registration ────────────────────────────────────────────────────────────
 
 @Serializable
 data class RegisterRequest(
-    val email: String,
-    val password: String
+    val signingKey: String,
+    val encryptionKey: String
 )
 
 @Serializable
 data class RegisterResponse(
-    val userId: String,
-    val deviceId: String,
-    val token: String,
-    val refreshToken: String
+    val deviceId: String
+)
+
+// ── Challenge-Response Auth ─────────────────────────────────────────────────
+
+@Serializable
+data class ChallengeRequest(
+    val signingKey: String
 )
 
 @Serializable
-data class LoginRequest(
-    val email: String,
-    val password: String,
-    val totpCode: String? = null
-)
-
-@Serializable
-data class LoginResponse(
-    val userId: String,
-    val token: String,
-    val refreshToken: String
-)
-
-@Serializable
-data class RefreshRequest(
-    val refreshToken: String
-)
-
-@Serializable
-data class RefreshResponse(
-    val token: String,
-    val refreshToken: String
-)
-
-@Serializable
-data class TotpSetupResponse(
-    val secret: String,
-    val qrCodeUri: String
-)
-
-@Serializable
-data class TotpVerifyRequest(
-    val code: String
-)
-
-@Serializable
-data class TotpVerifyResponse(
-    val verified: Boolean
-)
-
-// ---- Families ----
-
-@Serializable
-data class CreateFamilyRequest(
-    val name: String,
-    val solo: Boolean = false
-)
-
-@Serializable
-data class CreateFamilyResponse(
-    val familyId: String,
-    val isSolo: Boolean = false
-)
-
-@Serializable
-data class InviteResponse(
-    val inviteToken: String,
+data class ChallengeResponse(
+    val nonce: String,
     val expiresAt: String
 )
 
 @Serializable
-data class JoinFamilyRequest(
-    val inviteToken: String,
-    val devicePublicKey: String
+data class VerifyRequest(
+    val signingKey: String,
+    val nonce: String,
+    val signature: String,
+    val timestamp: String
 )
 
 @Serializable
-data class JoinFamilyResponse(
-    val familyId: String,
-    val members: List<FamilyMemberDto>
+data class VerifyResponse(
+    val sessionToken: String,
+    val expiresIn: Long
+)
+
+// ── Buckets ─────────────────────────────────────────────────────────────────
+
+@Serializable
+data class BucketResponse(
+    val bucketId: String
 )
 
 @Serializable
-data class MembersResponse(
-    val members: List<FamilyMemberDto>
+data class InviteRequest(
+    val tokenHash: String
 )
 
 @Serializable
-data class FamilyMemberDto(
-    val userId: String,
-    val displayName: String,
-    val role: String,
-    val publicKey: String,
-    val devices: List<DeviceSummaryDto>
+data class JoinBucketRequest(
+    val inviteToken: String
 )
 
 @Serializable
-data class DeviceSummaryDto(
+data class DeviceInfo(
     val deviceId: String,
-    val deviceName: String,
-    val publicKey: String,
-    val createdAt: String,
-    val revokedAt: String? = null
+    val signingKey: String,
+    val encryptionKey: String,
+    val createdAt: String
 )
 
-// ---- Devices ----
+// ── Ops ─────────────────────────────────────────────────────────────────────
 
 @Serializable
-data class RegisterDeviceRequest(
-    val deviceName: String,
-    val publicKey: String
-)
-
-@Serializable
-data class RegisterDeviceResponse(
-    val deviceId: String
-)
-
-@Serializable
-data class DeviceListResponse(
-    val devices: List<DeviceDto>
-)
-
-@Serializable
-data class DeviceDto(
-    val deviceId: String,
-    val deviceName: String? = null,
-    val publicKey: String,
-    val createdAt: String? = null,
-    val revokedAt: String? = null,
-    val status: String? = null
-)
-
-// ---- Sync ----
-
-@Serializable
-data class UploadOpsRequest(
+data class OpsBatchRequest(
     val ops: List<OpInputDto>
 )
 
 @Serializable
 data class OpInputDto(
-    val deviceSequence: Long,
-    val entityType: String,
-    val entityId: String,
-    val operation: String,
-    val encryptedPayload: String,
-    val devicePrevHash: String,
-    val currentHash: String,
+    val deviceId: String,
     val keyEpoch: Int,
-    val clientTimestamp: String,
-    val protocolVersion: Int = 1,
-    val signature: String = "",
-    val transitionTo: String? = null,
-    val localId: String? = null
+    val encryptedPayload: String,
+    val prevHash: String,
+    val currentHash: String
 )
 
 @Serializable
-data class UploadOpsResponse(
+data class OpsBatchResponse(
     val accepted: List<AcceptedOpDto>,
     val rejected: List<RejectedOpDto> = emptyList()
 )
 
 @Serializable
 data class AcceptedOpDto(
-    val deviceSequence: Long,
-    val globalSequence: Long,
+    val sequence: Long,
     val serverTimestamp: String
 )
 
 @Serializable
 data class RejectedOpDto(
-    val deviceSequence: Long,
+    val index: Int,
     val error: String,
     val code: String? = null
 )
 
 @Serializable
-data class PullOpsResponse(
-    val ops: List<OpOutputDto>,
-    val hasMore: Boolean,
-    val latestSequence: Long
-)
-
-@Serializable
-data class OpOutputDto(
-    val globalSequence: Long,
+data class OpResponse(
+    val sequence: Long,
     val deviceId: String,
-    val deviceSequence: Long,
-    val entityType: String? = null,
-    val entityId: String? = null,
-    val operation: String? = null,
     val encryptedPayload: String,
-    val devicePrevHash: String,
-    val currentHash: String? = null,
+    val prevHash: String,
+    val currentHash: String,
     val keyEpoch: Int,
-    val clientTimestamp: String? = null,
-    val serverTimestamp: String
+    val createdAt: String
 )
 
 @Serializable
@@ -214,41 +118,11 @@ data class CheckpointResponse(
     val startSequence: Long,
     val endSequence: Long,
     val hash: String,
-    val timestamp: String
-)
-
-@Serializable
-data class UploadSnapshotResponse(
-    val snapshotId: String,
-    val sequence: Long
-)
-
-@Serializable
-data class LatestSnapshotResponse(
-    val snapshotId: String,
-    val sequence: Long,
-    val downloadUrl: String,
+    val opCount: Int,
     val createdAt: String
 )
 
-// ---- Handshake ----
-
-@Serializable
-data class HandshakeRequest(
-    val deviceId: String,
-    val lastKnownSequence: Long,
-    val protocolVersion: Int = 1
-)
-
-@Serializable
-data class HandshakeResponse(
-    val serverSequence: Long,
-    val currentKeyEpoch: Int,
-    val protocolVersion: Int,
-    val serverTime: String
-)
-
-// ---- Blobs ----
+// ── Blobs ───────────────────────────────────────────────────────────────────
 
 @Serializable
 data class UploadBlobResponse(
@@ -257,15 +131,27 @@ data class UploadBlobResponse(
     val sha256Hash: String
 )
 
-// ---- Push ----
+// ── Snapshots ───────────────────────────────────────────────────────────────
 
 @Serializable
-data class RegisterPushRequest(
-    val token: String,
-    val platform: String
+data class UploadSnapshotResponse(
+    val snapshotId: String,
+    val atSequence: Long
 )
 
-// ---- Wrapped Keys ----
+@Serializable
+data class LatestSnapshotResponse(
+    val snapshotId: String,
+    val atSequence: Long,
+    val keyEpoch: Int,
+    val sizeBytes: Long,
+    val sha256Hash: String,
+    val signature: String,
+    val downloadUrl: String,
+    val createdAt: String
+)
+
+// ── Wrapped Keys ────────────────────────────────────────────────────────────
 
 @Serializable
 data class UploadWrappedKeyRequest(
@@ -281,32 +167,42 @@ data class WrappedKeyResponse(
     val wrappedBy: String
 )
 
+// ── Key Attestations ────────────────────────────────────────────────────────
+
 @Serializable
-data class WrappedDeksResponse(
-    val wrappedDeks: List<WrappedDekItem>
+data class UploadAttestationRequest(
+    val attestedDeviceId: String,
+    val attestedKey: String,
+    val signature: String
 )
 
 @Serializable
-data class WrappedDekItem(
-    val epoch: Int,
-    val wrappedDek: String
+data class AttestationResponse(
+    val id: Int,
+    val signerDevice: String,
+    val attestedDevice: String,
+    val attestedKey: String,
+    val signature: String,
+    val createdAt: String
 )
 
-// ---- Recovery ----
-
-@Serializable
-data class UploadRecoveryBlobRequest(
-    val encryptedRecoveryBlob: String
-)
+// ── Recovery ────────────────────────────────────────────────────────────────
 
 @Serializable
 data class RecoveryBlobResponse(
-    val encryptedRecoveryBlob: String,
-    val epoch: Int = 1,
-    val wrappedDek: String = ""
+    val encryptedBlob: String,
+    val createdAt: String
 )
 
-// ---- Error ----
+// ── Push ────────────────────────────────────────────────────────────────────
+
+@Serializable
+data class RegisterPushRequest(
+    val token: String,
+    val platform: String
+)
+
+// ── Error ───────────────────────────────────────────────────────────────────
 
 @Serializable
 data class ErrorResponse(

@@ -1,84 +1,98 @@
 package com.kidsync.app.domain.usecase.sync
 
-import com.kidsync.app.crypto.CanonicalJsonSerializer
 import com.kidsync.app.crypto.CryptoManager
 import com.kidsync.app.crypto.KeyManager
 import com.kidsync.app.data.local.dao.OpLogDao
 import com.kidsync.app.data.local.entity.OpLogEntryEntity
+import com.kidsync.app.domain.model.DecryptedPayload
 import com.kidsync.app.domain.model.EntityType
 import com.kidsync.app.domain.model.OperationType
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import java.time.Instant
-import java.util.UUID
 import javax.inject.Inject
 
 /**
  * Creates a new operation and adds it to the local oplog for sync.
  *
- * Pipeline: business object -> OperationPayload -> canonical JSON -> gzip -> AES-256-GCM -> OpLogEntry
+ * In the zero-knowledge architecture, ALL metadata (entityType, entityId,
+ * operation, clientTimestamp, protocolVersion) is placed INSIDE the encrypted
+ * payload. The server sees only opaque encrypted bytes.
+ *
+ * Pipeline:
+ *   DecryptedPayload (all metadata + data) -> JSON -> gzip -> AES-256-GCM -> OpLogEntry
  */
 class CreateOperationUseCase @Inject constructor(
     private val cryptoManager: CryptoManager,
     private val keyManager: KeyManager,
-    private val canonicalJsonSerializer: CanonicalJsonSerializer,
     private val hashChainVerifier: HashChainVerifier,
-    private val opLogDao: OpLogDao
+    private val opLogDao: OpLogDao,
+    private val json: Json
 ) {
     suspend operator fun invoke(
-        familyId: UUID,
-        deviceId: UUID,
+        bucketId: String,
         entityType: EntityType,
-        entityId: UUID,
+        entityId: String,
         operationType: OperationType,
-        payloadMap: Map<String, Any?>,
-        transitionTo: String? = null
+        contentData: JsonObject
     ): Result<OpLogEntryEntity> {
         return try {
-            // 1. Serialize to canonical JSON (sorted keys, compact, no nulls)
-            val canonicalJson = canonicalJsonSerializer.serialize(payloadMap)
+            val deviceId = keyManager.getDeviceId()
+                ?: return Result.failure(IllegalStateException("Device not registered"))
 
-            // 2. Get current DEK epoch
-            val currentEpoch = keyManager.getCurrentEpoch(familyId)
-            val dek = keyManager.getDek(familyId, currentEpoch)
+            // 1. Get current DEK epoch
+            val currentEpoch = keyManager.getCurrentEpoch(bucketId)
+            val dek = keyManager.getDek(bucketId, currentEpoch)
                 ?: return Result.failure(IllegalStateException("No DEK available for epoch $currentEpoch"))
 
-            // 3. Compute device sequence (needed for AAD)
+            // 2. Compute device sequence
             val lastOp = opLogDao.getLastOpForDevice(deviceId)
             val deviceSequence = (lastOp?.deviceSequence ?: 0L) + 1
 
-            // 4. Encrypt: canonical JSON -> gzip -> AES-256-GCM
-            //    AAD = "familyId|deviceId|deviceSequence|keyEpoch"
-            val aad = CryptoManager.buildPayloadAad(
-                familyId = familyId.toString(),
-                deviceId = deviceId.toString(),
-                deviceSequence = deviceSequence,
-                keyEpoch = currentEpoch
-            )
-            val encryptedPayload = cryptoManager.encryptPayload(
-                plaintext = canonicalJson,
-                dek = dek,
-                aad = aad
-            )
-
-            // 5. Compute hash chain
-            val devicePrevHash = lastOp?.currentHash ?: HashChainVerifier.GENESIS_HASH
-            val currentHash = hashChainVerifier.computeHash(devicePrevHash, encryptedPayload)
-
-            // 6. Create OpLogEntry
-            val entry = OpLogEntryEntity(
-                globalSequence = 0, // assigned by server
-                familyId = familyId,
-                deviceId = deviceId,
+            // 3. Build the full DecryptedPayload with ALL metadata inside
+            val decryptedPayload = DecryptedPayload(
                 deviceSequence = deviceSequence,
                 entityType = entityType.name,
                 entityId = entityId,
                 operation = operationType.name,
+                clientTimestamp = Instant.now().toString(),
+                protocolVersion = 1,
+                data = contentData
+            )
+
+            // 4. Serialize to JSON
+            val payloadJson = json.encodeToString(decryptedPayload)
+
+            // 5. Encrypt: JSON -> gzip -> AES-256-GCM
+            //    AAD = "bucketId|deviceId|deviceSequence|keyEpoch"
+            val aad = CryptoManager.buildPayloadAad(
+                bucketId = bucketId,
+                deviceId = deviceId,
+                deviceSequence = deviceSequence,
+                keyEpoch = currentEpoch
+            )
+            val encryptedPayload = cryptoManager.encryptPayload(
+                plaintext = payloadJson,
+                dek = dek,
+                aad = aad
+            )
+
+            // 6. Compute hash chain
+            val devicePrevHash = lastOp?.currentHash ?: HashChainVerifier.GENESIS_HASH
+            val currentHash = hashChainVerifier.computeHash(devicePrevHash, encryptedPayload)
+
+            // 7. Create OpLogEntry -- NO plaintext metadata columns
+            val entry = OpLogEntryEntity(
+                globalSequence = 0, // assigned by server
+                bucketId = bucketId,
+                deviceId = deviceId,
+                deviceSequence = deviceSequence,
                 keyEpoch = currentEpoch,
                 encryptedPayload = encryptedPayload,
                 devicePrevHash = devicePrevHash,
                 currentHash = currentHash,
-                clientTimestamp = Instant.now().toString(),
                 serverTimestamp = null,
-                transitionTo = transitionTo,
                 isPending = true
             )
 

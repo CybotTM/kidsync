@@ -1,37 +1,42 @@
 package com.kidsync.app.domain.usecase.custody
 
+import com.kidsync.app.domain.model.DecryptedPayload
 import com.kidsync.app.domain.model.OverrideStatus
-import com.kidsync.app.domain.model.OverrideType
-import java.util.UUID
+import kotlinx.serialization.json.jsonPrimitive
 import javax.inject.Inject
 
 /**
- * Enforces the override state machine as defined in sync-protocol.md Section 9.2
- * and tv05-override-state-machine.json.
+ * Client-side override state machine.
+ *
+ * In the zero-knowledge architecture, the server has NO override state table.
+ * Each client deterministically replays all ops in global sequence order and
+ * derives the current state. This is the ONLY source of override state.
  *
  * Valid transitions:
- *   PROPOSED -> APPROVED (by other parent)
- *   PROPOSED -> DECLINED (by other parent)
- *   PROPOSED -> CANCELLED (by proposer)
- *   APPROVED -> SUPERSEDED (by system when new override takes precedence)
- *   APPROVED -> EXPIRED (by system when end date passes)
+ *   PROPOSED -> APPROVED (by other parent / any device except proposer)
+ *   PROPOSED -> DECLINED (by other parent / any device except proposer)
+ *   PROPOSED -> CANCELLED (by proposer device only)
+ *   PROPOSED -> EXPIRED (by any device, when clientTimestamp + TTL < now)
+ *   PROPOSED -> SUPERSEDED (automatic: new PROPOSED for same date range supersedes previous)
  *
  * Terminal states (no transitions out):
  *   DECLINED, CANCELLED, SUPERSEDED, EXPIRED
  *
- * Authority constraints:
- *   - Only the proposer can CANCEL
- *   - Only the OTHER parent (not proposer) can APPROVE or DECLINE
- *   - SUPERSEDED and EXPIRED are system-only transitions
+ * Convergence guarantee:
+ *   Given the same ordered sequence of ops, all clients compute the same override state.
  */
 class OverrideStateMachine @Inject constructor() {
+
+    private val states = mutableMapOf<String, OverrideState>()
 
     companion object {
         private val VALID_TRANSITIONS: Map<OverrideStatus, Set<OverrideStatus>> = mapOf(
             OverrideStatus.PROPOSED to setOf(
                 OverrideStatus.APPROVED,
                 OverrideStatus.DECLINED,
-                OverrideStatus.CANCELLED
+                OverrideStatus.CANCELLED,
+                OverrideStatus.SUPERSEDED,
+                OverrideStatus.EXPIRED
             ),
             OverrideStatus.APPROVED to setOf(
                 OverrideStatus.SUPERSEDED,
@@ -42,6 +47,65 @@ class OverrideStateMachine @Inject constructor() {
             OverrideStatus.SUPERSEDED to emptySet(),
             OverrideStatus.EXPIRED to emptySet()
         )
+    }
+
+    /**
+     * Apply a decrypted op to the state machine.
+     * Only processes CustodyOverride entity types.
+     */
+    fun apply(op: DecryptedPayload) {
+        if (op.entityType != "ScheduleOverride") return
+
+        when (op.operation) {
+            "CREATE" -> {
+                val proposerId = op.data["proposerId"]?.jsonPrimitive?.content ?: return
+                states[op.entityId] = OverrideState(
+                    entityId = op.entityId,
+                    status = OverrideStatus.PROPOSED,
+                    proposerDeviceId = proposerId,
+                    createdAt = op.clientTimestamp
+                )
+            }
+            "UPDATE" -> {
+                val current = states[op.entityId] ?: return
+                val transitionStr = op.data["transitionTo"]?.jsonPrimitive?.content ?: return
+                val transitionTo = runCatching { OverrideStatus.valueOf(transitionStr) }.getOrNull() ?: return
+                val actorDeviceId = op.data["actorDeviceId"]?.jsonPrimitive?.content
+
+                if (isValidTransition(current.status, transitionTo)) {
+                    val authorityResult = validateAuthority(
+                        from = current.status,
+                        to = transitionTo,
+                        actorDeviceId = actorDeviceId,
+                        proposerDeviceId = current.proposerDeviceId,
+                        isSystem = (transitionTo == OverrideStatus.SUPERSEDED || transitionTo == OverrideStatus.EXPIRED)
+                    )
+                    if (authorityResult is AuthorityResult.Permitted) {
+                        states[op.entityId] = current.copy(status = transitionTo)
+                    }
+                }
+            }
+            "DELETE" -> {
+                states.remove(op.entityId)
+            }
+        }
+    }
+
+    /**
+     * Get the current state of all overrides.
+     */
+    fun getStates(): Map<String, OverrideState> = states.toMap()
+
+    /**
+     * Get the state of a specific override.
+     */
+    fun getState(entityId: String): OverrideState? = states[entityId]
+
+    /**
+     * Reset the state machine (e.g., before replaying from scratch).
+     */
+    fun reset() {
+        states.clear()
     }
 
     /**
@@ -63,16 +127,16 @@ class OverrideStateMachine @Inject constructor() {
      *
      * @param from Current status
      * @param to Target status
-     * @param actorUserId The user attempting the transition
-     * @param proposerId The original proposer of the override
+     * @param actorDeviceId The device attempting the transition
+     * @param proposerDeviceId The device that proposed the override
      * @param isSystem Whether this is a system-initiated transition
      * @return AuthorityResult indicating whether the transition is permitted
      */
     fun validateAuthority(
         from: OverrideStatus,
         to: OverrideStatus,
-        actorUserId: UUID,
-        proposerId: UUID,
+        actorDeviceId: String?,
+        proposerDeviceId: String,
         isSystem: Boolean = false
     ): AuthorityResult {
         // First check if the transition itself is valid
@@ -84,8 +148,8 @@ class OverrideStateMachine @Inject constructor() {
 
         return when (to) {
             OverrideStatus.CANCELLED -> {
-                // Only proposer can cancel
-                if (actorUserId == proposerId) {
+                // Only proposer device can cancel
+                if (actorDeviceId == proposerDeviceId) {
                     AuthorityResult.Permitted
                 } else {
                     AuthorityResult.Forbidden(
@@ -95,8 +159,8 @@ class OverrideStateMachine @Inject constructor() {
             }
 
             OverrideStatus.APPROVED, OverrideStatus.DECLINED -> {
-                // Only the OTHER parent (not proposer) can approve/decline
-                if (actorUserId != proposerId) {
+                // Only a device OTHER than the proposer can approve/decline
+                if (actorDeviceId != null && actorDeviceId != proposerDeviceId) {
                     AuthorityResult.Permitted
                 } else {
                     AuthorityResult.Forbidden(
@@ -106,7 +170,7 @@ class OverrideStateMachine @Inject constructor() {
             }
 
             OverrideStatus.SUPERSEDED, OverrideStatus.EXPIRED -> {
-                // System-only transitions
+                // System-only transitions (any device can trigger deterministically)
                 if (isSystem) {
                     AuthorityResult.Permitted
                 } else {
@@ -122,6 +186,13 @@ class OverrideStateMachine @Inject constructor() {
         }
     }
 }
+
+data class OverrideState(
+    val entityId: String,
+    val status: OverrideStatus,
+    val proposerDeviceId: String,
+    val createdAt: String
+)
 
 sealed class AuthorityResult {
     data object Permitted : AuthorityResult()

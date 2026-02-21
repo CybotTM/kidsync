@@ -1,5 +1,10 @@
 package com.kidsync.app.crypto
 
+import org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters
+import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters
+import org.bouncycastle.crypto.signers.Ed25519Signer
+import org.bouncycastle.math.ec.rfc7748.X25519
+import org.bouncycastle.math.ec.rfc8032.Ed25519
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.security.*
@@ -15,9 +20,11 @@ import javax.crypto.spec.SecretKeySpec
 import javax.inject.Inject
 
 /**
- * CryptoManager implementation using standard Java crypto primitives.
+ * CryptoManager implementation using standard Java crypto primitives and BouncyCastle.
  *
  * Implements the full encryption pipeline from encryption-spec.md:
+ * - Ed25519 signing/verification (BouncyCastle)
+ * - Ed25519-to-X25519 key conversion (BouncyCastle)
  * - X25519 ECDH key agreement
  * - AES-256-GCM authenticated encryption
  * - HKDF-SHA256 key derivation
@@ -31,7 +38,69 @@ class TinkCryptoManager @Inject constructor() : CryptoManager {
         private const val DEK_SIZE = 32 // bytes = 256 bits
         private const val HKDF_DEK_WRAP_INFO = "kidsync-dek-wrap-v1"
         private const val ALGORITHM_AES_GCM = "AES/GCM/NoPadding"
+        private const val ED25519_SEED_SIZE = 32
+        private const val ED25519_PUBLIC_KEY_SIZE = 32
+        private const val ED25519_SIGNATURE_SIZE = 64
     }
+
+    // ─── Ed25519 Signing ────────────────────────────────────────────────────────
+
+    override fun generateEd25519KeyPair(): Pair<ByteArray, ByteArray> {
+        val seed = ByteArray(ED25519_SEED_SIZE)
+        SecureRandom().nextBytes(seed)
+        val privateKeyParams = Ed25519PrivateKeyParameters(seed, 0)
+        val publicKeyParams = privateKeyParams.generatePublicKey()
+        return Pair(publicKeyParams.encoded, seed)
+    }
+
+    override fun signEd25519(message: ByteArray, privateKey: ByteArray): ByteArray {
+        val privateKeyParams = Ed25519PrivateKeyParameters(privateKey, 0)
+        val signer = Ed25519Signer()
+        signer.init(true, privateKeyParams)
+        signer.update(message, 0, message.size)
+        return signer.generateSignature()
+    }
+
+    override fun verifyEd25519(message: ByteArray, signature: ByteArray, publicKey: ByteArray): Boolean {
+        return try {
+            val publicKeyParams = Ed25519PublicKeyParameters(publicKey, 0)
+            val verifier = Ed25519Signer()
+            verifier.init(false, publicKeyParams)
+            verifier.update(message, 0, message.size)
+            verifier.verifySignature(signature)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    override fun ed25519PrivateToX25519(ed25519PrivateKey: ByteArray): ByteArray {
+        // Derive the full 64-byte expanded Ed25519 secret key from the 32-byte seed
+        // by hashing with SHA-512, then use the first 32 bytes (clamped) as X25519 private key.
+        val hash = MessageDigest.getInstance("SHA-512").digest(ed25519PrivateKey)
+        // Clamp the scalar (standard X25519 clamping)
+        hash[0] = (hash[0].toInt() and 248).toByte()
+        hash[31] = (hash[31].toInt() and 127).toByte()
+        hash[31] = (hash[31].toInt() or 64).toByte()
+        return hash.copyOfRange(0, 32)
+    }
+
+    override fun ed25519PublicToX25519(ed25519PublicKey: ByteArray): ByteArray {
+        // Convert Ed25519 point (in compressed Edwards form) to X25519 (Montgomery u-coordinate).
+        // Uses BouncyCastle's internal conversion via the RFC 7748 X25519 field arithmetic.
+        val x25519Public = ByteArray(X25519.POINT_SIZE)
+        // BouncyCastle Ed25519 provides this conversion
+        val edPoint = Ed25519PublicKeyParameters(ed25519PublicKey, 0)
+        // Use the internal BouncyCastle conversion: extract Edwards Y coordinate, compute Montgomery u = (1+y)/(1-y)
+        convertEdwardsToMontgomery(edPoint.encoded, x25519Public)
+        return x25519Public
+    }
+
+    override fun computeKeyFingerprint(publicKey: ByteArray): String {
+        val hashBytes = sha256(publicKey)
+        return hashBytes.joinToString("") { "%02x".format(it) }
+    }
+
+    // ─── X25519 Key Exchange ────────────────────────────────────────────────────
 
     override fun generateX25519KeyPair(): KeyPair {
         val keyPairGenerator = KeyPairGenerator.getInstance("X25519")
@@ -48,6 +117,8 @@ class TinkCryptoManager @Inject constructor() : CryptoManager {
         val keyFactory = KeyFactory.getInstance("X25519")
         return keyFactory.generatePublic(keySpec)
     }
+
+    // ─── AES-256-GCM Encryption ─────────────────────────────────────────────────
 
     override fun generateDek(): ByteArray {
         val dek = ByteArray(DEK_SIZE)
@@ -102,6 +173,8 @@ class TinkCryptoManager @Inject constructor() : CryptoManager {
 
         return String(plaintext, Charsets.UTF_8)
     }
+
+    // ─── DEK Wrapping ───────────────────────────────────────────────────────────
 
     override fun wrapDek(
         dek: ByteArray,
@@ -159,7 +232,6 @@ class TinkCryptoManager @Inject constructor() : CryptoManager {
         val data = Base64.getDecoder().decode(wrappedDek)
 
         // Parse components (X25519 public key is 44 bytes in X509 encoding)
-        // We need to determine the public key size dynamically
         val ephemeralPublicKeyBytes = data.sliceArray(0 until 44) // X509-encoded X25519 public key
         var offset = 44
 
@@ -197,6 +269,8 @@ class TinkCryptoManager @Inject constructor() : CryptoManager {
 
         return cipher.doFinal(wrappedDekAndTag)
     }
+
+    // ─── Hashing & Key Derivation ───────────────────────────────────────────────
 
     override fun sha256(data: ByteArray): ByteArray {
         return MessageDigest.getInstance("SHA-256").digest(data)
@@ -246,6 +320,8 @@ class TinkCryptoManager @Inject constructor() : CryptoManager {
         return hash.joinToString("") { "%02x".format(it) }.substring(0, 16)
     }
 
+    // ─── Blob Encryption ────────────────────────────────────────────────────────
+
     override fun encryptBlob(data: ByteArray): Pair<ByteArray, ByteArray> {
         // Generate per-blob key
         val blobKey = generateDek()
@@ -280,6 +356,8 @@ class TinkCryptoManager @Inject constructor() : CryptoManager {
         return cipher.doFinal(ciphertextAndTag)
     }
 
+    // ─── Private Helpers ────────────────────────────────────────────────────────
+
     private fun hmacSha256(key: ByteArray, data: ByteArray): ByteArray {
         val mac = Mac.getInstance("HmacSHA256")
         val keySpec = SecretKeySpec(key, "HmacSHA256")
@@ -296,5 +374,46 @@ class TinkCryptoManager @Inject constructor() : CryptoManager {
     private fun gzipDecompress(data: ByteArray): ByteArray {
         val bis = ByteArrayInputStream(data)
         return GZIPInputStream(bis).use { it.readBytes() }
+    }
+
+    /**
+     * Convert an Ed25519 public key (Edwards form) to an X25519 public key (Montgomery form).
+     *
+     * The conversion uses the birational map between the Edwards curve and Montgomery curve:
+     *   u = (1 + y) / (1 - y)  mod p
+     *
+     * where y is the y-coordinate of the Edwards point, and p = 2^255 - 19.
+     */
+    private fun convertEdwardsToMontgomery(edwardsPublicKey: ByteArray, montgomeryPublicKey: ByteArray) {
+        // The Ed25519 public key encodes the y-coordinate (with the sign of x in the high bit).
+        // We need to extract y and compute u = (1+y)/(1-y) mod p.
+        val p = java.math.BigInteger.ONE.shiftLeft(255).subtract(java.math.BigInteger.valueOf(19))
+
+        // Decode y from the Ed25519 point encoding (little-endian, with x-sign in bit 255)
+        val yBytes = edwardsPublicKey.copyOf()
+        yBytes[31] = (yBytes[31].toInt() and 0x7F).toByte() // Clear the sign bit
+
+        // Convert from little-endian to BigInteger
+        val reversed = yBytes.reversedArray()
+        val y = java.math.BigInteger(1, reversed)
+
+        // u = (1 + y) * (1 - y)^(-1) mod p
+        val one = java.math.BigInteger.ONE
+        val numerator = one.add(y).mod(p)
+        val denominator = one.subtract(y).mod(p)
+        val denominatorInverse = denominator.modInverse(p)
+        val u = numerator.multiply(denominatorInverse).mod(p)
+
+        // Encode u as 32 bytes little-endian
+        val uBytes = u.toByteArray()
+        // BigInteger may have a leading zero byte; we need exactly 32 bytes LE
+        val uBytesReversed = ByteArray(32)
+        for (i in uBytes.indices) {
+            val targetIdx = uBytes.size - 1 - i
+            if (targetIdx >= 0 && i < 32) {
+                uBytesReversed[i] = uBytes[targetIdx]
+            }
+        }
+        System.arraycopy(uBytesReversed, 0, montgomeryPublicKey, 0, 32)
     }
 }

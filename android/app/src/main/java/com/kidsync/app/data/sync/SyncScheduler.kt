@@ -10,7 +10,6 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
-import java.util.UUID
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -44,16 +43,16 @@ class SyncScheduler @Inject constructor(
      * Uses [ExistingPeriodicWorkPolicy.KEEP] so calling this multiple times
      * does not reset the existing schedule or create duplicate workers.
      *
-     * @param familyId The family to sync data for.
+     * @param bucketId The bucket to sync data for.
      */
-    fun schedulePeriodicSync(familyId: UUID) {
+    fun schedulePeriodicSync(bucketId: String) {
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .setRequiresBatteryNotLow(true)
             .build()
 
         val inputData = Data.Builder()
-            .putString(SyncWorker.KEY_FAMILY_ID, familyId.toString())
+            .putString(SyncWorker.KEY_BUCKET_ID, bucketId)
             .build()
 
         val request = PeriodicWorkRequestBuilder<SyncWorker>(
@@ -85,15 +84,15 @@ class SyncScheduler @Inject constructor(
      * Only requires network connectivity (no battery constraint) since the user
      * explicitly requested this sync.
      *
-     * @param familyId The family to sync data for.
+     * @param bucketId The bucket to sync data for.
      */
-    fun requestImmediateSync(familyId: UUID) {
+    fun requestImmediateSync(bucketId: String) {
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
 
         val inputData = Data.Builder()
-            .putString(SyncWorker.KEY_FAMILY_ID, familyId.toString())
+            .putString(SyncWorker.KEY_BUCKET_ID, bucketId)
             .build()
 
         val request = OneTimeWorkRequestBuilder<SyncWorker>()
@@ -114,7 +113,7 @@ class SyncScheduler @Inject constructor(
     /**
      * Cancel all sync work -- both periodic and one-shot.
      *
-     * Call this when the user logs out or the family context changes.
+     * Call this when the user clears the session or the bucket context changes.
      */
     fun cancelSync() {
         workManager.cancelUniqueWork(SyncWorker.WORK_NAME_PERIODIC)

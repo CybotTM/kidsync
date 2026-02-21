@@ -1,11 +1,12 @@
 package com.kidsync.app.domain.usecase.sync
 
-import com.kidsync.app.crypto.CanonicalJsonSerializer
 import com.kidsync.app.crypto.CryptoManager
 import com.kidsync.app.crypto.KeyManager
 import com.kidsync.app.data.local.dao.*
 import com.kidsync.app.domain.model.EntityType
 import com.kidsync.app.domain.model.OperationType
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import java.security.MessageDigest
 import java.time.Instant
 import java.util.UUID
@@ -23,40 +24,38 @@ class SnapshotUseCase @Inject constructor(
     private val syncStateDao: SyncStateDao,
     private val cryptoManager: CryptoManager,
     private val keyManager: KeyManager,
-    private val canonicalJsonSerializer: CanonicalJsonSerializer,
     private val createOperationUseCase: CreateOperationUseCase
 ) {
     /**
      * Create a snapshot of the current local state and publish it as a DeviceSnapshot operation.
      */
-    suspend fun createSnapshot(familyId: UUID, deviceId: UUID): Result<String> {
+    suspend fun createSnapshot(bucketId: String): Result<String> {
         return try {
-            val syncState = syncStateDao.getSyncState(familyId)
+            val syncState = syncStateDao.getSyncState(bucketId)
                 ?: return Result.failure(IllegalStateException("No sync state found"))
 
-            // Compute state hash from all materialized entities
-            val stateHash = computeStateHash(familyId)
+            val deviceId = keyManager.getDeviceId()
+                ?: return Result.failure(IllegalStateException("Device not registered"))
 
-            val snapshotId = UUID.randomUUID()
-            val payload = mapOf(
-                "payloadType" to "DeviceSnapshot",
-                "entityId" to snapshotId.toString(),
-                "timestamp" to Instant.now().toString(),
-                "operationType" to "CREATE",
-                "snapshotId" to snapshotId.toString(),
-                "deviceId" to deviceId.toString(),
-                "familyId" to familyId.toString(),
-                "lastGlobalSequence" to syncState.lastGlobalSequence,
-                "stateHash" to stateHash
-            )
+            // Compute state hash from all materialized entities
+            val stateHash = computeStateHash()
+
+            val snapshotId = UUID.randomUUID().toString()
+            val contentData = buildJsonObject {
+                put("snapshotId", JsonPrimitive(snapshotId))
+                put("deviceId", JsonPrimitive(deviceId))
+                put("bucketId", JsonPrimitive(bucketId))
+                put("lastGlobalSequence", JsonPrimitive(syncState.lastGlobalSequence))
+                put("stateHash", JsonPrimitive(stateHash))
+                put("timestamp", JsonPrimitive(Instant.now().toString()))
+            }
 
             createOperationUseCase(
-                familyId = familyId,
-                deviceId = deviceId,
-                entityType = EntityType.CustodySchedule, // snapshot entity type
+                bucketId = bucketId,
+                entityType = EntityType.CustodySchedule,
                 entityId = snapshotId,
                 operationType = OperationType.CREATE,
-                payloadMap = payload
+                contentData = contentData
             )
 
             Result.success(stateHash)
@@ -68,7 +67,7 @@ class SnapshotUseCase @Inject constructor(
     /**
      * Compute SHA-256 hash of the current materialized state.
      */
-    private suspend fun computeStateHash(familyId: UUID): String {
+    private suspend fun computeStateHash(): String {
         val digest = MessageDigest.getInstance("SHA-256")
 
         // Hash all active schedules

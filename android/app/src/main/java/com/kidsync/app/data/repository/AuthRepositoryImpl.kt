@@ -1,196 +1,57 @@
 package com.kidsync.app.data.repository
 
 import android.content.SharedPreferences
+import com.kidsync.app.crypto.CryptoManager
+import com.kidsync.app.crypto.KeyManager
 import com.kidsync.app.data.remote.api.ApiService
-import com.kidsync.app.data.remote.dto.*
+import com.kidsync.app.data.remote.dto.ChallengeRequest
+import com.kidsync.app.data.remote.dto.RegisterRequest
+import com.kidsync.app.data.remote.dto.VerifyRequest
 import com.kidsync.app.data.remote.interceptor.AuthInterceptor
-import com.kidsync.app.domain.model.AuthTokens
-import com.kidsync.app.domain.model.UserSession
+import com.kidsync.app.domain.model.DeviceSession
 import com.kidsync.app.domain.repository.AuthRepository
-import com.kidsync.app.domain.repository.TotpSetup
-import java.util.UUID
+import java.time.Instant
+import java.util.Base64
 import javax.inject.Inject
 
+/**
+ * AuthRepository implementation for the zero-knowledge architecture.
+ *
+ * Uses Ed25519 challenge-response authentication:
+ * 1. Send signing public key to get a nonce
+ * 2. Sign nonce || signingKey || serverOrigin || timestamp
+ * 3. Send signature to verify and get session token
+ *
+ * No emails, no passwords, no TOTP, no refresh tokens.
+ */
 class AuthRepositoryImpl @Inject constructor(
     private val apiService: ApiService,
-    private val prefs: SharedPreferences
+    private val cryptoManager: CryptoManager,
+    private val keyManager: KeyManager,
+    private val prefs: SharedPreferences,
+    private val serverOrigin: String
 ) : AuthRepository {
 
     companion object {
-        private const val PREF_USER_ID = "user_id"
-        private const val PREF_FAMILY_ID = "family_id"
         private const val PREF_DEVICE_ID = "device_id"
     }
 
-    override suspend fun register(
-        email: String,
-        password: String,
-        displayName: String
-    ): Result<UserSession> {
+    override suspend fun register(signingKey: String, encryptionKey: String): Result<String> {
         return try {
-            val response = apiService.register(RegisterRequest(email, password))
-            if (!response.isSuccessful) {
-                return Result.failure(
-                    ApiException(response.code(), response.message())
+            val response = apiService.register(
+                RegisterRequest(
+                    signingKey = signingKey,
+                    encryptionKey = encryptionKey
                 )
-            }
-
-            val body = response.body()
-                ?: return Result.failure(ApiException(500, "Empty response body"))
-
-            val tokens = AuthTokens(
-                accessToken = body.token,
-                refreshToken = body.refreshToken,
-                expiresIn = 900L // 15 minutes
             )
 
-            saveTokens(tokens)
+            val deviceId = response.deviceId
 
-            val userId = UUID.fromString(body.userId)
-            val deviceId = UUID.fromString(body.deviceId)
-
+            // Store device ID
             prefs.edit()
-                .putString(PREF_USER_ID, body.userId)
-                .putString(PREF_DEVICE_ID, body.deviceId)
+                .putString(PREF_DEVICE_ID, deviceId)
                 .apply()
-
-            // Family ID is assigned later when creating/joining a family
-            val session = UserSession(
-                userId = userId,
-                familyId = UUID(0, 0), // Placeholder until family is created/joined
-                deviceId = deviceId,
-                tokens = tokens
-            )
-
-            Result.success(session)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    override suspend fun login(
-        email: String,
-        password: String,
-        deviceId: UUID
-    ): Result<UserSession> {
-        return try {
-            val response = apiService.login(LoginRequest(email, password))
-            if (!response.isSuccessful) {
-                return Result.failure(
-                    ApiException(response.code(), response.message())
-                )
-            }
-
-            val body = response.body()
-                ?: return Result.failure(ApiException(500, "Empty response body"))
-
-            val tokens = AuthTokens(
-                accessToken = body.token,
-                refreshToken = body.refreshToken,
-                expiresIn = 900L
-            )
-
-            saveTokens(tokens)
-
-            val userId = UUID.fromString(body.userId)
-            val familyId = prefs.getString(PREF_FAMILY_ID, null)
-                ?.let { UUID.fromString(it) }
-                ?: UUID(0, 0)
-
-            prefs.edit()
-                .putString(PREF_USER_ID, body.userId)
-                .apply()
-
-            val session = UserSession(
-                userId = userId,
-                familyId = familyId,
-                deviceId = deviceId,
-                tokens = tokens
-            )
-
-            Result.success(session)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    override suspend fun refreshToken(): Result<AuthTokens> {
-        return try {
-            val refreshToken = prefs.getString(AuthInterceptor.PREF_REFRESH_TOKEN, null)
-                ?: return Result.failure(IllegalStateException("No refresh token available"))
-
-            val response = apiService.refreshToken(RefreshRequest(refreshToken))
-            if (!response.isSuccessful) {
-                return Result.failure(
-                    ApiException(response.code(), response.message())
-                )
-            }
-
-            val body = response.body()
-                ?: return Result.failure(ApiException(500, "Empty response body"))
-
-            val tokens = AuthTokens(
-                accessToken = body.token,
-                refreshToken = body.refreshToken,
-                expiresIn = 900L
-            )
-
-            saveTokens(tokens)
-            Result.success(tokens)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    override suspend fun logout() {
-        prefs.edit()
-            .remove(AuthInterceptor.PREF_ACCESS_TOKEN)
-            .remove(AuthInterceptor.PREF_REFRESH_TOKEN)
-            .remove(PREF_USER_ID)
-            .apply()
-    }
-
-    override suspend fun getSession(): UserSession? {
-        val userId = prefs.getString(PREF_USER_ID, null) ?: return null
-        val familyId = prefs.getString(PREF_FAMILY_ID, null) ?: return null
-        val deviceId = prefs.getString(PREF_DEVICE_ID, null) ?: return null
-        val accessToken = prefs.getString(AuthInterceptor.PREF_ACCESS_TOKEN, null) ?: return null
-        val refreshToken = prefs.getString(AuthInterceptor.PREF_REFRESH_TOKEN, null) ?: return null
-
-        return UserSession(
-            userId = UUID.fromString(userId),
-            familyId = UUID.fromString(familyId),
-            deviceId = UUID.fromString(deviceId),
-            tokens = AuthTokens(
-                accessToken = accessToken,
-                refreshToken = refreshToken,
-                expiresIn = 900L
-            )
-        )
-    }
-
-    override suspend fun isLoggedIn(): Boolean {
-        return prefs.getString(AuthInterceptor.PREF_ACCESS_TOKEN, null) != null
-    }
-
-    override suspend fun registerDevice(
-        familyId: UUID,
-        deviceName: String,
-        publicKey: String
-    ): Result<UUID> {
-        return try {
-            val response = apiService.registerDevice(
-                RegisterDeviceRequest(deviceName = deviceName, publicKey = publicKey)
-            )
-            if (!response.isSuccessful) {
-                return Result.failure(ApiException(response.code(), response.message()))
-            }
-
-            val body = response.body()
-                ?: return Result.failure(ApiException(500, "Empty response body"))
-
-            val deviceId = UUID.fromString(body.deviceId)
-            prefs.edit().putString(PREF_DEVICE_ID, body.deviceId).apply()
+            keyManager.storeDeviceId(deviceId)
 
             Result.success(deviceId)
         } catch (e: Exception) {
@@ -198,70 +59,86 @@ class AuthRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun acceptInvite(inviteCode: String, deviceId: UUID): Result<UserSession> {
+    override suspend fun authenticate(): Result<DeviceSession> {
         return try {
-            val familyId = prefs.getString(PREF_FAMILY_ID, null)
-                ?: return Result.failure(IllegalStateException("No family context"))
+            val (signingPublicKey, signingPrivateKey) = keyManager.getOrCreateSigningKeyPair()
+            val signingKeyBase64 = Base64.getEncoder().encodeToString(signingPublicKey)
 
-            val response = apiService.joinFamily(
-                familyId,
-                JoinFamilyRequest(inviteToken = inviteCode, devicePublicKey = "")
+            // 1. Request challenge nonce
+            val challengeResponse = apiService.requestChallenge(
+                ChallengeRequest(signingKey = signingKeyBase64)
             )
-            if (!response.isSuccessful) {
-                return Result.failure(ApiException(response.code(), response.message()))
-            }
 
-            val body = response.body()
-                ?: return Result.failure(ApiException(500, "Empty response body"))
+            val nonce = challengeResponse.nonce
+            val timestamp = Instant.now().toString()
 
-            prefs.edit().putString(PREF_FAMILY_ID, body.familyId).apply()
+            // 2. Construct challenge message: nonce || signingKey || serverOrigin || timestamp
+            val message = buildChallengeMessage(nonce, signingKeyBase64, serverOrigin, timestamp)
 
-            val session = getSession()
-                ?: return Result.failure(IllegalStateException("Session not available after join"))
+            // 3. Sign the challenge
+            val signature = cryptoManager.signEd25519(message, signingPrivateKey)
+            val signatureBase64 = Base64.getEncoder().encodeToString(signature)
 
-            Result.success(session)
+            // 4. Verify with server
+            val verifyResponse = apiService.verifyChallenge(
+                VerifyRequest(
+                    signingKey = signingKeyBase64,
+                    nonce = nonce,
+                    signature = signatureBase64,
+                    timestamp = timestamp
+                )
+            )
+
+            // 5. Store session token
+            prefs.edit()
+                .putString(AuthInterceptor.PREF_SESSION_TOKEN, verifyResponse.sessionToken)
+                .apply()
+
+            val deviceId = keyManager.getDeviceId()
+                ?: throw IllegalStateException("Device ID not found after authentication")
+
+            Result.success(
+                DeviceSession(
+                    deviceId = deviceId,
+                    sessionToken = verifyResponse.sessionToken,
+                    expiresIn = verifyResponse.expiresIn
+                )
+            )
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    override suspend fun setupTotp(userId: UUID): Result<TotpSetup> {
-        return try {
-            val response = apiService.totpSetup()
-            if (!response.isSuccessful) {
-                return Result.failure(ApiException(response.code(), response.message()))
-            }
-
-            val body = response.body()
-                ?: return Result.failure(ApiException(500, "Empty response body"))
-
-            Result.success(TotpSetup(secret = body.secret, provisioningUri = body.qrCodeUri))
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
+    override suspend fun getDeviceId(): String? {
+        return prefs.getString(PREF_DEVICE_ID, null) ?: keyManager.getDeviceId()
     }
 
-    override suspend fun verifyTotp(userId: UUID, code: String): Result<Boolean> {
-        return try {
-            val response = apiService.totpVerify(TotpVerifyRequest(code = code))
-            if (!response.isSuccessful) {
-                return Result.failure(ApiException(response.code(), response.message()))
-            }
-
-            val body = response.body()
-                ?: return Result.failure(ApiException(500, "Empty response body"))
-
-            Result.success(body.verified)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
+    override suspend fun getSessionToken(): String? {
+        return prefs.getString(AuthInterceptor.PREF_SESSION_TOKEN, null)
     }
 
-    private fun saveTokens(tokens: AuthTokens) {
+    override suspend fun isAuthenticated(): Boolean {
+        return prefs.getString(AuthInterceptor.PREF_SESSION_TOKEN, null) != null
+    }
+
+    override suspend fun clearSession() {
         prefs.edit()
-            .putString(AuthInterceptor.PREF_ACCESS_TOKEN, tokens.accessToken)
-            .putString(AuthInterceptor.PREF_REFRESH_TOKEN, tokens.refreshToken)
+            .remove(AuthInterceptor.PREF_SESSION_TOKEN)
             .apply()
+    }
+
+    /**
+     * Build the challenge message to sign.
+     * Format: nonce || signingKey || serverOrigin || timestamp
+     * Each component is concatenated as UTF-8 bytes with "|" separator.
+     */
+    private fun buildChallengeMessage(
+        nonce: String,
+        signingKey: String,
+        serverOrigin: String,
+        timestamp: String
+    ): ByteArray {
+        return "$nonce|$signingKey|$serverOrigin|$timestamp".toByteArray(Charsets.UTF_8)
     }
 }
 

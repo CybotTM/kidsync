@@ -1,23 +1,18 @@
+@file:Suppress("unused")
+
 package com.kidsync.app.domain.repository
 
-import com.kidsync.app.domain.model.*
-import kotlinx.coroutines.flow.Flow
-import java.util.UUID
-
-interface FamilyRepository {
-    fun observeFamily(familyId: UUID): Flow<Family?>
-    fun observeMembers(familyId: UUID): Flow<List<FamilyMember>>
-    fun observeDevices(familyId: UUID): Flow<List<Device>>
-
-    suspend fun getFamily(familyId: UUID): Family?
-    suspend fun getMembers(familyId: UUID): List<FamilyMember>
-    suspend fun getDevices(familyId: UUID): List<Device>
-
-    suspend fun createInvite(familyId: UUID): Result<String>
-    suspend fun convertToShared(familyId: UUID): Result<Unit>
-    suspend fun revokeDevice(familyId: UUID, deviceId: UUID): Result<Unit>
-
-    suspend fun saveFamily(family: Family)
-    suspend fun saveMember(member: FamilyMember)
-    suspend fun saveDevice(device: Device)
-}
+/**
+ * DEPRECATED: FamilyRepository has been replaced by [BucketRepository].
+ *
+ * In the zero-knowledge architecture, the concept of "family" is a client-side
+ * abstraction stored inside encrypted ops. The server only knows about anonymous
+ * "buckets" -- opaque storage namespaces.
+ *
+ * @see BucketRepository
+ */
+@Deprecated(
+    message = "Use BucketRepository instead. Family concept moved to client-side.",
+    replaceWith = ReplaceWith("BucketRepository")
+)
+typealias FamilyRepository = BucketRepository

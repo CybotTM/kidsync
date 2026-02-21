@@ -5,7 +5,6 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.kidsync.app.data.local.entity.OpLogEntryEntity
-import java.util.UUID
 
 @Dao
 interface OpLogDao {
@@ -24,16 +23,16 @@ interface OpLogDao {
         LIMIT 1
         """
     )
-    suspend fun getLastOpForDevice(deviceId: UUID): OpLogEntryEntity?
+    suspend fun getLastOpForDevice(deviceId: String): OpLogEntryEntity?
 
     @Query(
         """
         SELECT * FROM oplog
-        WHERE familyId = :familyId AND isPending = 1
+        WHERE bucketId = :bucketId AND isPending = 1
         ORDER BY deviceSequence ASC
         """
     )
-    suspend fun getPendingOps(familyId: UUID): List<OpLogEntryEntity>
+    suspend fun getPendingOps(bucketId: String): List<OpLogEntryEntity>
 
     @Query(
         """
@@ -47,28 +46,28 @@ interface OpLogDao {
     @Query(
         """
         SELECT * FROM oplog
-        WHERE familyId = :familyId
+        WHERE bucketId = :bucketId
         ORDER BY globalSequence ASC
         """
     )
-    suspend fun getAllOpsForFamily(familyId: UUID): List<OpLogEntryEntity>
+    suspend fun getAllOpsForBucket(bucketId: String): List<OpLogEntryEntity>
 
     @Query(
         """
         SELECT * FROM oplog
-        WHERE familyId = :familyId AND globalSequence > :afterSequence
+        WHERE bucketId = :bucketId AND globalSequence > :afterSequence
         ORDER BY globalSequence ASC
         LIMIT :limit
         """
     )
     suspend fun getOpsAfterSequence(
-        familyId: UUID,
+        bucketId: String,
         afterSequence: Long,
         limit: Int = 100
     ): List<OpLogEntryEntity>
 
-    @Query("SELECT COUNT(*) FROM oplog WHERE familyId = :familyId AND isPending = 1")
-    suspend fun getPendingOpsCount(familyId: UUID): Int
+    @Query("SELECT COUNT(*) FROM oplog WHERE bucketId = :bucketId AND isPending = 1")
+    suspend fun getPendingOpsCount(bucketId: String): Int
 
     @Query("DELETE FROM oplog")
     suspend fun deleteAll()

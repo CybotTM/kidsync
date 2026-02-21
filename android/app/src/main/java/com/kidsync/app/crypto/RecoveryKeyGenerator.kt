@@ -1,14 +1,16 @@
 package com.kidsync.app.crypto
 
-import java.util.UUID
-
 /**
  * BIP39 mnemonic generation and recovery key derivation.
  *
  * From encryption-spec.md:
  * - Generate 256 bits of entropy
  * - Encode as BIP39 24-word mnemonic
- * - Derive recovery key via HKDF-SHA256(IKM=entropy, salt="kidsync-recovery-v1", info=userId, L=32)
+ * - Derive recovery key via HKDF-SHA256(IKM=entropy || passphrase, salt="kidsync-recovery-v1", info="recovery", L=32)
+ *
+ * The optional passphrase acts as a "25th word" per BIP39 specification.
+ * Without a passphrase, the mnemonic alone is sufficient for recovery.
+ * With a passphrase, both the mnemonic and passphrase are required.
  */
 interface RecoveryKeyGenerator {
     /**
@@ -31,11 +33,14 @@ interface RecoveryKeyGenerator {
     /**
      * Derive a 32-byte recovery key from entropy using HKDF-SHA256.
      *
-     * HKDF-SHA256(IKM=entropy, salt="kidsync-recovery-v1", info=userId, L=32)
+     * HKDF-SHA256(IKM=entropy || passphrase_bytes, salt="kidsync-recovery-v1", info="recovery", L=32)
+     *
+     * The passphrase provides additional security: a stolen mnemonic alone cannot
+     * derive the recovery key without the passphrase.
      *
      * @param entropy The 256-bit entropy from the mnemonic
-     * @param userId The user's UUID
+     * @param passphrase Optional passphrase (BIP39 "25th word"), defaults to empty
      * @return 32-byte derived recovery key
      */
-    fun deriveRecoveryKey(entropy: ByteArray, userId: UUID): ByteArray
+    fun deriveRecoveryKey(entropy: ByteArray, passphrase: String = ""): ByteArray
 }

@@ -1,28 +1,55 @@
 package com.kidsync.app.domain.repository
 
-import com.kidsync.app.domain.model.AuthTokens
-import com.kidsync.app.domain.model.UserSession
-import java.util.UUID
+import com.kidsync.app.domain.model.DeviceSession
 
+/**
+ * Authentication repository for the zero-knowledge architecture.
+ *
+ * Authentication is based on Ed25519 challenge-response:
+ * 1. Device sends its signing public key
+ * 2. Server returns a nonce
+ * 3. Device signs the nonce and sends the signature
+ * 4. Server verifies and issues a session token
+ *
+ * No emails, passwords, TOTP, or refresh tokens.
+ */
 interface AuthRepository {
-    suspend fun register(email: String, password: String, displayName: String): Result<UserSession>
-    suspend fun login(email: String, password: String, deviceId: UUID): Result<UserSession>
-    suspend fun refreshToken(): Result<AuthTokens>
-    suspend fun logout()
-    suspend fun getSession(): UserSession?
-    suspend fun isLoggedIn(): Boolean
-    suspend fun registerDevice(
-        familyId: UUID,
-        deviceName: String,
-        publicKey: String
-    ): Result<UUID>
 
-    suspend fun acceptInvite(inviteCode: String, deviceId: UUID): Result<UserSession>
-    suspend fun setupTotp(userId: UUID): Result<TotpSetup>
-    suspend fun verifyTotp(userId: UUID, code: String): Result<Boolean>
+    /**
+     * Register a new device with the server.
+     * Sends the Ed25519 signing key and X25519 encryption key.
+     *
+     * @param signingKey Base64-encoded Ed25519 public key
+     * @param encryptionKey Base64-encoded X25519 public key
+     * @return The server-assigned device ID
+     */
+    suspend fun register(signingKey: String, encryptionKey: String): Result<String>
+
+    /**
+     * Authenticate using Ed25519 challenge-response.
+     * Requests a nonce, signs it, and verifies to get a session token.
+     *
+     * @return A DeviceSession with the session token
+     */
+    suspend fun authenticate(): Result<DeviceSession>
+
+    /**
+     * Get the locally stored device ID, or null if not registered.
+     */
+    suspend fun getDeviceId(): String?
+
+    /**
+     * Get the current session token, or null if not authenticated.
+     */
+    suspend fun getSessionToken(): String?
+
+    /**
+     * Check if the device is currently authenticated (has a valid session token).
+     */
+    suspend fun isAuthenticated(): Boolean
+
+    /**
+     * Clear the session (logout). Does not revoke any server-side state.
+     */
+    suspend fun clearSession()
 }
-
-data class TotpSetup(
-    val secret: String,
-    val provisioningUri: String
-)

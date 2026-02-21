@@ -11,12 +11,22 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import org.bouncycastle.jce.provider.BouncyCastleProvider
+import java.security.Security
 import javax.inject.Named
 import javax.inject.Singleton
 
 @Module
 @InstallIn(SingletonComponent::class)
 object CryptoModule {
+
+    init {
+        // Ensure BouncyCastle is registered as a security provider for Ed25519 operations.
+        // Android includes a limited BouncyCastle; we add the full one for Ed25519 support.
+        if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
+            Security.addProvider(BouncyCastleProvider())
+        }
+    }
 
     @Provides
     @Singleton

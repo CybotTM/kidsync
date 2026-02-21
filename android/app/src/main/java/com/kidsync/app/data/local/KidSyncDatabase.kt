@@ -9,8 +9,6 @@ import com.kidsync.app.data.local.entity.*
 
 @Database(
     entities = [
-        FamilyEntity::class,
-        FamilyMemberEntity::class,
         CustodyScheduleEntity::class,
         ScheduleOverrideEntity::class,
         ExpenseEntity::class,
@@ -19,9 +17,11 @@ import com.kidsync.app.data.local.entity.*
         SyncStateEntity::class,
         KeyEpochEntity::class,
         DeviceEntity::class,
+        KeyAttestationEntity::class,
+        BucketEntity::class,
         InfoBankEntryEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -33,6 +33,8 @@ abstract class KidSyncDatabase : RoomDatabase() {
     abstract fun opLogDao(): OpLogDao
     abstract fun syncStateDao(): SyncStateDao
     abstract fun keyEpochDao(): KeyEpochDao
+    abstract fun keyAttestationDao(): KeyAttestationDao
+    abstract fun bucketDao(): BucketDao
     abstract fun infoBankDao(): InfoBankDao
 
     companion object {

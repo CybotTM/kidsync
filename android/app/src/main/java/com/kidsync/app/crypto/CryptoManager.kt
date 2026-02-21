@@ -6,10 +6,12 @@ import java.security.PublicKey
 /**
  * Core cryptographic operations interface.
  * Implements the encryption pipeline from encryption-spec.md:
- * - X25519 key pair generation
+ * - Ed25519 signing and verification
+ * - X25519 key pair generation and ECDH
  * - AES-256-GCM encryption/decryption with gzip compression
  * - HKDF-SHA256 key derivation
  * - SHA-256 hashing
+ * - Ed25519-to-X25519 key conversion
  */
 interface CryptoManager {
 
@@ -17,16 +19,73 @@ interface CryptoManager {
         /**
          * Build the Additional Authenticated Data string for AES-256-GCM payload encryption.
          *
-         * Format: "familyId|deviceId|deviceSequence|keyEpoch"
+         * Format: "bucketId|deviceId|deviceSequence|keyEpoch"
          * All components are UTF-8 encoded.
          */
         fun buildPayloadAad(
-            familyId: String,
+            bucketId: String,
             deviceId: String,
             deviceSequence: Long,
             keyEpoch: Int
-        ): String = "$familyId|$deviceId|$deviceSequence|$keyEpoch"
+        ): String = "$bucketId|$deviceId|$deviceSequence|$keyEpoch"
     }
+
+    // ─── Ed25519 Signing ────────────────────────────────────────────────────────
+
+    /**
+     * Generate a new Ed25519 key pair for signing and authentication.
+     *
+     * @return Pair of (publicKey 32 bytes, privateKey 32 bytes seed)
+     */
+    fun generateEd25519KeyPair(): Pair<ByteArray, ByteArray>
+
+    /**
+     * Sign a message using Ed25519.
+     *
+     * @param message The message to sign
+     * @param privateKey The 32-byte Ed25519 private key seed
+     * @return The 64-byte Ed25519 signature
+     */
+    fun signEd25519(message: ByteArray, privateKey: ByteArray): ByteArray
+
+    /**
+     * Verify an Ed25519 signature.
+     *
+     * @param message The original message
+     * @param signature The 64-byte Ed25519 signature
+     * @param publicKey The 32-byte Ed25519 public key
+     * @return true if the signature is valid
+     */
+    fun verifyEd25519(message: ByteArray, signature: ByteArray, publicKey: ByteArray): Boolean
+
+    /**
+     * Convert an Ed25519 private key seed to an X25519 private key.
+     * This allows deriving both signing and encryption keys from a single seed.
+     *
+     * Uses the standard crypto_sign_ed25519_sk_to_curve25519 conversion.
+     *
+     * @param ed25519PrivateKey The 32-byte Ed25519 private key seed
+     * @return The 32-byte X25519 private key
+     */
+    fun ed25519PrivateToX25519(ed25519PrivateKey: ByteArray): ByteArray
+
+    /**
+     * Convert an Ed25519 public key to an X25519 public key.
+     *
+     * @param ed25519PublicKey The 32-byte Ed25519 public key
+     * @return The 32-byte X25519 public key
+     */
+    fun ed25519PublicToX25519(ed25519PublicKey: ByteArray): ByteArray
+
+    /**
+     * Compute a key fingerprint: hex-encoded SHA-256 of the public key bytes.
+     *
+     * @param publicKey The raw public key bytes (Ed25519 or X25519)
+     * @return Hex-encoded SHA-256 hash of the key
+     */
+    fun computeKeyFingerprint(publicKey: ByteArray): String
+
+    // ─── X25519 Key Exchange ────────────────────────────────────────────────────
 
     /**
      * Generate a new X25519 key pair for DEK wrapping (ECDH key agreement).
@@ -43,6 +102,8 @@ interface CryptoManager {
      */
     fun decodePublicKey(encoded: String): PublicKey
 
+    // ─── AES-256-GCM Encryption ─────────────────────────────────────────────────
+
     /**
      * Generate a new 256-bit AES DEK (Data Encryption Key).
      */
@@ -56,7 +117,7 @@ interface CryptoManager {
      *
      * @param plaintext The canonical JSON string to encrypt
      * @param dek The 256-bit Data Encryption Key
-     * @param aad Additional Authenticated Data: "familyId|deviceId|deviceSequence|keyEpoch"
+     * @param aad Additional Authenticated Data: "bucketId|deviceId|deviceSequence|keyEpoch"
      * @return Base64-encoded string: nonce (12 bytes) || ciphertext || tag (16 bytes)
      */
     fun encryptPayload(plaintext: String, dek: ByteArray, aad: String): String
@@ -68,10 +129,12 @@ interface CryptoManager {
      *
      * @param encryptedPayload Base64-encoded string: nonce || ciphertext || tag
      * @param dek The 256-bit Data Encryption Key
-     * @param aad Additional Authenticated Data: "familyId|deviceId|deviceSequence|keyEpoch"
+     * @param aad Additional Authenticated Data: "bucketId|deviceId|deviceSequence|keyEpoch"
      * @return The decrypted canonical JSON string
      */
     fun decryptPayload(encryptedPayload: String, dek: ByteArray, aad: String): String
+
+    // ─── DEK Wrapping ───────────────────────────────────────────────────────────
 
     /**
      * Wrap a DEK for a specific device using X25519 ECDH + HKDF + AES-256-GCM.
@@ -104,6 +167,8 @@ interface CryptoManager {
      */
     fun unwrapDek(wrappedDek: String, devicePrivateKey: java.security.PrivateKey, deviceId: String, keyEpoch: Int): ByteArray
 
+    // ─── Hashing & Key Derivation ───────────────────────────────────────────────
+
     /**
      * Compute SHA-256 hash of a byte array.
      */
@@ -132,6 +197,8 @@ interface CryptoManager {
      * Keys are concatenated in lexicographic order of their encoded forms.
      */
     fun computeFingerprint(publicKeyA: String, publicKeyB: String): String
+
+    // ─── Blob Encryption ────────────────────────────────────────────────────────
 
     /**
      * Encrypt blob data with a per-blob key.

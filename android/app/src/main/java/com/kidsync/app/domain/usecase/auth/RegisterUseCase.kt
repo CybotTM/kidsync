@@ -2,45 +2,55 @@ package com.kidsync.app.domain.usecase.auth
 
 import com.kidsync.app.crypto.CryptoManager
 import com.kidsync.app.crypto.KeyManager
-import com.kidsync.app.domain.model.UserSession
+import com.kidsync.app.domain.model.DeviceSession
 import com.kidsync.app.domain.repository.AuthRepository
+import java.util.Base64
 import javax.inject.Inject
 
+/**
+ * Handles first-time device registration in the zero-knowledge architecture.
+ *
+ * Flow:
+ * 1. Generate Ed25519 signing key pair (or retrieve existing)
+ * 2. Derive X25519 encryption key pair from the same seed
+ * 3. Register both public keys with the server
+ * 4. Store the server-assigned device ID
+ * 5. Authenticate via challenge-response to get a session token
+ */
 class RegisterUseCase @Inject constructor(
     private val authRepository: AuthRepository,
     private val cryptoManager: CryptoManager,
     private val keyManager: KeyManager
 ) {
-    suspend operator fun invoke(
-        email: String,
-        password: String,
-        displayName: String
-    ): Result<UserSession> {
+    suspend operator fun invoke(): Result<DeviceSession> {
         return try {
-            // 1. Generate device key pair (X25519 for DEK wrapping)
-            val keyPair = cryptoManager.generateX25519KeyPair()
+            // 1. Generate or retrieve Ed25519 signing key pair
+            val (signingPublicKey, signingPrivateKey) = keyManager.getOrCreateSigningKeyPair()
 
-            // 2. Register with server
-            val sessionResult = authRepository.register(email, password, displayName)
-            if (sessionResult.isFailure) return sessionResult
+            // 2. Derive X25519 encryption public key from the Ed25519 public key
+            val encryptionPublicKey = cryptoManager.ed25519PublicToX25519(signingPublicKey)
 
-            val session = sessionResult.getOrThrow()
+            // 3. Register with server (send both public keys)
+            val signingKeyBase64 = Base64.getEncoder().encodeToString(signingPublicKey)
+            val encryptionKeyBase64 = Base64.getEncoder().encodeToString(encryptionPublicKey)
 
-            // 3. Store key pair securely
-            keyManager.storeDeviceKeyPair(session.deviceId, keyPair)
-
-            // 4. Register device with server (send public key)
-            val deviceResult = authRepository.registerDevice(
-                familyId = session.familyId,
-                deviceName = android.os.Build.MODEL,
-                publicKey = cryptoManager.encodePublicKey(keyPair.publicKey)
-            )
-
-            if (deviceResult.isFailure) {
-                return Result.failure(deviceResult.exceptionOrNull()!!)
+            val registerResult = authRepository.register(signingKeyBase64, encryptionKeyBase64)
+            if (registerResult.isFailure) {
+                return Result.failure(registerResult.exceptionOrNull()!!)
             }
 
-            Result.success(session)
+            val deviceId = registerResult.getOrThrow()
+
+            // 4. Store the server-assigned device ID
+            keyManager.storeDeviceId(deviceId)
+
+            // 5. Authenticate via challenge-response to get a session token
+            val authResult = authRepository.authenticate()
+            if (authResult.isFailure) {
+                return Result.failure(authResult.exceptionOrNull()!!)
+            }
+
+            Result.success(authResult.getOrThrow())
         } catch (e: Exception) {
             Result.failure(e)
         }

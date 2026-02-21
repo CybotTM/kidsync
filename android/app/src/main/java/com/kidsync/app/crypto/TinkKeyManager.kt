@@ -4,14 +4,24 @@ import android.content.SharedPreferences
 import com.kidsync.app.data.local.dao.KeyEpochDao
 import com.kidsync.app.data.local.entity.KeyEpochEntity
 import com.kidsync.app.data.remote.api.ApiService
+import com.kidsync.app.data.remote.dto.UploadWrappedKeyRequest
+import com.kidsync.app.domain.model.KeyAttestation
+import java.security.KeyFactory
 import java.security.KeyPair
+import java.security.spec.PKCS8EncodedKeySpec
+import java.security.spec.X509EncodedKeySpec
+import java.time.Instant
 import java.util.Base64
-import java.util.UUID
 import javax.inject.Inject
 
 /**
  * KeyManager implementation using Android Keystore-backed EncryptedSharedPreferences
  * for secure key storage.
+ *
+ * In the zero-knowledge architecture:
+ * - The Ed25519 seed is the root of device identity
+ * - Both Ed25519 (signing) and X25519 (encryption) keys are derived from the same seed
+ * - DEKs are indexed by bucketId (not familyId)
  */
 class TinkKeyManager @Inject constructor(
     private val encryptedPrefs: SharedPreferences,
@@ -22,71 +32,128 @@ class TinkKeyManager @Inject constructor(
 
     companion object {
         private const val PREF_DEVICE_ID = "device_id"
-        private const val PREF_PRIVATE_KEY_PREFIX = "private_key_"
-        private const val PREF_PUBLIC_KEY_PREFIX = "public_key_"
+        private const val PREF_SIGNING_SEED = "signing_seed"
+        private const val PREF_SIGNING_PUBLIC_KEY = "signing_public_key"
         private const val PREF_DEK_PREFIX = "dek_"
         private const val PREF_CURRENT_EPOCH_PREFIX = "current_epoch_"
     }
 
-    override suspend fun storeDeviceKeyPair(deviceId: UUID, keyPair: KeyPair) {
+    // ─── Device Identity ────────────────────────────────────────────────────────
+
+    override suspend fun getSigningKeyPair(): Pair<ByteArray, ByteArray>? {
+        val seedBase64 = encryptedPrefs.getString(PREF_SIGNING_SEED, null) ?: return null
+        val publicKeyBase64 = encryptedPrefs.getString(PREF_SIGNING_PUBLIC_KEY, null) ?: return null
+
+        val seed = Base64.getDecoder().decode(seedBase64)
+        val publicKey = Base64.getDecoder().decode(publicKeyBase64)
+        return Pair(publicKey, seed)
+    }
+
+    override suspend fun getOrCreateSigningKeyPair(): Pair<ByteArray, ByteArray> {
+        val existing = getSigningKeyPair()
+        if (existing != null) return existing
+
+        val (publicKey, seed) = cryptoManager.generateEd25519KeyPair()
         encryptedPrefs.edit()
-            .putString(
-                PREF_PRIVATE_KEY_PREFIX + deviceId,
-                Base64.getEncoder().encodeToString(keyPair.private.encoded)
-            )
-            .putString(
-                PREF_PUBLIC_KEY_PREFIX + deviceId,
-                Base64.getEncoder().encodeToString(keyPair.public.encoded)
-            )
+            .putString(PREF_SIGNING_SEED, Base64.getEncoder().encodeToString(seed))
+            .putString(PREF_SIGNING_PUBLIC_KEY, Base64.getEncoder().encodeToString(publicKey))
+            .apply()
+
+        return Pair(publicKey, seed)
+    }
+
+    override suspend fun getSigningKeyFingerprint(): String {
+        val (publicKey, _) = getOrCreateSigningKeyPair()
+        return cryptoManager.computeKeyFingerprint(publicKey)
+    }
+
+    override suspend fun getEncryptionKeyPair(): KeyPair {
+        val (_, seed) = getOrCreateSigningKeyPair()
+
+        // Derive X25519 private key from Ed25519 seed
+        val x25519PrivateBytes = cryptoManager.ed25519PrivateToX25519(seed)
+
+        // Derive X25519 public key from Ed25519 public key
+        val (ed25519Public, _) = getOrCreateSigningKeyPair()
+        val x25519PublicBytes = cryptoManager.ed25519PublicToX25519(ed25519Public)
+
+        // Construct a Java KeyPair from the raw bytes using X25519 key specs
+        // Build X509-encoded public key: for X25519, the X509 encoding wraps the 32-byte key
+        val x25519PublicX509 = buildX25519PublicKeyEncoding(x25519PublicBytes)
+        val x25519PrivatePKCS8 = buildX25519PrivateKeyEncoding(x25519PrivateBytes)
+
+        val keyFactory = KeyFactory.getInstance("X25519")
+        val publicKey = keyFactory.generatePublic(X509EncodedKeySpec(x25519PublicX509))
+        val privateKey = keyFactory.generatePrivate(PKCS8EncodedKeySpec(x25519PrivatePKCS8))
+
+        return KeyPair(publicKey, privateKey)
+    }
+
+    override suspend fun getDeviceId(): String? {
+        return encryptedPrefs.getString(PREF_DEVICE_ID, null)
+    }
+
+    override suspend fun storeDeviceId(deviceId: String) {
+        encryptedPrefs.edit()
+            .putString(PREF_DEVICE_ID, deviceId)
             .apply()
     }
 
-    override suspend fun getDeviceKeyPair(deviceId: UUID): KeyPair? {
-        val privateKeyBase64 = encryptedPrefs.getString(PREF_PRIVATE_KEY_PREFIX + deviceId, null)
-            ?: return null
-        val publicKeyBase64 = encryptedPrefs.getString(PREF_PUBLIC_KEY_PREFIX + deviceId, null)
-            ?: return null
+    // ─── Key Attestation ────────────────────────────────────────────────────────
 
-        return try {
-            val privateKeyBytes = Base64.getDecoder().decode(privateKeyBase64)
-            val publicKeyBytes = Base64.getDecoder().decode(publicKeyBase64)
+    override suspend fun createKeyAttestation(
+        attestedDeviceId: String,
+        attestedEncryptionKey: ByteArray
+    ): KeyAttestation {
+        val (signerPublicKey, signerSeed) = getOrCreateSigningKeyPair()
+        val signerDeviceId = getDeviceId()
+            ?: throw IllegalStateException("Device not registered; cannot create attestation")
 
-            val keyFactory = java.security.KeyFactory.getInstance("X25519")
-            val privateKey = keyFactory.generatePrivate(java.security.spec.PKCS8EncodedKeySpec(privateKeyBytes))
-            val publicKey = keyFactory.generatePublic(java.security.spec.X509EncodedKeySpec(publicKeyBytes))
+        // Sign: attestedDeviceId || attestedEncryptionKey
+        val message = attestedDeviceId.toByteArray(Charsets.UTF_8) + attestedEncryptionKey
+        val signature = cryptoManager.signEd25519(message, signerSeed)
 
-            KeyPair(publicKey, privateKey)
-        } catch (e: Exception) {
-            null
-        }
+        return KeyAttestation(
+            signerDeviceId = signerDeviceId,
+            attestedDeviceId = attestedDeviceId,
+            attestedEncryptionKey = Base64.getEncoder().encodeToString(attestedEncryptionKey),
+            signature = Base64.getEncoder().encodeToString(signature),
+            createdAt = Instant.now().toString()
+        )
     }
 
-    override suspend fun getOrCreateDeviceId(): UUID {
-        val existing = encryptedPrefs.getString(PREF_DEVICE_ID, null)
-        if (existing != null) return UUID.fromString(existing)
+    override suspend fun verifyKeyAttestation(
+        attestation: KeyAttestation,
+        signerPublicKey: ByteArray
+    ): Boolean {
+        val attestedEncryptionKey = Base64.getDecoder().decode(attestation.attestedEncryptionKey)
+        val signature = Base64.getDecoder().decode(attestation.signature)
 
-        val newId = UUID.randomUUID()
-        encryptedPrefs.edit().putString(PREF_DEVICE_ID, newId.toString()).apply()
-        return newId
+        // Reconstruct signed message: attestedDeviceId || attestedEncryptionKey
+        val message = attestation.attestedDeviceId.toByteArray(Charsets.UTF_8) + attestedEncryptionKey
+
+        return cryptoManager.verifyEd25519(message, signature, signerPublicKey)
     }
 
-    override suspend fun getDek(familyId: UUID, epoch: Int): ByteArray? {
-        val key = "${PREF_DEK_PREFIX}${familyId}_$epoch"
+    // ─── DEK Management ─────────────────────────────────────────────────────────
+
+    override suspend fun getDek(bucketId: String, epoch: Int): ByteArray? {
+        val key = "${PREF_DEK_PREFIX}${bucketId}_$epoch"
         val encoded = encryptedPrefs.getString(key, null) ?: return null
         return Base64.getDecoder().decode(encoded)
     }
 
-    override suspend fun storeDek(familyId: UUID, epoch: Int, dek: ByteArray) {
-        val key = "${PREF_DEK_PREFIX}${familyId}_$epoch"
+    override suspend fun storeDek(bucketId: String, epoch: Int, dek: ByteArray) {
+        val key = "${PREF_DEK_PREFIX}${bucketId}_$epoch"
         encryptedPrefs.edit()
             .putString(key, Base64.getEncoder().encodeToString(dek))
             .apply()
 
         // Update current epoch if this is newer
-        val currentEpoch = getCurrentEpoch(familyId)
+        val currentEpoch = getCurrentEpoch(bucketId)
         if (epoch > currentEpoch) {
             encryptedPrefs.edit()
-                .putInt(PREF_CURRENT_EPOCH_PREFIX + familyId, epoch)
+                .putInt(PREF_CURRENT_EPOCH_PREFIX + bucketId, epoch)
                 .apply()
         }
 
@@ -94,42 +161,40 @@ class TinkKeyManager @Inject constructor(
         keyEpochDao.insertEpoch(
             KeyEpochEntity(
                 epoch = epoch,
-                familyId = familyId,
-                wrappedDek = "", // Not stored here - managed separately
-                createdAt = java.time.Instant.now().toString()
+                bucketId = bucketId,
+                wrappedDek = "", // Not stored here -- managed separately
+                createdAt = Instant.now().toString()
             )
         )
     }
 
-    override suspend fun getCurrentEpoch(familyId: UUID): Int {
-        return encryptedPrefs.getInt(PREF_CURRENT_EPOCH_PREFIX + familyId.toString(), 1)
+    override suspend fun getCurrentEpoch(bucketId: String): Int {
+        return encryptedPrefs.getInt(PREF_CURRENT_EPOCH_PREFIX + bucketId, 1)
     }
 
-    override suspend fun fetchAndStoreWrappedDeks(familyId: UUID, deviceId: UUID) {
+    override suspend fun fetchAndStoreWrappedDeks(bucketId: String) {
         try {
-            val response = apiService.getWrappedDeks(familyId.toString())
-            if (response.isSuccessful) {
-                val body = response.body() ?: return
-                val keyPair = getDeviceKeyPair(deviceId) ?: return
+            val wrappedKeys = apiService.getWrappedDeks()
+            val encryptionKeyPair = getEncryptionKeyPair()
+            val deviceId = getDeviceId() ?: return
 
-                for (wrappedDekResponse in body.wrappedDeks) {
-                    val dek = cryptoManager.unwrapDek(
-                        wrappedDek = wrappedDekResponse.wrappedDek,
-                        devicePrivateKey = keyPair.private,
-                        deviceId = deviceId.toString(),
-                        keyEpoch = wrappedDekResponse.epoch
-                    )
-                    storeDek(familyId, wrappedDekResponse.epoch, dek)
-                }
+            for (wrappedKey in wrappedKeys) {
+                val dek = cryptoManager.unwrapDek(
+                    wrappedDek = wrappedKey.wrappedDek,
+                    devicePrivateKey = encryptionKeyPair.private,
+                    deviceId = deviceId,
+                    keyEpoch = wrappedKey.keyEpoch
+                )
+                storeDek(bucketId, wrappedKey.keyEpoch, dek)
             }
-        } catch (e: Exception) {
-            // Log error but don't fail - DEKs might already be cached
+        } catch (_: Exception) {
+            // Log error but don't fail -- DEKs might already be cached
         }
     }
 
-    override suspend fun wrapDekWithRecoveryKey(familyId: UUID, recoveryKey: ByteArray) {
-        val currentEpoch = getCurrentEpoch(familyId)
-        val dek = getDek(familyId, currentEpoch)
+    override suspend fun wrapDekWithRecoveryKey(bucketId: String, recoveryKey: ByteArray) {
+        val currentEpoch = getCurrentEpoch(bucketId)
+        val dek = getDek(bucketId, currentEpoch)
             ?: throw IllegalStateException("No DEK for current epoch")
 
         // Use AES-256-GCM to wrap with recovery key
@@ -149,23 +214,14 @@ class TinkKeyManager @Inject constructor(
 
         val encoded = Base64.getEncoder().encodeToString(result)
 
-        // Upload to server
-        apiService.uploadRecoveryDek(
-            familyId.toString(),
-            mapOf(
-                "epoch" to currentEpoch,
-                "wrappedDek" to encoded
-            )
-        )
+        // Upload encrypted recovery blob to server
+        apiService.uploadRecoveryBlob(encoded)
     }
 
-    override suspend fun unwrapDekWithRecoveryKey(familyId: UUID, recoveryKey: ByteArray) {
+    override suspend fun unwrapDekWithRecoveryKey(bucketId: String, recoveryKey: ByteArray) {
         // Download from server
-        val response = apiService.getRecoveryDek(familyId.toString())
-        if (!response.isSuccessful) throw IllegalStateException("Failed to fetch recovery DEK")
-
-        val body = response.body() ?: throw IllegalStateException("Empty recovery response")
-        val data = Base64.getDecoder().decode(body.wrappedDek)
+        val response = apiService.getRecoveryBlob()
+        val data = Base64.getDecoder().decode(response.encryptedBlob)
 
         val nonce = data.sliceArray(0 until 12)
         val wrapped = data.sliceArray(12 until data.size)
@@ -177,46 +233,80 @@ class TinkKeyManager @Inject constructor(
         cipher.updateAAD("recovery-wrap".toByteArray())
         val dek = cipher.doFinal(wrapped)
 
-        storeDek(familyId, body.epoch, dek)
+        storeDek(bucketId, 1, dek)
     }
 
-    override suspend fun rotateKey(familyId: UUID, newEpoch: Int, excludeDeviceId: UUID?) {
+    override suspend fun rotateKey(bucketId: String, newEpoch: Int, excludeDeviceId: String?) {
         // Generate new DEK
         val newDek = cryptoManager.generateDek()
 
         // Store locally
-        storeDek(familyId, newEpoch, newDek)
+        storeDek(bucketId, newEpoch, newDek)
 
-        // Wrap for all active devices (fetched from server)
-        val devicesResponse = apiService.getDevices(familyId.toString())
-        if (devicesResponse.isSuccessful) {
-            val devices = devicesResponse.body()?.devices ?: return
+        // Wrap for all active devices in this bucket
+        val devices = apiService.getBucketDevices(bucketId)
 
-            for (device in devices) {
-                if (device.status != "ACTIVE") continue
-                if (excludeDeviceId != null && device.deviceId == excludeDeviceId.toString()) continue
+        for (device in devices) {
+            if (excludeDeviceId != null && device.deviceId == excludeDeviceId) continue
 
-                val publicKey = cryptoManager.decodePublicKey(device.publicKey)
-                val wrapped = cryptoManager.wrapDek(
-                    dek = newDek,
-                    recipientPublicKey = publicKey,
-                    deviceId = device.deviceId,
+            val publicKey = cryptoManager.decodePublicKey(device.encryptionKey)
+            val wrapped = cryptoManager.wrapDek(
+                dek = newDek,
+                recipientPublicKey = publicKey,
+                deviceId = device.deviceId,
+                keyEpoch = newEpoch
+            )
+
+            apiService.uploadWrappedKey(
+                UploadWrappedKeyRequest(
+                    targetDeviceId = device.deviceId,
+                    wrappedDek = wrapped,
                     keyEpoch = newEpoch
                 )
-
-                apiService.uploadWrappedDek(
-                    familyId.toString(),
-                    mapOf(
-                        "deviceId" to device.deviceId,
-                        "epoch" to newEpoch,
-                        "wrappedDek" to wrapped
-                    )
-                )
-            }
+            )
         }
     }
 
-    override suspend fun getAvailableEpochs(familyId: UUID): List<Int> {
-        return keyEpochDao.getEpochsForFamily(familyId).map { it.epoch }
+    override suspend fun getAvailableEpochs(bucketId: String): List<Int> {
+        return keyEpochDao.getEpochsForBucket(bucketId).map { it.epoch }
+    }
+
+    // ─── Private Helpers ────────────────────────────────────────────────────────
+
+    /**
+     * Build X.509 SubjectPublicKeyInfo encoding for an X25519 public key.
+     * ASN.1: SEQUENCE { SEQUENCE { OID 1.3.101.110 }, BIT STRING { publicKeyBytes } }
+     */
+    private fun buildX25519PublicKeyEncoding(rawPublicKey: ByteArray): ByteArray {
+        // X25519 OID: 1.3.101.110 = 06 03 2b 65 6e
+        // AlgorithmIdentifier: 30 05 06 03 2b 65 6e
+        // BIT STRING wrapper: 03 21 00 + 32 bytes
+        // SubjectPublicKeyInfo: 30 2a + AlgorithmIdentifier + BIT STRING
+        val algorithmIdentifier = byteArrayOf(
+            0x30, 0x05,
+            0x06, 0x03, 0x2b, 0x65, 0x6e
+        )
+        val bitString = byteArrayOf(0x03, 0x21, 0x00) + rawPublicKey
+        val totalLength = algorithmIdentifier.size + bitString.size
+        return byteArrayOf(0x30, totalLength.toByte()) + algorithmIdentifier + bitString
+    }
+
+    /**
+     * Build PKCS#8 PrivateKeyInfo encoding for an X25519 private key.
+     * ASN.1: SEQUENCE { INTEGER 0, SEQUENCE { OID 1.3.101.110 }, OCTET STRING { OCTET STRING { privateKeyBytes } } }
+     */
+    private fun buildX25519PrivateKeyEncoding(rawPrivateKey: ByteArray): ByteArray {
+        // Version: 02 01 00
+        val version = byteArrayOf(0x02, 0x01, 0x00)
+        // AlgorithmIdentifier: 30 05 06 03 2b 65 6e
+        val algorithmIdentifier = byteArrayOf(
+            0x30, 0x05,
+            0x06, 0x03, 0x2b, 0x65, 0x6e
+        )
+        // Private key: OCTET STRING { OCTET STRING { 32 bytes } }
+        val innerOctetString = byteArrayOf(0x04, 0x20) + rawPrivateKey
+        val outerOctetString = byteArrayOf(0x04, (innerOctetString.size).toByte()) + innerOctetString
+        val totalLength = version.size + algorithmIdentifier.size + outerOctetString.size
+        return byteArrayOf(0x30, totalLength.toByte()) + version + algorithmIdentifier + outerOctetString
     }
 }
