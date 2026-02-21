@@ -12,16 +12,31 @@ import io.ktor.server.application.*
 import io.ktor.server.engine.*
 import io.ktor.server.netty.*
 import io.ktor.server.plugins.calllogging.*
+import io.ktor.server.plugins.forwardedheaders.*
+import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import kotlinx.coroutines.*
 import org.slf4j.LoggerFactory
 import org.slf4j.event.Level
-import kotlin.concurrent.fixedRateTimer
 
 fun main() {
     val config = AppConfig()
     val logger = LoggerFactory.getLogger("Application")
 
+    // SEC-S-14: Warn if KIDSYNC_SERVER_ORIGIN is not set (challenge-response relies on origin binding)
+    if (System.getenv("KIDSYNC_SERVER_ORIGIN") == null) {
+        logger.warn(
+            "KIDSYNC_SERVER_ORIGIN environment variable is not set. " +
+                "Challenge-response authentication uses the default origin '{}'. " +
+                "Set KIDSYNC_SERVER_ORIGIN to the actual server URL in production.",
+            config.serverOrigin,
+        )
+    }
+
+    // SEC-S-19: TLS is expected to be terminated by a reverse proxy (nginx, Caddy, etc.).
+    // This server does not configure TLS directly. Ensure a TLS-terminating proxy is
+    // deployed in front of this server in production.
     logger.info("Starting KidSync server v${config.serverVersion} on ${config.host}:${config.port}")
 
     embeddedServer(Netty, port = config.port, host = config.host) {
@@ -45,8 +60,16 @@ fun Application.module(config: AppConfig = AppConfig()) {
     val wsManager = WebSocketManager()
 
     // Periodic cleanup of expired sessions and challenges (every 5 minutes)
-    fixedRateTimer("session-cleanup", daemon = true, period = 5 * 60 * 1000L) {
-        sessionUtil.cleanup()
+    // SEC-S-02: Sessions are now DB-backed; cleanup requires suspend context
+    CoroutineScope(Dispatchers.Default).launch {
+        while (isActive) {
+            delay(5 * 60 * 1000L)
+            try {
+                sessionUtil.cleanup()
+            } catch (e: Exception) {
+                LoggerFactory.getLogger("Application").warn("Session cleanup failed: {}", e.message)
+            }
+        }
     }
 
     // Install plugins
@@ -57,8 +80,32 @@ fun Application.module(config: AppConfig = AppConfig()) {
     configureStatusPages()
     configureWebSockets()
 
+    // SEC-S-13: Install ForwardedHeaders so rate limiter uses real client IP behind a proxy
+    install(XForwardedHeaders)
+
+    // SEC-S-18: Configure CallLogging with a custom format to avoid logging sensitive headers
     install(CallLogging) {
         level = Level.INFO
+        format { call ->
+            "${call.request.httpMethod.value} ${call.request.path()} -> ${call.response.status()}"
+        }
+    }
+
+    // SEC-S-04: Request body size limit for JSON endpoints (10 MB max)
+    intercept(ApplicationCallPipeline.Plugins) {
+        val contentLength = call.request.header(HttpHeaders.ContentLength)?.toLongOrNull()
+        if (contentLength != null && contentLength > 10 * 1024 * 1024) {
+            call.respond(HttpStatusCode.PayloadTooLarge)
+            finish()
+            return@intercept
+        }
+    }
+
+    // SEC-S-11: Security headers on all responses
+    intercept(ApplicationCallPipeline.Plugins) {
+        call.response.header("X-Content-Type-Options", "nosniff")
+        call.response.header("X-Frame-Options", "DENY")
+        call.response.header("Cache-Control", "no-store")
     }
 
     // Configure routes

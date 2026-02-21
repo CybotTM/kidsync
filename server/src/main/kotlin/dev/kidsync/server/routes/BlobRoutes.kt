@@ -33,7 +33,13 @@ fun Route.blobRoutes(blobService: BlobService) {
                         when (part) {
                             is PartData.FileItem -> {
                                 if (part.name == "file") {
-                                    fileBytes = part.provider().toByteArray()
+                                    // SEC-S-05: Check size immediately after reading to fail fast
+                                    val bytes = part.provider().toByteArray()
+                                    if (bytes.size > 10 * 1024 * 1024) { // 10 MB max
+                                        part.dispose()
+                                        throw ApiException(413, "PAYLOAD_TOO_LARGE", "File exceeds size limit")
+                                    }
+                                    fileBytes = bytes
                                 }
                             }
                             is PartData.FormItem -> {
@@ -52,10 +58,11 @@ fun Route.blobRoutes(blobService: BlobService) {
                         ?: throw ApiException(400, "INVALID_REQUEST", "Missing 'sha256' part")
 
                     // Verify SHA-256 of the uploaded file matches client-declared hash
+                    // SEC-S-03: Use constant-time comparison to prevent timing side-channel attacks
                     val computedHash = java.security.MessageDigest.getInstance("SHA-256")
                         .digest(bytes)
                         .joinToString("") { "%02x".format(it) }
-                    if (computedHash != declaredHash) {
+                    if (!java.security.MessageDigest.isEqual(computedHash.toByteArray(), declaredHash.toByteArray())) {
                         throw ApiException(
                             400,
                             "HASH_MISMATCH",

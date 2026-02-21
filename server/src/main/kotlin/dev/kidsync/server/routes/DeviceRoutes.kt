@@ -21,6 +21,11 @@ fun Route.deviceRoutes() {
         /**
          * POST /register
          * Register a new device with its public keys. No auth required.
+         *
+         * SEC-S-10: Device registration is rate-limited but has no absolute count limit.
+         * TODO: For production, consider adding proof-of-work, CAPTCHA, or invitation-gated
+         * registration to prevent mass device creation attacks. The rate limiter ("auth")
+         * provides basic protection for now.
          */
         post("/register") {
             val request = call.receive<RegisterRequest>()

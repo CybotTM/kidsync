@@ -1,13 +1,19 @@
 package dev.kidsync.server.util
 
 import dev.kidsync.server.AppConfig
+import dev.kidsync.server.db.Challenges
+import dev.kidsync.server.db.Sessions
+import dev.kidsync.server.db.DatabaseFactory.dbQuery
+import org.jetbrains.exposed.sql.*
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.less
 import java.security.SecureRandom
 import java.time.Instant
 import java.util.*
-import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Session data stored server-side for authenticated devices.
+ * SEC-S-02: Sessions are now persisted in the database to survive server restarts.
  */
 data class Session(
     val deviceId: String,
@@ -28,22 +34,18 @@ data class PendingChallenge(
 
 /**
  * Manages opaque session tokens and challenge nonces.
- * Uses in-memory ConcurrentHashMaps with TTL-based expiry.
+ * SEC-S-02: Uses database-backed storage instead of in-memory ConcurrentHashMaps
+ * so sessions survive server restarts.
  */
 class SessionUtil(private val config: AppConfig) {
 
-    private val sessions = ConcurrentHashMap<String, Session>()
-    private val challenges = ConcurrentHashMap<String, PendingChallenge>()
     private val random = SecureRandom()
 
     /**
      * Generate a 32-byte nonce for challenge-response auth, base64url encoded.
      * Stored with 60s TTL, keyed by the signing key.
      */
-    fun createChallenge(signingKey: String): PendingChallenge {
-        // Invalidate any existing challenge for this key
-        challenges.entries.removeIf { it.value.signingKey == signingKey }
-
+    suspend fun createChallenge(signingKey: String): PendingChallenge {
         val nonceBytes = ByteArray(32)
         random.nextBytes(nonceBytes)
         val nonce = Base64.getUrlEncoder().withoutPadding().encodeToString(nonceBytes)
@@ -54,7 +56,19 @@ class SessionUtil(private val config: AppConfig) {
             createdAt = now,
             expiresAt = now.plusSeconds(config.challengeTtlSeconds),
         )
-        challenges[nonce] = challenge
+
+        dbQuery {
+            // Invalidate any existing challenge for this key
+            Challenges.deleteWhere { Challenges.signingKey eq signingKey }
+
+            Challenges.insert {
+                it[Challenges.nonce] = nonce
+                it[Challenges.signingKey] = signingKey
+                it[createdAt] = now.epochSecond
+                it[expiresAt] = challenge.expiresAt.epochSecond
+            }
+        }
+
         return challenge
     }
 
@@ -62,17 +76,33 @@ class SessionUtil(private val config: AppConfig) {
      * Consume a challenge nonce. Returns the challenge if valid (exists, not expired, matches key),
      * or null if invalid. The nonce is always deleted (one-time use).
      */
-    fun consumeChallenge(nonce: String, signingKey: String): PendingChallenge? {
-        val challenge = challenges.remove(nonce) ?: return null
-        if (challenge.signingKey != signingKey) return null
-        if (Instant.now().isAfter(challenge.expiresAt)) return null
-        return challenge
+    suspend fun consumeChallenge(nonce: String, signingKey: String): PendingChallenge? {
+        return dbQuery {
+            val row = Challenges.selectAll()
+                .where { Challenges.nonce eq nonce }
+                .firstOrNull()
+
+            // Always delete the nonce (one-time use)
+            Challenges.deleteWhere { Challenges.nonce eq nonce }
+
+            if (row == null) return@dbQuery null
+            if (row[Challenges.signingKey] != signingKey) return@dbQuery null
+            val expiresAt = Instant.ofEpochSecond(row[Challenges.expiresAt])
+            if (Instant.now().isAfter(expiresAt)) return@dbQuery null
+
+            PendingChallenge(
+                nonce = row[Challenges.nonce],
+                signingKey = row[Challenges.signingKey],
+                createdAt = Instant.ofEpochSecond(row[Challenges.createdAt]),
+                expiresAt = expiresAt,
+            )
+        }
     }
 
     /**
      * Create a new session for a device. Returns the opaque session token.
      */
-    fun createSession(deviceId: String, signingKey: String): Pair<String, Session> {
+    suspend fun createSession(deviceId: String, signingKey: String): Pair<String, Session> {
         val tokenBytes = ByteArray(32)
         random.nextBytes(tokenBytes)
         val token = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes)
@@ -83,28 +113,52 @@ class SessionUtil(private val config: AppConfig) {
             createdAt = now,
             expiresAt = now.plusSeconds(config.sessionTtlSeconds),
         )
-        sessions[token] = session
+
+        dbQuery {
+            Sessions.insert {
+                it[Sessions.token] = token
+                it[Sessions.deviceId] = deviceId
+                it[Sessions.signingKey] = signingKey
+                it[createdAt] = now.epochSecond
+                it[expiresAt] = session.expiresAt.epochSecond
+            }
+        }
+
         return Pair(token, session)
     }
 
     /**
      * Validate a session token. Returns the session if valid, null otherwise.
      */
-    fun validateSession(token: String): Session? {
-        val session = sessions[token] ?: return null
-        if (Instant.now().isAfter(session.expiresAt)) {
-            sessions.remove(token)
-            return null
+    suspend fun validateSession(token: String): Session? {
+        return dbQuery {
+            val row = Sessions.selectAll()
+                .where { Sessions.token eq token }
+                .firstOrNull() ?: return@dbQuery null
+
+            val expiresAt = Instant.ofEpochSecond(row[Sessions.expiresAt])
+            if (Instant.now().isAfter(expiresAt)) {
+                Sessions.deleteWhere { Sessions.token eq token }
+                return@dbQuery null
+            }
+
+            Session(
+                deviceId = row[Sessions.deviceId],
+                signingKey = row[Sessions.signingKey],
+                createdAt = Instant.ofEpochSecond(row[Sessions.createdAt]),
+                expiresAt = expiresAt,
+            )
         }
-        return session
     }
 
     /**
      * Remove expired sessions and challenges. Called periodically.
      */
-    fun cleanup() {
-        val now = Instant.now()
-        sessions.entries.removeIf { now.isAfter(it.value.expiresAt) }
-        challenges.entries.removeIf { now.isAfter(it.value.expiresAt) }
+    suspend fun cleanup() {
+        val nowEpoch = Instant.now().epochSecond
+        dbQuery {
+            Sessions.deleteWhere { Sessions.expiresAt less nowEpoch }
+            Challenges.deleteWhere { Challenges.expiresAt less nowEpoch }
+        }
     }
 }

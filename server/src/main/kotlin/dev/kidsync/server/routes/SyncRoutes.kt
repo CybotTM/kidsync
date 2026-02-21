@@ -112,7 +112,13 @@ fun Route.syncRoutes(
                             }
                             is PartData.FileItem -> {
                                 if (part.name == "snapshot") {
-                                    snapshotBytes = part.provider().toByteArray()
+                                    // SEC-S-05: Check size immediately after reading to fail fast
+                                    val bytes = part.provider().toByteArray()
+                                    if (bytes.size > config.maxSnapshotSizeBytes) {
+                                        part.dispose()
+                                        throw ApiException(413, "SNAPSHOT_TOO_LARGE", "Snapshot exceeds size limit")
+                                    }
+                                    snapshotBytes = bytes
                                 }
                             }
                             else -> {}
@@ -130,10 +136,11 @@ fun Route.syncRoutes(
                     }
 
                     // Verify SHA-256 of the uploaded snapshot matches declared hash
+                    // SEC-S-03: Use constant-time comparison to prevent timing side-channel attacks
                     val computedHash = MessageDigest.getInstance("SHA-256")
                         .digest(blob)
                         .joinToString("") { "%02x".format(it) }
-                    if (computedHash != meta.sha256) {
+                    if (!MessageDigest.isEqual(computedHash.toByteArray(), meta.sha256.toByteArray())) {
                         throw ApiException(
                             400,
                             "HASH_MISMATCH",
@@ -166,7 +173,8 @@ fun Route.syncRoutes(
                                 it[Snapshots.sizeBytes] = sizeBytes
                                 it[sha256Hash] = meta.sha256
                                 it[signature] = meta.signature
-                                it[filePath] = snapshotFile.absolutePath
+                                // SEC-S-15: Store only the filename, not the absolute path
+                                it[filePath] = snapshotId
                                 it[createdAt] = now
                             }
                         }
@@ -303,7 +311,12 @@ fun Route.syncRoutes(
 
             val latestSeq = syncService.getLatestSequence(bucketId)
             connection = WebSocketManager.WsConnection(this, session.deviceId, bucketId)
-            wsManager.addConnection(bucketId, connection!!)
+
+            // SEC-S-06: Enforce connection limits
+            if (!wsManager.addConnection(bucketId, connection!!)) {
+                close(CloseReason(4003, "Connection limit exceeded"))
+                return@webSocket
+            }
 
             send(
                 Frame.Text(

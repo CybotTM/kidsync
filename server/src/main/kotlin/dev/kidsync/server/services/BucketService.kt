@@ -62,16 +62,26 @@ class BucketService(
             Checkpoints.deleteWhere { Checkpoints.bucketId eq bucketId }
 
             // Delete blob files from disk
+            // SEC-S-01: Path traversal protection - verify resolved path is within storage directory
+            val blobDir = File(blobStoragePath).canonicalFile
             val blobRows = Blobs.selectAll().where { Blobs.bucketId eq bucketId }.toList()
             for (row in blobRows) {
-                File(row[Blobs.filePath]).delete()
+                val blobFile = File(blobStoragePath, row[Blobs.filePath])
+                if (blobFile.canonicalFile.startsWith(blobDir)) {
+                    blobFile.delete()
+                }
             }
             Blobs.deleteWhere { Blobs.bucketId eq bucketId }
 
             // Delete snapshot files from disk
+            // SEC-S-01: Path traversal protection - verify resolved path is within storage directory
+            val snapshotDir = File(snapshotStoragePath).canonicalFile
             val snapshotRows = Snapshots.selectAll().where { Snapshots.bucketId eq bucketId }.toList()
             for (row in snapshotRows) {
-                File(row[Snapshots.filePath]).delete()
+                val snapshotFile = File(snapshotStoragePath, row[Snapshots.filePath])
+                if (snapshotFile.canonicalFile.startsWith(snapshotDir)) {
+                    snapshotFile.delete()
+                }
             }
             Snapshots.deleteWhere { Snapshots.bucketId eq bucketId }
 
@@ -219,6 +229,10 @@ class BucketService(
 
     /**
      * Self-revoke: device removes its own access from a bucket.
+     *
+     * SEC-S-17: TODO - When a device is revoked from a bucket, its existing session
+     * remains valid until expiry. Future improvement: invalidate sessions for the
+     * revoked device or add per-request bucket access re-validation.
      */
     suspend fun selfRevoke(bucketId: String, deviceId: String) {
         dbQuery {

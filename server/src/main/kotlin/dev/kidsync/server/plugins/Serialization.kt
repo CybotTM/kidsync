@@ -10,6 +10,10 @@ fun Application.configureSerialization() {
         json(Json {
             prettyPrint = false
             isLenient = false
+            // SEC-S-16: ignoreUnknownKeys=true is intentional for backward compatibility.
+            // Clients may send fields from newer API versions that the server does not yet
+            // know about. Rejecting those would break forward compatibility. The server only
+            // processes explicitly modeled fields; unknown fields are safely ignored.
             ignoreUnknownKeys = true
             encodeDefaults = true
             explicitNulls = false

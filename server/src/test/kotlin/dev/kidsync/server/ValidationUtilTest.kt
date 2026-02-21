@@ -192,13 +192,24 @@ class ValidationUtilTest {
     // ================================================================
 
     @Test
-    fun `valid public key short string`() {
-        assertTrue(ValidationUtil.isValidPublicKey("MCowBQYDK2VuAyEA"))
+    fun `valid public key 32 bytes raw`() {
+        // 32 bytes base64-encoded = 44 characters
+        val key32 = java.util.Base64.getEncoder().encodeToString(ByteArray(32))
+        assertTrue(ValidationUtil.isValidPublicKey(key32))
     }
 
     @Test
-    fun `valid public key max length`() {
-        assertTrue(ValidationUtil.isValidPublicKey("a".repeat(1024)))
+    fun `valid public key 44 bytes X509`() {
+        // 44 bytes (X.509 SubjectPublicKeyInfo encoding) base64-encoded = 60 characters
+        val key44 = java.util.Base64.getEncoder().encodeToString(ByteArray(44))
+        assertTrue(ValidationUtil.isValidPublicKey(key44))
+    }
+
+    @Test
+    fun `invalid public key wrong decoded size`() {
+        // 16 bytes is not a valid key size
+        val key16 = java.util.Base64.getEncoder().encodeToString(ByteArray(16))
+        assertFalse(ValidationUtil.isValidPublicKey(key16))
     }
 
     @Test
@@ -213,7 +224,12 @@ class ValidationUtilTest {
 
     @Test
     fun `invalid public key too long`() {
-        assertFalse(ValidationUtil.isValidPublicKey("a".repeat(1025)))
+        assertFalse(ValidationUtil.isValidPublicKey("a".repeat(257)))
+    }
+
+    @Test
+    fun `invalid public key not base64`() {
+        assertFalse(ValidationUtil.isValidPublicKey("not-valid-base64!!!"))
     }
 
     // ================================================================

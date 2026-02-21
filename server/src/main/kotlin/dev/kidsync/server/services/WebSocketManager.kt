@@ -19,12 +19,37 @@ class WebSocketManager {
         val bucketId: String,
     )
 
+    // SEC-S-06: Connection limits to prevent resource exhaustion
+    companion object {
+        const val MAX_CONNECTIONS_PER_DEVICE = 2
+        const val MAX_CONNECTIONS_PER_BUCKET = 50
+    }
+
     private val connections = ConcurrentHashMap<String, MutableSet<WsConnection>>()
     private val json = Json { encodeDefaults = true }
 
-    fun addConnection(bucketId: String, connection: WsConnection) {
-        connections.computeIfAbsent(bucketId) { ConcurrentHashMap.newKeySet() }.add(connection)
+    /**
+     * Add a connection. Returns false if connection limits are exceeded.
+     */
+    fun addConnection(bucketId: String, connection: WsConnection): Boolean {
+        val bucketConnections = connections.computeIfAbsent(bucketId) { ConcurrentHashMap.newKeySet() }
+
+        // SEC-S-06: Enforce per-device connection limit
+        val deviceCount = bucketConnections.count { it.deviceId == connection.deviceId }
+        if (deviceCount >= MAX_CONNECTIONS_PER_DEVICE) {
+            logger.warn("WebSocket connection limit per device reached: device={} bucket={}", connection.deviceId, bucketId)
+            return false
+        }
+
+        // SEC-S-06: Enforce per-bucket connection limit
+        if (bucketConnections.size >= MAX_CONNECTIONS_PER_BUCKET) {
+            logger.warn("WebSocket connection limit per bucket reached: bucket={}", bucketId)
+            return false
+        }
+
+        bucketConnections.add(connection)
         logger.info("WebSocket connected: device={} bucket={}", connection.deviceId, bucketId)
+        return true
     }
 
     fun removeConnection(bucketId: String, connection: WsConnection) {

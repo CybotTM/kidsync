@@ -22,8 +22,20 @@ object ValidationUtil {
     fun isValidBase64Url(value: String): Boolean =
         value.isNotBlank() && BASE64URL_REGEX.matches(value)
 
-    fun isValidPublicKey(value: String): Boolean =
-        value.isNotBlank() && value.length <= 1024
+    /**
+     * SEC-S-09: Validate public key is valid base64 with correct decoded size.
+     * Ed25519 keys are 32 bytes raw or 44 bytes in X.509 SubjectPublicKeyInfo encoding.
+     * X25519 keys are 32 bytes raw or 44 bytes in X.509 SubjectPublicKeyInfo encoding.
+     */
+    fun isValidPublicKey(value: String): Boolean {
+        if (value.isBlank() || value.length > 256) return false
+        return try {
+            val decoded = java.util.Base64.getDecoder().decode(value)
+            decoded.size == 32 || decoded.size == 44
+        } catch (_: Exception) {
+            false
+        }
+    }
 
     fun isValidPlatform(value: String): Boolean =
         value == "FCM" || value == "APNS"

@@ -46,7 +46,8 @@ class BlobService(private val config: AppConfig) {
                 Blobs.insert {
                     it[id] = blobId
                     it[Blobs.bucketId] = bucketId
-                    it[filePath] = blobFile.absolutePath
+                    // SEC-S-15: Store only the filename, not the absolute path
+                    it[filePath] = blobId
                     it[sizeBytes] = fileBytes.size.toLong()
                     it[sha256Hash] = sha256
                     it[uploadedBy] = deviceId
@@ -79,7 +80,15 @@ class BlobService(private val config: AppConfig) {
             }.firstOrNull()
                 ?: throw ApiException(404, "NOT_FOUND", "Blob not found")
 
-            val file = File(blob[Blobs.filePath])
+            // SEC-S-15: Resolve relative filename to absolute path at read time
+            val file = File(config.blobStoragePath, blob[Blobs.filePath])
+
+            // SEC-S-01: Path traversal protection - verify resolved path is within storage directory
+            val blobDir = File(config.blobStoragePath).canonicalFile
+            if (!file.canonicalFile.startsWith(blobDir)) {
+                throw ApiException(403, "BUCKET_ACCESS_DENIED", "Invalid file path")
+            }
+
             if (!file.exists()) {
                 throw ApiException(404, "NOT_FOUND", "Blob file not found on disk")
             }

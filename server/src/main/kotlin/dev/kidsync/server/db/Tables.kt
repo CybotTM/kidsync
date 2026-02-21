@@ -147,6 +147,27 @@ object InviteTokens : Table("invite_tokens") {
     override val primaryKey = PrimaryKey(tokenHash)
 }
 
+// ---- Sessions ----
+
+object Sessions : Table("sessions") {
+    val token = varchar("token", 64)
+    val deviceId = varchar("device_id", 36)
+    val signingKey = text("signing_key")
+    val createdAt = long("created_at")
+    val expiresAt = long("expires_at")
+    override val primaryKey = PrimaryKey(token)
+}
+
+// ---- Challenges ----
+
+object Challenges : Table("challenges") {
+    val nonce = varchar("nonce", 64)
+    val signingKey = text("signing_key")
+    val createdAt = long("created_at")
+    val expiresAt = long("expires_at")
+    override val primaryKey = PrimaryKey(nonce)
+}
+
 // ---- Key Attestations ----
 
 object KeyAttestations : Table("key_attestations") {

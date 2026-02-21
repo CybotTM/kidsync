@@ -4,7 +4,6 @@ services:
     ports:
       - "8080:8080"
     environment:
-      KIDSYNC_JWT_SECRET: "change-me-in-production-at-least-32-chars!!"
       KIDSYNC_DB_PATH: /app/data/kidsync.db
       KIDSYNC_BLOB_PATH: /app/data/blobs
       KIDSYNC_SNAPSHOT_PATH: /app/data/snapshots

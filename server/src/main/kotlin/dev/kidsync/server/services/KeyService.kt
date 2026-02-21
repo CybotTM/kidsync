@@ -17,8 +17,7 @@ class KeyService {
 
     /**
      * Upload a wrapped DEK for a target device.
-     * The caller must be a device (authenticated). No family/bucket check --
-     * the wrapping device is responsible for only wrapping for devices it trusts.
+     * SEC-S-07: The caller must share at least one active bucket with the target device.
      */
     suspend fun uploadWrappedKey(callerDeviceId: String, request: WrappedKeyRequest) {
         if (request.wrappedDek.length > 8192) {
@@ -29,6 +28,23 @@ class KeyService {
             // Verify target device exists
             Devices.selectAll().where { Devices.id eq request.targetDevice }.firstOrNull()
                 ?: throw ApiException(404, "NOT_FOUND", "Target device not found")
+
+            // SEC-S-07: Verify caller and target share at least one active bucket
+            val callerBuckets = BucketAccess.selectAll()
+                .where { (BucketAccess.deviceId eq callerDeviceId) and BucketAccess.revokedAt.isNull() }
+                .map { it[BucketAccess.bucketId] }
+
+            val sharedBucket = BucketAccess.selectAll()
+                .where {
+                    (BucketAccess.deviceId eq request.targetDevice) and
+                        BucketAccess.revokedAt.isNull() and
+                        (BucketAccess.bucketId inList callerBuckets)
+                }
+                .firstOrNull()
+
+            if (sharedBucket == null) {
+                throw ApiException(403, "BUCKET_ACCESS_DENIED", "Devices must share a bucket")
+            }
 
             // Upsert: replace existing wrapped key for this device + epoch
             WrappedKeys.deleteWhere {

@@ -31,6 +31,7 @@ dependencies {
     implementation("io.ktor:ktor-server-status-pages:$ktorVersion")
     implementation("io.ktor:ktor-server-rate-limit:$ktorVersion")
     implementation("io.ktor:ktor-server-call-logging:$ktorVersion")
+    implementation("io.ktor:ktor-server-forwarded-header:$ktorVersion")
 
     // Exposed ORM
     implementation("org.jetbrains.exposed:exposed-core:$exposedVersion")

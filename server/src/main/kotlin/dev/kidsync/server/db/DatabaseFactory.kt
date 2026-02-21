@@ -66,6 +66,8 @@ object DatabaseFactory {
                 Snapshots,
                 InviteTokens,
                 KeyAttestations,
+                Sessions,
+                Challenges,
             )
         }
     }

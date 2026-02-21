@@ -9,6 +9,8 @@ fun Application.configureRateLimit() {
     install(RateLimit) {
         register(RateLimitName("auth")) {
             rateLimiter(limit = 10, refillPeriod = 1.minutes)
+            // SEC-S-13: With XForwardedHeaders installed in Application.kt,
+            // request.local.remoteAddress reflects the real client IP behind proxy
             requestKey { call ->
                 call.request.local.remoteAddress
             }

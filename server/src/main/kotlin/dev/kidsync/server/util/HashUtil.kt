@@ -18,12 +18,13 @@ object HashUtil {
 
     /**
      * Verify hash chain: currentHash == SHA256(bytes(prevHash) + base64Decode(encryptedPayload))
+     * SEC-S-03: Uses constant-time comparison to prevent timing side-channel attacks.
      */
     fun verifyHashChain(prevHash: String, encryptedPayload: String, expectedCurrentHash: String): Boolean {
         val prevHashBytes = hexToBytes(prevHash)
         val payloadBytes = Base64.getDecoder().decode(encryptedPayload)
         val computed = sha256Hex(prevHashBytes, payloadBytes)
-        return computed == expectedCurrentHash
+        return MessageDigest.isEqual(computed.toByteArray(), expectedCurrentHash.toByteArray())
     }
 
     /**
