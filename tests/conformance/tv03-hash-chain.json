@@ -1,41 +1,43 @@
 {
   "id": "TV03",
   "title": "Hash Chain Verification",
-  "description": "Hash chain verification vectors: a valid 5-op chain from one device with correct devicePrevHash and currentHash values, and a tampered variant where one payload is modified and the chain breaks. All SHA-256 hashes are computed per the formula: currentHash = SHA256(bytes(devicePrevHash) + base64Decode(encryptedPayload)).",
-  "protocolVersion": 1,
+  "description": "Hash chain verification vectors: a valid 5-op chain from one device with correct prevHash and currentHash values, and a tampered variant where one payload is modified and the chain breaks. All SHA-256 hashes are computed per the formula: currentHash = SHA256(bytes(prevHash) + base64Decode(encryptedPayload)). In v2, the hash chain uses 'prevHash' (renamed from v1's 'devicePrevHash') and operates over ciphertext bytes, allowing the server to verify integrity without decrypting.",
+  "protocolVersion": 2,
   "specReferences": [
-    "sync-protocol.md Section 6 (Per-Device Hash Chains)",
-    "sync-protocol.md Section 6.1 (Hash Computation)",
-    "sync-protocol.md Section 6.2 (Chain Initialization)",
-    "encryption-spec.md Section 14 (Hash Chain Integrity)"
+    "sync-protocol.md Section 9 (Per-Device Hash Chains)",
+    "sync-protocol.md Section 9.1 (Hash Computation)",
+    "sync-protocol.md Section 9.2 (Chain Initialization)",
+    "encryption-spec.md Section 15 (Hash Chain Integrity)",
+    "wire-format.md Section 4.2 (currentHash Field)"
   ],
   "hashFormula": {
-    "description": "currentHash = SHA256(bytes(devicePrevHash) + base64Decode(encryptedPayload))",
+    "description": "currentHash = SHA256(bytes(prevHash) + base64Decode(encryptedPayload))",
     "bytesFunction": "bytes(hexString) decodes the 64-character hex string to 32 raw bytes",
-    "concatenation": "Raw 32-byte devicePrevHash bytes concatenated with raw encryptedPayload bytes (base64-decoded)",
-    "genesisValue": "0000000000000000000000000000000000000000000000000000000000000000"
+    "concatenation": "Raw 32-byte prevHash bytes concatenated with raw encryptedPayload bytes (base64-decoded)",
+    "genesisValue": "0000000000000000000000000000000000000000000000000000000000000000",
+    "note": "In v2, the hash chain is computed over the encrypted payload (ciphertext), NOT the plaintext. This allows the server to verify hash chain integrity without decrypting."
   },
   "context": {
     "deviceId": "cc001122-3344-5566-7788-99aabbccddee",
     "keyEpoch": 1,
-    "note": "encryptedPayload values are base64 encodings of simple placeholder strings for test reproducibility"
+    "note": "encryptedPayload values are base64 encodings of simple placeholder strings for test reproducibility. In production, these would be AES-256-GCM ciphertext."
   },
   "validChain": {
-    "description": "A valid 5-operation hash chain. Each op's currentHash is computed from its devicePrevHash and encryptedPayload.",
+    "description": "A valid 5-operation hash chain. Each op's currentHash is computed from its prevHash and encryptedPayload.",
     "ops": [
       {
         "index": 1,
         "deviceSequence": 1,
-        "devicePrevHash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "prevHash": "0000000000000000000000000000000000000000000000000000000000000000",
         "encryptedPayload": "dGVzdC1wYXlsb2FkLTE=",
         "encryptedPayloadDecoded": "test-payload-1",
         "currentHash": "4f3eb937b67738b3e9afef89501ca534612f364af3e7210a1a7b2f3ae64e9d72",
-        "note": "First op uses genesis (64 hex zeros) as devicePrevHash"
+        "note": "First op uses genesis (64 hex zeros) as prevHash"
       },
       {
         "index": 2,
         "deviceSequence": 2,
-        "devicePrevHash": "4f3eb937b67738b3e9afef89501ca534612f364af3e7210a1a7b2f3ae64e9d72",
+        "prevHash": "4f3eb937b67738b3e9afef89501ca534612f364af3e7210a1a7b2f3ae64e9d72",
         "encryptedPayload": "dGVzdC1wYXlsb2FkLTI=",
         "encryptedPayloadDecoded": "test-payload-2",
         "currentHash": "006f64a0874cf4832ee4818839ae6b2c9c7c389f2e030cc0b4141aa3754b9b64"
@@ -43,7 +45,7 @@
       {
         "index": 3,
         "deviceSequence": 3,
-        "devicePrevHash": "006f64a0874cf4832ee4818839ae6b2c9c7c389f2e030cc0b4141aa3754b9b64",
+        "prevHash": "006f64a0874cf4832ee4818839ae6b2c9c7c389f2e030cc0b4141aa3754b9b64",
         "encryptedPayload": "dGVzdC1wYXlsb2FkLTM=",
         "encryptedPayloadDecoded": "test-payload-3",
         "currentHash": "7ecac2978a55cebff594ce1c926146d111dc8497d4091e04cf088362fa9994d7"
@@ -51,7 +53,7 @@
       {
         "index": 4,
         "deviceSequence": 4,
-        "devicePrevHash": "7ecac2978a55cebff594ce1c926146d111dc8497d4091e04cf088362fa9994d7",
+        "prevHash": "7ecac2978a55cebff594ce1c926146d111dc8497d4091e04cf088362fa9994d7",
         "encryptedPayload": "dGVzdC1wYXlsb2FkLTQ=",
         "encryptedPayloadDecoded": "test-payload-4",
         "currentHash": "964571cfc036ff673d72e2d80a212a2462a382b94d19946124b1a678dd9b25c1"
@@ -59,7 +61,7 @@
       {
         "index": 5,
         "deviceSequence": 5,
-        "devicePrevHash": "964571cfc036ff673d72e2d80a212a2462a382b94d19946124b1a678dd9b25c1",
+        "prevHash": "964571cfc036ff673d72e2d80a212a2462a382b94d19946124b1a678dd9b25c1",
         "encryptedPayload": "dGVzdC1wYXlsb2FkLTU=",
         "encryptedPayloadDecoded": "test-payload-5",
         "currentHash": "c0c6de965d04a7102b62743e83c616dff2222a904d29c16b266eac3213053a26"
@@ -85,7 +87,7 @@
       {
         "index": 1,
         "deviceSequence": 1,
-        "devicePrevHash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "prevHash": "0000000000000000000000000000000000000000000000000000000000000000",
         "encryptedPayload": "dGVzdC1wYXlsb2FkLTE=",
         "currentHash": "4f3eb937b67738b3e9afef89501ca534612f364af3e7210a1a7b2f3ae64e9d72",
         "chainValid": true,
@@ -94,7 +96,7 @@
       {
         "index": 2,
         "deviceSequence": 2,
-        "devicePrevHash": "4f3eb937b67738b3e9afef89501ca534612f364af3e7210a1a7b2f3ae64e9d72",
+        "prevHash": "4f3eb937b67738b3e9afef89501ca534612f364af3e7210a1a7b2f3ae64e9d72",
         "encryptedPayload": "dGVzdC1wYXlsb2FkLTI=",
         "currentHash": "006f64a0874cf4832ee4818839ae6b2c9c7c389f2e030cc0b4141aa3754b9b64",
         "chainValid": true,
@@ -103,28 +105,28 @@
       {
         "index": 3,
         "deviceSequence": 3,
-        "devicePrevHash": "006f64a0874cf4832ee4818839ae6b2c9c7c389f2e030cc0b4141aa3754b9b64",
+        "prevHash": "006f64a0874cf4832ee4818839ae6b2c9c7c389f2e030cc0b4141aa3754b9b64",
         "encryptedPayload": "VEFNUEVSRUQtcGF5bG9hZC0z",
         "encryptedPayloadDecoded": "TAMPERED-payload-3",
         "currentHashRecomputed": "583154844017458b00cda98d920c920a0dd3598f25caeabb98b7cf29468b65fc",
         "currentHashOriginal": "7ecac2978a55cebff594ce1c926146d111dc8497d4091e04cf088362fa9994d7",
         "chainValid": false,
-        "note": "TAMPER DETECTED: recomputed hash (583154...) does not match original chain hash (7ecac2...). The devicePrevHash is still correct (from op 2), but the payload content changed, producing a different currentHash."
+        "note": "TAMPER DETECTED: recomputed hash (583154...) does not match original chain hash (7ecac2...). The prevHash is still correct (from op 2), but the payload content changed, producing a different currentHash."
       },
       {
         "index": 4,
         "deviceSequence": 4,
-        "devicePrevHash": "583154844017458b00cda98d920c920a0dd3598f25caeabb98b7cf29468b65fc",
+        "prevHash": "583154844017458b00cda98d920c920a0dd3598f25caeabb98b7cf29468b65fc",
         "encryptedPayload": "dGVzdC1wYXlsb2FkLTQ=",
         "currentHashRecomputed": "a37df64eb8a8119bdf617b30a8c2f6523739ec6295c1c9f6a868e5d56fbd9472",
         "currentHashOriginal": "964571cfc036ff673d72e2d80a212a2462a382b94d19946124b1a678dd9b25c1",
         "chainValid": false,
-        "note": "Cascade failure: devicePrevHash changed due to tampered op 3, so currentHash is also different"
+        "note": "Cascade failure: prevHash changed due to tampered op 3, so currentHash is also different"
       },
       {
         "index": 5,
         "deviceSequence": 5,
-        "devicePrevHash": "a37df64eb8a8119bdf617b30a8c2f6523739ec6295c1c9f6a868e5d56fbd9472",
+        "prevHash": "a37df64eb8a8119bdf617b30a8c2f6523739ec6295c1c9f6a868e5d56fbd9472",
         "encryptedPayload": "dGVzdC1wYXlsb2FkLTU=",
         "currentHashRecomputed": "e2b81976a645be2fb6cb54a9dead8c177230f6f9419dcba752f642ee2491ab17",
         "currentHashOriginal": "c0c6de965d04a7102b62743e83c616dff2222a904d29c16b266eac3213053a26",
@@ -135,8 +137,8 @@
     "verification": {
       "firstBrokenOp": 3,
       "reason": "encryptedPayload at op 3 was modified after chain was originally signed",
-      "cascadeEffect": "All subsequent ops (4, 5) also fail verification because their devicePrevHash values are derived from the tampered op 3",
-      "clientAction": "Client MUST flag HASH_CHAIN_BREAK error per sync-protocol.md Section 11.1"
+      "cascadeEffect": "All subsequent ops (4, 5) also fail verification because their prevHash values are derived from the tampered op 3",
+      "clientAction": "Client MUST flag HASH_CHAIN_BREAK error per sync-protocol.md Section 15"
     }
   }
 }

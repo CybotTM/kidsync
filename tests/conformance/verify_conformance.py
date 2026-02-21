@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-Gate A Conformance Test Vector Verification Script
+Conformance Test Vector Verification Script (Protocol v2)
 
 Verifies:
   - TV03: Hash chain computations (SHA-256 over hex-decoded prevHash + base64-decoded payload)
-  - TV07: Canonical JSON serialization + SHA-256 hashes
-  - TV05: Override state machine valid/invalid transition matrices
+  - TV07: Canonical JSON serialization of DecryptedPayload + SHA-256 hashes
+  - TV05: Override state machine valid/invalid transition matrices (client-side)
+  - TV01: Canonical serialization hashes for single-device operations
 """
 
 import hashlib
@@ -28,10 +29,15 @@ def verify_tv03():
     results = []
     all_pass = True
 
+    # Verify protocol version
+    if tv["protocolVersion"] != 2:
+        print("    FAIL: protocolVersion should be 2")
+        all_pass = False
+
     # 1. Verify the valid chain
     print("  [TV03] Valid Chain (5 ops):")
     for op in tv["validChain"]["ops"]:
-        prev_hash_bytes = bytes.fromhex(op["devicePrevHash"])
+        prev_hash_bytes = bytes.fromhex(op["prevHash"])
         payload_bytes = base64.b64decode(op["encryptedPayload"])
         computed = hashlib.sha256(prev_hash_bytes + payload_bytes).hexdigest()
         expected = op["currentHash"]
@@ -44,7 +50,7 @@ def verify_tv03():
     # 2. Verify the tampered chain
     print("  [TV03] Tampered Chain:")
     for op in tv["tamperedChain"]["ops"]:
-        prev_hash_bytes = bytes.fromhex(op["devicePrevHash"])
+        prev_hash_bytes = bytes.fromhex(op["prevHash"])
         payload_bytes = base64.b64decode(op["encryptedPayload"])
         computed = hashlib.sha256(prev_hash_bytes + payload_bytes).hexdigest()
 
@@ -86,7 +92,7 @@ def verify_tv03():
 
 
 # ──────────────────────────────────────────────────────────────────────
-# TV07 - Canonical Serialization Verification
+# TV07 - Canonical Serialization Verification (v2 DecryptedPayload)
 # ──────────────────────────────────────────────────────────────────────
 
 def canonical_json(obj):
@@ -95,25 +101,36 @@ def canonical_json(obj):
     no trailing whitespace, null fields omitted.
     """
     # json.dumps with sort_keys=True handles nested sorting
-    # We need to ensure numbers serialize correctly:
-    #   - integers as integers (no .0)
-    #   - floats with minimal representation
     return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
 def verify_tv07():
-    """Verify canonical JSON serialization and SHA-256 hashes."""
+    """Verify canonical JSON serialization and SHA-256 hashes for v2 DecryptedPayload format."""
     with open(CONFORMANCE_DIR / "tv07-canonical-serialization.json") as f:
         tv = json.load(f)
 
     all_pass = True
-    print("  [TV07] Canonical Serialization Test Cases:")
+
+    # Verify protocol version
+    if tv["protocolVersion"] != 2:
+        print("    FAIL: protocolVersion should be 2")
+        all_pass = False
+
+    print("  [TV07] Canonical Serialization Test Cases (v2 DecryptedPayload):")
 
     for tc in tv["testCases"]:
         tc_id = tc["id"]
         input_obj = tc["input"]
         expected_json = tc["expectedCanonicalJson"]
         expected_sha = tc["expectedSha256"]
+
+        # Verify input has v2 DecryptedPayload wrapper fields
+        required_wrapper_fields = {"deviceSequence", "entityType", "entityId", "operation", "clientTimestamp", "protocolVersion", "data"}
+        has_wrapper = required_wrapper_fields.issubset(input_obj.keys())
+        if not has_wrapper:
+            print(f"    {tc_id}: FAIL - missing v2 DecryptedPayload wrapper fields")
+            all_pass = False
+            continue
 
         # Produce canonical JSON
         computed_json = canonical_json(input_obj)
@@ -141,15 +158,68 @@ def verify_tv07():
 
 
 # ──────────────────────────────────────────────────────────────────────
-# TV05 - Override State Machine Verification
+# TV01 - Single Device Canonical Serialization Verification
+# ──────────────────────────────────────────────────────────────────────
+
+def verify_tv01():
+    """Verify canonical serialization hashes for single device operations in v2 format."""
+    with open(CONFORMANCE_DIR / "tv01-single-device-ops.json") as f:
+        tv = json.load(f)
+
+    all_pass = True
+
+    # Verify protocol version
+    if tv["protocolVersion"] != 2:
+        print("    FAIL: protocolVersion should be 2")
+        all_pass = False
+
+    print("  [TV01] Single Device Canonical Serialization (v2 DecryptedPayload):")
+
+    for op in tv["operations"]:
+        if "canonicalJson" not in op or "canonicalSha256" not in op:
+            continue
+
+        dp = op["decryptedPayload"]
+        expected_json = op["canonicalJson"]
+        expected_sha = op["canonicalSha256"]
+
+        computed_json = canonical_json(dp)
+        computed_sha = hashlib.sha256(computed_json.encode("utf-8")).hexdigest()
+
+        json_match = computed_json == expected_json
+        sha_match = computed_sha == expected_sha
+
+        passed = json_match and sha_match
+        status = "PASS" if passed else "FAIL"
+
+        print(f"    Op {op['index']} ({op['description'][:50]}...): {status}")
+        if not json_match:
+            print(f"      JSON mismatch:")
+            print(f"        expected: {expected_json[:80]}...")
+            print(f"        computed: {computed_json[:80]}...")
+            all_pass = False
+        if not sha_match:
+            print(f"      SHA-256 mismatch: expected={expected_sha[:16]}... computed={computed_sha[:16]}...")
+            all_pass = False
+
+    return all_pass
+
+
+# ──────────────────────────────────────────────────────────────────────
+# TV05 - Override State Machine Verification (Client-Side)
 # ──────────────────────────────────────────────────────────────────────
 
 def verify_tv05():
-    """Verify the override state machine transition matrices."""
+    """Verify the override state machine transition matrices (client-side in v2)."""
     with open(CONFORMANCE_DIR / "tv05-override-state-machine.json") as f:
         tv = json.load(f)
 
     all_pass = True
+
+    # Verify protocol version
+    if tv["protocolVersion"] != 2:
+        print("    FAIL: protocolVersion should be 2")
+        all_pass = False
 
     # Build the valid transition graph from validTransitions
     valid_transitions_defined = set()
@@ -162,12 +232,21 @@ def verify_tv05():
     non_terminal_states = {s for s, info in states.items() if not info["terminal"]}
 
     # 1. Verify valid transitions
-    print("  [TV05] Valid Transitions:")
+    print("  [TV05] Valid Transitions (client-side):")
     for vt in tv["validTransitions"]:
         tc = vt["testCase"]
         from_state = vt["from"]
         to_state = vt["to"]
         expected = tc["expectedResult"]
+
+        # Verify testCase has v2 DecryptedPayload format
+        if "decryptedPayload" in tc:
+            dp = tc["decryptedPayload"]
+            has_wrapper = all(k in dp for k in ["deviceSequence", "entityType", "entityId", "operation", "protocolVersion", "data"])
+            if not has_wrapper:
+                print(f"    {vt['id']} ({from_state} -> {to_state}): FAIL (missing v2 wrapper fields)")
+                all_pass = False
+                continue
 
         # Check the transition is from a non-terminal state
         from_non_terminal = from_state in non_terminal_states
@@ -188,7 +267,6 @@ def verify_tv05():
         expected_error = it["expectedError"]
 
         # Check that this is indeed invalid:
-        # Either from a terminal state, or a disallowed transition from a non-terminal
         is_terminal_source = from_state in terminal_states
         is_not_in_valid = (from_state, to_state) not in valid_transitions_defined
 
@@ -259,26 +337,57 @@ def verify_tv05():
 
 
 # ──────────────────────────────────────────────────────────────────────
+# Protocol Version Verification
+# ──────────────────────────────────────────────────────────────────────
+
+def verify_protocol_versions():
+    """Verify all test vector files declare protocolVersion: 2."""
+    all_pass = True
+    tv_files = sorted(CONFORMANCE_DIR.glob("tv*.json"))
+
+    print("  Protocol Version Check:")
+    for tv_file in tv_files:
+        with open(tv_file) as f:
+            tv = json.load(f)
+        version = tv.get("protocolVersion", "MISSING")
+        passed = version == 2
+        status = "PASS" if passed else "FAIL"
+        print(f"    {tv_file.name}: protocolVersion={version} {status}")
+        if not passed:
+            all_pass = False
+
+    return all_pass
+
+
+# ──────────────────────────────────────────────────────────────────────
 # Main
 # ──────────────────────────────────────────────────────────────────────
 
 def main():
     print("=" * 70)
-    print("  KidSync Gate A - Conformance Test Vector Verification")
+    print("  KidSync - Conformance Test Vector Verification (Protocol v2)")
     print("=" * 70)
     print()
 
     results = {}
 
+    print("[Protocol Versions]")
+    results["Versions"] = verify_protocol_versions()
+    print()
+
     print("[TV03] Hash Chain Verification")
     results["TV03"] = verify_tv03()
     print()
 
-    print("[TV07] Canonical Serialization Verification")
+    print("[TV07] Canonical Serialization Verification (v2 DecryptedPayload)")
     results["TV07"] = verify_tv07()
     print()
 
-    print("[TV05] Override State Machine Verification")
+    print("[TV01] Single Device Canonical Serialization (v2)")
+    results["TV01"] = verify_tv01()
+    print()
+
+    print("[TV05] Override State Machine Verification (client-side)")
     results["TV05"] = verify_tv05()
     print()
 

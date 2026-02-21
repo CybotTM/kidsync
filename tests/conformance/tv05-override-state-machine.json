@@ -1,27 +1,28 @@
 {
   "id": "TV05",
   "title": "Override State Machine Transitions",
-  "description": "Exhaustive test of all valid and invalid state transitions for ScheduleOverride entities. Includes proposerId/responderId authority constraints. Per wire-format.md Section 6.2 and sync-protocol.md Section 9.2.",
-  "protocolVersion": 1,
+  "description": "Exhaustive test of all valid and invalid state transitions for ScheduleOverride entities. Includes proposerId/responderId authority constraints. In v2, the override state machine is entirely client-side: the server has no knowledge of override states, status fields, or transition rules. Clients validate transitions during local replay of the encrypted OpLog.",
+  "protocolVersion": 2,
   "specReferences": [
-    "wire-format.md Section 6.2 (UpsertOverride)",
-    "wire-format.md Section 7.2 (OverrideStatus)",
-    "sync-protocol.md Section 9.2 (ScheduleOverride Conflict Resolution)",
-    "sync-protocol.md Section 9.2.1 (State Machine)",
-    "sync-protocol.md Section 9.2.2 (Transition Rules)"
+    "sync-protocol.md Section 13 (Client-Side Override State Machine)",
+    "sync-protocol.md Section 13.1 (States)",
+    "sync-protocol.md Section 13.2 (Transition Rules)",
+    "wire-format.md Section 7.2 (ScheduleOverride Data)",
+    "wire-format.md Section 8.2 (OverrideStatus Enum)"
   ],
   "context": {
     "parentA": {
-      "userId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+      "signingKeyFingerprint": "SHA256:parentA-signing-key-fingerprint-placeholder",
       "name": "Parent A (Alice)",
       "deviceId": "aaaaaaaa-1111-2222-3333-444444444444"
     },
     "parentB": {
-      "userId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+      "signingKeyFingerprint": "SHA256:parentB-signing-key-fingerprint-placeholder",
       "name": "Parent B (Bob)",
       "deviceId": "bbbbbbbb-1111-2222-3333-444444444444"
     },
-    "childId": "c1d2e3f4-5678-9abc-def0-123456789012"
+    "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+    "note": "All state machine validation happens CLIENT-SIDE during local replay. The server never sees these fields (they are inside the encrypted payload)."
   },
   "states": {
     "PROPOSED": { "terminal": false, "description": "Initial state, awaiting response from non-proposing parent" },
@@ -43,20 +44,24 @@
         "proposerId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
         "responderId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
         "note": "Parent A proposed, Parent B (non-proposer) approves",
-        "payload": {
-          "payloadType": "UpsertOverride",
+        "decryptedPayload": {
+          "deviceSequence": 2,
+          "entityType": "ScheduleOverride",
           "entityId": "ovr00001-1111-2222-3333-444444444444",
-          "timestamp": "2026-03-20T18:45:00.000Z",
-          "operationType": "UPDATE",
-          "overrideId": "ovr00001-1111-2222-3333-444444444444",
-          "type": "SWAP_REQUEST",
-          "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
-          "startDate": "2026-04-05",
-          "endDate": "2026-04-06",
-          "assignedParentId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-          "status": "APPROVED",
-          "proposerId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-          "responderId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb"
+          "operation": "UPDATE",
+          "clientTimestamp": "2026-03-20T18:45:00.000Z",
+          "protocolVersion": 2,
+          "data": {
+            "overrideId": "ovr00001-1111-2222-3333-444444444444",
+            "type": "SWAP_REQUEST",
+            "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+            "startDate": "2026-04-05",
+            "endDate": "2026-04-06",
+            "assignedParentId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+            "status": "APPROVED",
+            "proposerId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+            "responderId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb"
+          }
         },
         "expectedResult": "ACCEPTED"
       }
@@ -72,20 +77,24 @@
         "proposerId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
         "responderId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
         "note": "Parent A proposed, Parent B (non-proposer) declines",
-        "payload": {
-          "payloadType": "UpsertOverride",
+        "decryptedPayload": {
+          "deviceSequence": 2,
+          "entityType": "ScheduleOverride",
           "entityId": "ovr00002-1111-2222-3333-444444444444",
-          "timestamp": "2026-03-20T19:00:00.000Z",
-          "operationType": "UPDATE",
-          "overrideId": "ovr00002-1111-2222-3333-444444444444",
-          "type": "SWAP_REQUEST",
-          "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
-          "startDate": "2026-04-10",
-          "endDate": "2026-04-11",
-          "assignedParentId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-          "status": "DECLINED",
-          "proposerId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-          "responderId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb"
+          "operation": "UPDATE",
+          "clientTimestamp": "2026-03-20T19:00:00.000Z",
+          "protocolVersion": 2,
+          "data": {
+            "overrideId": "ovr00002-1111-2222-3333-444444444444",
+            "type": "SWAP_REQUEST",
+            "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+            "startDate": "2026-04-10",
+            "endDate": "2026-04-11",
+            "assignedParentId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+            "status": "DECLINED",
+            "proposerId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+            "responderId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb"
+          }
         },
         "expectedResult": "ACCEPTED"
       }
@@ -100,19 +109,23 @@
         "overrideId": "ovr00003-1111-2222-3333-444444444444",
         "proposerId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
         "note": "Parent A proposed and now cancels it themselves",
-        "payload": {
-          "payloadType": "UpsertOverride",
+        "decryptedPayload": {
+          "deviceSequence": 2,
+          "entityType": "ScheduleOverride",
           "entityId": "ovr00003-1111-2222-3333-444444444444",
-          "timestamp": "2026-03-20T20:00:00.000Z",
-          "operationType": "UPDATE",
-          "overrideId": "ovr00003-1111-2222-3333-444444444444",
-          "type": "SWAP_REQUEST",
-          "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
-          "startDate": "2026-04-15",
-          "endDate": "2026-04-16",
-          "assignedParentId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-          "status": "CANCELLED",
-          "proposerId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa"
+          "operation": "UPDATE",
+          "clientTimestamp": "2026-03-20T20:00:00.000Z",
+          "protocolVersion": 2,
+          "data": {
+            "overrideId": "ovr00003-1111-2222-3333-444444444444",
+            "type": "SWAP_REQUEST",
+            "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+            "startDate": "2026-04-15",
+            "endDate": "2026-04-16",
+            "assignedParentId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+            "status": "CANCELLED",
+            "proposerId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa"
+          }
         },
         "expectedResult": "ACCEPTED"
       }
@@ -122,24 +135,28 @@
       "from": "APPROVED",
       "to": "SUPERSEDED",
       "performedBy": "system",
-      "description": "System marks an approved override as superseded when a higher-precedence override is created for overlapping dates",
+      "description": "Client marks an approved override as superseded when a higher-precedence override is created for overlapping dates",
       "testCase": {
         "overrideId": "ovr00004-1111-2222-3333-444444444444",
-        "note": "COURT_ORDER override created for same dates supersedes an existing APPROVED SWAP_REQUEST",
-        "payload": {
-          "payloadType": "UpsertOverride",
+        "note": "COURT_ORDER override created for same dates supersedes an existing APPROVED SWAP_REQUEST. This transition is performed by the client's state machine during local replay, NOT by the server.",
+        "decryptedPayload": {
+          "deviceSequence": 3,
+          "entityType": "ScheduleOverride",
           "entityId": "ovr00004-1111-2222-3333-444444444444",
-          "timestamp": "2026-03-21T10:00:00.000Z",
-          "operationType": "UPDATE",
-          "overrideId": "ovr00004-1111-2222-3333-444444444444",
-          "type": "SWAP_REQUEST",
-          "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
-          "startDate": "2026-04-20",
-          "endDate": "2026-04-21",
-          "assignedParentId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-          "status": "SUPERSEDED",
-          "proposerId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-          "responderId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb"
+          "operation": "UPDATE",
+          "clientTimestamp": "2026-03-21T10:00:00.000Z",
+          "protocolVersion": 2,
+          "data": {
+            "overrideId": "ovr00004-1111-2222-3333-444444444444",
+            "type": "SWAP_REQUEST",
+            "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+            "startDate": "2026-04-20",
+            "endDate": "2026-04-21",
+            "assignedParentId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+            "status": "SUPERSEDED",
+            "proposerId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+            "responderId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb"
+          }
         },
         "expectedResult": "ACCEPTED"
       }
@@ -149,24 +166,28 @@
       "from": "APPROVED",
       "to": "EXPIRED",
       "performedBy": "system",
-      "description": "System marks an approved override as expired when the endDate has passed",
+      "description": "Client marks an approved override as expired when the endDate has passed",
       "testCase": {
         "overrideId": "ovr00005-1111-2222-3333-444444444444",
-        "note": "Date range 2026-03-01 to 2026-03-02 is in the past; system transitions to EXPIRED",
-        "payload": {
-          "payloadType": "UpsertOverride",
+        "note": "Date range 2026-03-01 to 2026-03-02 is in the past; client transitions to EXPIRED during local replay",
+        "decryptedPayload": {
+          "deviceSequence": 3,
+          "entityType": "ScheduleOverride",
           "entityId": "ovr00005-1111-2222-3333-444444444444",
-          "timestamp": "2026-03-03T00:00:01.000Z",
-          "operationType": "UPDATE",
-          "overrideId": "ovr00005-1111-2222-3333-444444444444",
-          "type": "SWAP_REQUEST",
-          "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
-          "startDate": "2026-03-01",
-          "endDate": "2026-03-02",
-          "assignedParentId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-          "status": "EXPIRED",
-          "proposerId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-          "responderId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa"
+          "operation": "UPDATE",
+          "clientTimestamp": "2026-03-03T00:00:01.000Z",
+          "protocolVersion": 2,
+          "data": {
+            "overrideId": "ovr00005-1111-2222-3333-444444444444",
+            "type": "SWAP_REQUEST",
+            "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+            "startDate": "2026-03-01",
+            "endDate": "2026-03-02",
+            "assignedParentId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+            "status": "EXPIRED",
+            "proposerId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+            "responderId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa"
+          }
         },
         "expectedResult": "ACCEPTED"
       }
@@ -263,7 +284,7 @@
       "testCase": {
         "proposerId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
         "responderId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-        "note": "responderId == proposerId, which is NOT allowed for APPROVED"
+        "note": "responderId == proposerId, which is NOT allowed for APPROVED. Client MUST reject during local replay."
       },
       "expectedError": "TRANSITION_NOT_AUTHORIZED",
       "reason": "responderId MUST NOT equal proposerId for APPROVED transitions; only the non-proposing parent may approve"
@@ -276,7 +297,7 @@
       "testCase": {
         "proposerId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
         "responderId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-        "note": "responderId == proposerId, which is NOT allowed for DECLINED"
+        "note": "responderId == proposerId, which is NOT allowed for DECLINED. Client MUST reject during local replay."
       },
       "expectedError": "TRANSITION_NOT_AUTHORIZED",
       "reason": "responderId MUST NOT equal proposerId for DECLINED transitions; only the non-proposing parent may decline"
@@ -289,7 +310,7 @@
       "testCase": {
         "proposerId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
         "cancelledByDeviceOwner": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-        "note": "Only the proposer may cancel; Parent B did not propose this override"
+        "note": "Only the proposer may cancel; Parent B did not propose this override. Client MUST reject during local replay."
       },
       "expectedError": "TRANSITION_NOT_AUTHORIZED",
       "reason": "CANCELLED transitions may only be performed by the proposer"
@@ -322,7 +343,7 @@
     }
   ],
   "stateTransitionMatrix": {
-    "description": "Complete matrix of all from->to state pairs and their validity",
+    "description": "Complete matrix of all from->to state pairs and their validity. ALL validation happens CLIENT-SIDE during local replay. The server never sees status fields.",
     "matrix": {
       "PROPOSED": {
         "PROPOSED": "INVALID (cannot re-propose)",

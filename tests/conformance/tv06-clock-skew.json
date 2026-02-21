@@ -1,22 +1,22 @@
 {
   "id": "TV06",
   "title": "Clock Skew and Server Ordering",
-  "description": "Two devices with clocks 2 hours apart creating conflicting custody schedules for the same child with the same effectiveFrom. Demonstrates that globalSequence (server ordering) determines application order, while clientTimestamp is only used for tie-breaking within conflict resolution. Even though Device B's clock is 2 hours ahead, the conflict resolution result is deterministic.",
-  "protocolVersion": 1,
+  "description": "Two devices with clocks 2 hours apart creating conflicting custody schedules for the same child with the same effectiveFrom. Demonstrates that globalSequence (server ordering) determines application order, while clientTimestamp (inside the encrypted payload, invisible to the server) is only used for tie-breaking within client-side conflict resolution. Even though Device B's clock is 2 hours ahead, the conflict resolution result is deterministic. In v2, the server cannot see clientTimestamp or effectiveFrom since both are inside the encrypted payload.",
+  "protocolVersion": 2,
   "specReferences": [
-    "sync-protocol.md Section 8.3 (Client-Side Application Order)",
-    "sync-protocol.md Section 9.1 (CustodySchedule Conflict Resolution)",
-    "sync-protocol.md Section 13.5 (Clock Skew)"
+    "sync-protocol.md Section 11 (Canonical Linearization)",
+    "sync-protocol.md Section 12 (Client-Side Conflict Resolution)",
+    "sync-protocol.md Section 17 (Security Considerations - Clock Skew)"
   ],
   "context": {
-    "familyId": "fam00006-aaaa-bbbb-cccc-dddddddddddd",
+    "bucketId": "bkt00006-aaaa-bbbb-cccc-dddddddddddd",
     "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
     "parentA": {
-      "userId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+      "signingKeyFingerprint": "SHA256:parentA-signing-key-fingerprint-placeholder",
       "name": "Parent A (Alice)"
     },
     "parentB": {
-      "userId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+      "signingKeyFingerprint": "SHA256:parentB-signing-key-fingerprint-placeholder",
       "name": "Parent B (Bob)"
     },
     "deviceA": {
@@ -39,45 +39,48 @@
     "step3": "Device B creates a competing custody schedule seconds later in real time. Its clientTimestamp is 2026-03-28T12:00:30.000Z (2h ahead + 30s real elapsed).",
     "step4": "Device B comes online first and uploads. Server assigns globalSequence=1.",
     "step5": "Device A comes online second and uploads. Server assigns globalSequence=2.",
-    "step6": "Key insight: Device B uploaded first (got lower globalSequence) but Device A has the earlier clientTimestamp."
+    "step6": "Key insight: Device B uploaded first (got lower globalSequence) but Device A has the earlier clientTimestamp. The server has no knowledge of clientTimestamp since it is inside the encrypted payload."
   },
   "deviceBOp": {
     "description": "Device B creates schedule (uploads FIRST, gets lower globalSequence)",
     "decryptedPayload": {
-      "payloadType": "SetCustodySchedule",
+      "deviceSequence": 1,
+      "entityType": "CustodySchedule",
       "entityId": "sched-bb-1111-2222-3333-444444444444",
-      "timestamp": "2026-03-28T12:00:30.000Z",
-      "operationType": "CREATE",
-      "scheduleId": "sched-bb-1111-2222-3333-444444444444",
-      "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
-      "anchorDate": "2026-04-06",
-      "cycleLengthDays": 14,
-      "pattern": [
-        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa"
-      ],
-      "effectiveFrom": "2026-04-06T00:00:00.000Z",
-      "timeZone": "Europe/Berlin"
+      "operation": "CREATE",
+      "clientTimestamp": "2026-03-28T12:00:30.000Z",
+      "protocolVersion": 2,
+      "data": {
+        "scheduleId": "sched-bb-1111-2222-3333-444444444444",
+        "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+        "anchorDate": "2026-04-06",
+        "cycleLengthDays": 14,
+        "pattern": [
+          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa"
+        ],
+        "effectiveFrom": "2026-04-06T00:00:00.000Z",
+        "timeZone": "Europe/Berlin"
+      }
     },
     "envelope": {
       "deviceId": "bbbbbbbb-cccc-dddd-eeee-ffffffffffff",
-      "deviceSequence": 1,
-      "entityType": "CustodySchedule",
-      "operation": "CREATE",
       "keyEpoch": 1,
-      "clientTimestamp": "2026-03-28T12:00:30.000Z"
+      "encryptedPayload": "<base64-AES-256-GCM-ciphertext>",
+      "prevHash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "currentHash": "<SHA256(hexDecode(prevHash) + base64Decode(encryptedPayload))>"
     },
     "serverAssigned": {
       "globalSequence": 1,
@@ -87,40 +90,43 @@
   "deviceAOp": {
     "description": "Device A creates schedule (uploads SECOND, gets higher globalSequence)",
     "decryptedPayload": {
-      "payloadType": "SetCustodySchedule",
+      "deviceSequence": 1,
+      "entityType": "CustodySchedule",
       "entityId": "sched-aa-1111-2222-3333-444444444444",
-      "timestamp": "2026-03-28T10:00:00.000Z",
-      "operationType": "CREATE",
-      "scheduleId": "sched-aa-1111-2222-3333-444444444444",
-      "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
-      "anchorDate": "2026-04-06",
-      "cycleLengthDays": 14,
-      "pattern": [
-        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-        "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-        "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb"
-      ],
-      "effectiveFrom": "2026-04-06T00:00:00.000Z",
-      "timeZone": "Europe/Berlin"
+      "operation": "CREATE",
+      "clientTimestamp": "2026-03-28T10:00:00.000Z",
+      "protocolVersion": 2,
+      "data": {
+        "scheduleId": "sched-aa-1111-2222-3333-444444444444",
+        "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+        "anchorDate": "2026-04-06",
+        "cycleLengthDays": 14,
+        "pattern": [
+          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb"
+        ],
+        "effectiveFrom": "2026-04-06T00:00:00.000Z",
+        "timeZone": "Europe/Berlin"
+      }
     },
     "envelope": {
       "deviceId": "aaaaaaaa-cccc-dddd-eeee-ffffffffffff",
-      "deviceSequence": 1,
-      "entityType": "CustodySchedule",
-      "operation": "CREATE",
       "keyEpoch": 1,
-      "clientTimestamp": "2026-03-28T10:00:00.000Z"
+      "encryptedPayload": "<base64-AES-256-GCM-ciphertext>",
+      "prevHash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "currentHash": "<SHA256(hexDecode(prevHash) + base64Decode(encryptedPayload))>"
     },
     "serverAssigned": {
       "globalSequence": 2,
@@ -128,7 +134,7 @@
     }
   },
   "applicationOrder": {
-    "description": "Clients MUST apply ops in globalSequence order, regardless of clientTimestamp",
+    "description": "Clients MUST apply ops in globalSequence order, regardless of clientTimestamp. The server assigns globalSequence; the client performs conflict resolution after decrypting the payloads.",
     "order": [
       {
         "step": 1,
@@ -142,11 +148,12 @@
         "globalSequence": 2,
         "source": "Device A",
         "clientTimestamp": "2026-03-28T10:00:00.000Z",
-        "action": "Apply Device A's schedule. Same effectiveFrom triggers conflict resolution."
+        "action": "Apply Device A's schedule. Same effectiveFrom triggers client-side conflict resolution."
       }
     ]
   },
   "conflictResolution": {
+    "performedBy": "CLIENT (not server - server cannot see effectiveFrom or clientTimestamp)",
     "step1": {
       "comparison": "effectiveFrom",
       "deviceAValue": "2026-04-06T00:00:00.000Z",
@@ -169,7 +176,7 @@
       "detail": "Device B's op (globalSeq=1) is applied BEFORE Device A's op (globalSeq=2), even though Device B's clientTimestamp (12:00:30) is later than Device A's (10:00:00). The server arrival order determines when ops are processed."
     },
     {
-      "insight": "clientTimestamp is ONLY for tie-breaking within conflict resolution",
+      "insight": "clientTimestamp is ONLY for tie-breaking within client-side conflict resolution",
       "detail": "When two schedules have the same effectiveFrom, clientTimestamp breaks the tie. It does NOT affect the order in which ops are applied to the local database."
     },
     {
@@ -178,7 +185,11 @@
     },
     {
       "insight": "serverTimestamp vs clientTimestamp",
-      "detail": "serverTimestamp (10:01:00 for Device B, 10:02:00 for Device A) shows the real arrival order, but it is NOT used in conflict resolution. Only clientTimestamp is used for tie-breaking."
+      "detail": "serverTimestamp (10:01:00 for Device B, 10:02:00 for Device A) shows the real arrival order, but it is NOT used in conflict resolution. Only clientTimestamp (inside the encrypted payload) is used for tie-breaking."
+    },
+    {
+      "insight": "Server cannot resolve conflicts",
+      "detail": "In v2, the server has no access to effectiveFrom, clientTimestamp, or any other business data. All conflict resolution is performed by the client after decrypting the payloads."
     },
     {
       "insight": "Deterministic outcome",

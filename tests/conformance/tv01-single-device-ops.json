@@ -1,23 +1,24 @@
 {
   "id": "TV01",
   "title": "Single Device Operations",
-  "description": "Test vector for a single device creating a custody schedule (week-on/week-off), three expenses, and one swap request. All operations originate from one device and one parent.",
-  "protocolVersion": 1,
+  "description": "Test vector for a single device creating a custody schedule (week-on/week-off), three expenses, and one swap request. All operations originate from one device. Uses the v2 DecryptedPayload wrapper format where all metadata (entityType, entityId, operation, clientTimestamp, deviceSequence, protocolVersion) is inside the encrypted payload. The server-visible envelope contains only deviceId, keyEpoch, encryptedPayload, prevHash, currentHash.",
+  "protocolVersion": 2,
   "specReferences": [
-    "wire-format.md Section 3.7 (Canonical Serialization)",
-    "wire-format.md Section 5 (OperationPayload)",
-    "wire-format.md Section 6 (Payload Variants)",
-    "sync-protocol.md Section 6 (Per-Device Hash Chains)"
+    "wire-format.md Section 3.7 (Canonical Serialization for Encryption)",
+    "wire-format.md Section 4 (OpInput - Client-to-Server Envelope)",
+    "wire-format.md Section 6 (DecryptedPayload - Inside encryptedPayload)",
+    "wire-format.md Section 7 (Operation Payload Data Variants)",
+    "sync-protocol.md Section 9 (Per-Device Hash Chains)"
   ],
   "context": {
-    "familyId": "fam00001-aaaa-bbbb-cccc-dddddddddddd",
+    "bucketId": "bkt00001-aaaa-bbbb-cccc-dddddddddddd",
     "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
     "parentA": {
-      "userId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+      "signingKeyFingerprint": "SHA256:parentA-signing-key-fingerprint-placeholder",
       "name": "Parent A (Alice)"
     },
     "parentB": {
-      "userId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+      "signingKeyFingerprint": "SHA256:parentB-signing-key-fingerprint-placeholder",
       "name": "Parent B (Bob)"
     },
     "deviceId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
@@ -28,163 +29,174 @@
       "index": 1,
       "description": "Create week-on/week-off custody schedule starting 2026-03-16",
       "decryptedPayload": {
-        "payloadType": "SetCustodySchedule",
-        "entityId": "b7e1f2a3-4c5d-6e7f-8901-234567890abc",
-        "timestamp": "2026-03-15T10:00:00.000Z",
-        "operationType": "CREATE",
-        "scheduleId": "b7e1f2a3-4c5d-6e7f-8901-234567890abc",
-        "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
-        "anchorDate": "2026-03-16",
-        "cycleLengthDays": 14,
-        "pattern": [
-          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-          "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-          "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb"
-        ],
-        "effectiveFrom": "2026-03-16T00:00:00.000Z",
-        "timeZone": "Europe/Berlin"
-      },
-      "canonicalJson": "{\"anchorDate\":\"2026-03-16\",\"childId\":\"c1d2e3f4-5678-9abc-def0-123456789012\",\"cycleLengthDays\":14,\"effectiveFrom\":\"2026-03-16T00:00:00.000Z\",\"entityId\":\"b7e1f2a3-4c5d-6e7f-8901-234567890abc\",\"operationType\":\"CREATE\",\"pattern\":[\"d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa\",\"d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa\",\"d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa\",\"d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa\",\"d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa\",\"d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa\",\"d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa\",\"e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb\",\"e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb\",\"e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb\",\"e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb\",\"e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb\",\"e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb\",\"e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb\"],\"payloadType\":\"SetCustodySchedule\",\"scheduleId\":\"b7e1f2a3-4c5d-6e7f-8901-234567890abc\",\"timeZone\":\"Europe/Berlin\",\"timestamp\":\"2026-03-15T10:00:00.000Z\"}",
-      "canonicalSha256": "0c3df71fd709bbecef1a710d727e47253dea9f3c223602b9bfc4ff7191ccd276",
-      "envelope": {
-        "deviceId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
         "deviceSequence": 1,
         "entityType": "CustodySchedule",
         "entityId": "b7e1f2a3-4c5d-6e7f-8901-234567890abc",
         "operation": "CREATE",
+        "clientTimestamp": "2026-03-15T10:00:00.000Z",
+        "protocolVersion": 2,
+        "data": {
+          "scheduleId": "b7e1f2a3-4c5d-6e7f-8901-234567890abc",
+          "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+          "anchorDate": "2026-03-16",
+          "cycleLengthDays": 14,
+          "pattern": [
+            "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+            "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+            "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+            "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+            "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+            "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+            "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+            "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+            "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+            "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+            "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+            "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+            "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+            "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb"
+          ],
+          "effectiveFrom": "2026-03-16T00:00:00.000Z",
+          "timeZone": "Europe/Berlin"
+        }
+      },
+      "canonicalJson": "{\"clientTimestamp\":\"2026-03-15T10:00:00.000Z\",\"data\":{\"anchorDate\":\"2026-03-16\",\"childId\":\"c1d2e3f4-5678-9abc-def0-123456789012\",\"cycleLengthDays\":14,\"effectiveFrom\":\"2026-03-16T00:00:00.000Z\",\"pattern\":[\"d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa\",\"d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa\",\"d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa\",\"d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa\",\"d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa\",\"d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa\",\"d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa\",\"e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb\",\"e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb\",\"e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb\",\"e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb\",\"e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb\",\"e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb\",\"e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb\"],\"scheduleId\":\"b7e1f2a3-4c5d-6e7f-8901-234567890abc\",\"timeZone\":\"Europe/Berlin\"},\"deviceSequence\":1,\"entityId\":\"b7e1f2a3-4c5d-6e7f-8901-234567890abc\",\"entityType\":\"CustodySchedule\",\"operation\":\"CREATE\",\"protocolVersion\":2}",
+      "canonicalSha256": "8fef9fcc12432cc0428a3f3d3e4366ca8f13a6e86b22709ed997c41500ac9ce7",
+      "envelope": {
+        "deviceId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
         "keyEpoch": 1,
-        "clientTimestamp": "2026-03-15T10:00:00.000Z"
-      }
+        "encryptedPayload": "<base64-AES-256-GCM-ciphertext-of-canonical-json>",
+        "prevHash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "currentHash": "<SHA256(hexDecode(prevHash) + base64Decode(encryptedPayload))>"
+      },
+      "note": "First op from this device; prevHash is genesis (64 hex zeros). Envelope has only 5 fields visible to server."
     },
     {
       "index": 2,
       "description": "Create expense: pediatrician visit (EUR 45.00)",
       "decryptedPayload": {
-        "payloadType": "CreateExpense",
-        "entityId": "a1234567-b890-cdef-1234-567890abcdef",
-        "timestamp": "2026-03-18T16:22:00.000Z",
-        "operationType": "CREATE",
-        "expenseId": "a1234567-b890-cdef-1234-567890abcdef",
-        "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
-        "paidByUserId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-        "amountCents": 4500,
-        "currencyCode": "EUR",
-        "category": "MEDICAL",
-        "description": "Pediatrician visit - flu symptoms",
-        "incurredAt": "2026-03-18",
-        "payerResponsibilityRatio": 0.5
-      },
-      "canonicalJson": "{\"amountCents\":4500,\"category\":\"MEDICAL\",\"childId\":\"c1d2e3f4-5678-9abc-def0-123456789012\",\"currencyCode\":\"EUR\",\"description\":\"Pediatrician visit - flu symptoms\",\"entityId\":\"a1234567-b890-cdef-1234-567890abcdef\",\"expenseId\":\"a1234567-b890-cdef-1234-567890abcdef\",\"incurredAt\":\"2026-03-18\",\"operationType\":\"CREATE\",\"paidByUserId\":\"d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa\",\"payerResponsibilityRatio\":0.5,\"payloadType\":\"CreateExpense\",\"timestamp\":\"2026-03-18T16:22:00.000Z\"}",
-      "canonicalSha256": "51f123dd7cc8d2317cff0bbd2222f3197d835c6a248a16d0b520af636275a59e",
-      "envelope": {
-        "deviceId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
         "deviceSequence": 2,
         "entityType": "Expense",
         "entityId": "a1234567-b890-cdef-1234-567890abcdef",
         "operation": "CREATE",
+        "clientTimestamp": "2026-03-18T16:22:00.000Z",
+        "protocolVersion": 2,
+        "data": {
+          "expenseId": "a1234567-b890-cdef-1234-567890abcdef",
+          "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+          "paidByUserId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "amountCents": 4500,
+          "currencyCode": "EUR",
+          "category": "MEDICAL",
+          "description": "Pediatrician visit - flu symptoms",
+          "incurredAt": "2026-03-18",
+          "payerResponsibilityRatio": 0.5
+        }
+      },
+      "canonicalJson": "{\"clientTimestamp\":\"2026-03-18T16:22:00.000Z\",\"data\":{\"amountCents\":4500,\"category\":\"MEDICAL\",\"childId\":\"c1d2e3f4-5678-9abc-def0-123456789012\",\"currencyCode\":\"EUR\",\"description\":\"Pediatrician visit - flu symptoms\",\"expenseId\":\"a1234567-b890-cdef-1234-567890abcdef\",\"incurredAt\":\"2026-03-18\",\"paidByUserId\":\"d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa\",\"payerResponsibilityRatio\":0.5},\"deviceSequence\":2,\"entityId\":\"a1234567-b890-cdef-1234-567890abcdef\",\"entityType\":\"Expense\",\"operation\":\"CREATE\",\"protocolVersion\":2}",
+      "canonicalSha256": "b520dc139e09477e6c85f276261c8644f171eadcf1f15c92f70e24a7b6a9cbd3",
+      "envelope": {
+        "deviceId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
         "keyEpoch": 1,
-        "clientTimestamp": "2026-03-18T16:22:00.000Z"
+        "encryptedPayload": "<base64-AES-256-GCM-ciphertext-of-canonical-json>",
+        "prevHash": "<currentHash-of-op-1>",
+        "currentHash": "<SHA256(hexDecode(prevHash) + base64Decode(encryptedPayload))>"
       }
     },
     {
       "index": 3,
       "description": "Create expense: school supplies (EUR 120.00)",
       "decryptedPayload": {
-        "payloadType": "CreateExpense",
-        "entityId": "b2345678-c901-def2-3456-7890abcdef01",
-        "timestamp": "2026-03-20T09:15:00.000Z",
-        "operationType": "CREATE",
-        "expenseId": "b2345678-c901-def2-3456-7890abcdef01",
-        "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
-        "paidByUserId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-        "amountCents": 12000,
-        "currencyCode": "EUR",
-        "category": "EDUCATION",
-        "description": "School supplies for spring semester",
-        "incurredAt": "2026-03-20",
-        "payerResponsibilityRatio": 0.5
-      },
-      "canonicalJson": "{\"amountCents\":12000,\"category\":\"EDUCATION\",\"childId\":\"c1d2e3f4-5678-9abc-def0-123456789012\",\"currencyCode\":\"EUR\",\"description\":\"School supplies for spring semester\",\"entityId\":\"b2345678-c901-def2-3456-7890abcdef01\",\"expenseId\":\"b2345678-c901-def2-3456-7890abcdef01\",\"incurredAt\":\"2026-03-20\",\"operationType\":\"CREATE\",\"paidByUserId\":\"d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa\",\"payerResponsibilityRatio\":0.5,\"payloadType\":\"CreateExpense\",\"timestamp\":\"2026-03-20T09:15:00.000Z\"}",
-      "canonicalSha256": "b3740df66eef3c9a4676a06fb3bdafcc43e611b3a0b00098adfee2a26b482798",
-      "envelope": {
-        "deviceId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
         "deviceSequence": 3,
         "entityType": "Expense",
         "entityId": "b2345678-c901-def2-3456-7890abcdef01",
         "operation": "CREATE",
+        "clientTimestamp": "2026-03-20T09:15:00.000Z",
+        "protocolVersion": 2,
+        "data": {
+          "expenseId": "b2345678-c901-def2-3456-7890abcdef01",
+          "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+          "paidByUserId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "amountCents": 12000,
+          "currencyCode": "EUR",
+          "category": "EDUCATION",
+          "description": "School supplies for spring semester",
+          "incurredAt": "2026-03-20",
+          "payerResponsibilityRatio": 0.5
+        }
+      },
+      "canonicalJson": "{\"clientTimestamp\":\"2026-03-20T09:15:00.000Z\",\"data\":{\"amountCents\":12000,\"category\":\"EDUCATION\",\"childId\":\"c1d2e3f4-5678-9abc-def0-123456789012\",\"currencyCode\":\"EUR\",\"description\":\"School supplies for spring semester\",\"expenseId\":\"b2345678-c901-def2-3456-7890abcdef01\",\"incurredAt\":\"2026-03-20\",\"paidByUserId\":\"d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa\",\"payerResponsibilityRatio\":0.5},\"deviceSequence\":3,\"entityId\":\"b2345678-c901-def2-3456-7890abcdef01\",\"entityType\":\"Expense\",\"operation\":\"CREATE\",\"protocolVersion\":2}",
+      "canonicalSha256": "e9d60c877d32743ec74c7a2573bd0c7f86a1d3db9884f0dfc96188080cd61d72",
+      "envelope": {
+        "deviceId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
         "keyEpoch": 1,
-        "clientTimestamp": "2026-03-20T09:15:00.000Z"
+        "encryptedPayload": "<base64-AES-256-GCM-ciphertext-of-canonical-json>",
+        "prevHash": "<currentHash-of-op-2>",
+        "currentHash": "<SHA256(hexDecode(prevHash) + base64Decode(encryptedPayload))>"
       }
     },
     {
       "index": 4,
       "description": "Create expense: swimming lessons (EUR 85.00, paid by Parent B)",
       "decryptedPayload": {
-        "payloadType": "CreateExpense",
-        "entityId": "c3456789-d012-ef34-5678-90abcdef0123",
-        "timestamp": "2026-03-22T14:30:00.000Z",
-        "operationType": "CREATE",
-        "expenseId": "c3456789-d012-ef34-5678-90abcdef0123",
-        "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
-        "paidByUserId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-        "amountCents": 8500,
-        "currencyCode": "EUR",
-        "category": "ACTIVITIES",
-        "description": "Swimming lessons - March block",
-        "incurredAt": "2026-03-22",
-        "payerResponsibilityRatio": 0.5
-      },
-      "canonicalJson": "{\"amountCents\":8500,\"category\":\"ACTIVITIES\",\"childId\":\"c1d2e3f4-5678-9abc-def0-123456789012\",\"currencyCode\":\"EUR\",\"description\":\"Swimming lessons - March block\",\"entityId\":\"c3456789-d012-ef34-5678-90abcdef0123\",\"expenseId\":\"c3456789-d012-ef34-5678-90abcdef0123\",\"incurredAt\":\"2026-03-22\",\"operationType\":\"CREATE\",\"paidByUserId\":\"e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb\",\"payerResponsibilityRatio\":0.5,\"payloadType\":\"CreateExpense\",\"timestamp\":\"2026-03-22T14:30:00.000Z\"}",
-      "canonicalSha256": "ee654e467d4c2fcb37ac2cfe21de14a0ab988ee68e2a5802879b4ea460d29d88",
-      "envelope": {
-        "deviceId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
         "deviceSequence": 4,
         "entityType": "Expense",
         "entityId": "c3456789-d012-ef34-5678-90abcdef0123",
         "operation": "CREATE",
+        "clientTimestamp": "2026-03-22T14:30:00.000Z",
+        "protocolVersion": 2,
+        "data": {
+          "expenseId": "c3456789-d012-ef34-5678-90abcdef0123",
+          "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+          "paidByUserId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+          "amountCents": 8500,
+          "currencyCode": "EUR",
+          "category": "ACTIVITIES",
+          "description": "Swimming lessons - March block",
+          "incurredAt": "2026-03-22",
+          "payerResponsibilityRatio": 0.5
+        }
+      },
+      "canonicalJson": "{\"clientTimestamp\":\"2026-03-22T14:30:00.000Z\",\"data\":{\"amountCents\":8500,\"category\":\"ACTIVITIES\",\"childId\":\"c1d2e3f4-5678-9abc-def0-123456789012\",\"currencyCode\":\"EUR\",\"description\":\"Swimming lessons - March block\",\"expenseId\":\"c3456789-d012-ef34-5678-90abcdef0123\",\"incurredAt\":\"2026-03-22\",\"paidByUserId\":\"e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb\",\"payerResponsibilityRatio\":0.5},\"deviceSequence\":4,\"entityId\":\"c3456789-d012-ef34-5678-90abcdef0123\",\"entityType\":\"Expense\",\"operation\":\"CREATE\",\"protocolVersion\":2}",
+      "canonicalSha256": "a8be92020d970ac574f19698a32021e2df2929664b4f0296cfd21cc9dec4daa8",
+      "envelope": {
+        "deviceId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
         "keyEpoch": 1,
-        "clientTimestamp": "2026-03-22T14:30:00.000Z"
+        "encryptedPayload": "<base64-AES-256-GCM-ciphertext-of-canonical-json>",
+        "prevHash": "<currentHash-of-op-3>",
+        "currentHash": "<SHA256(hexDecode(prevHash) + base64Decode(encryptedPayload))>"
       }
     },
     {
       "index": 5,
       "description": "Create swap request: grandma's birthday (Apr 5-6)",
       "decryptedPayload": {
-        "payloadType": "UpsertOverride",
-        "entityId": "f1a2b3c4-d5e6-7890-abcd-ef0123456789",
-        "timestamp": "2026-03-25T08:00:00.000Z",
-        "operationType": "CREATE",
-        "overrideId": "f1a2b3c4-d5e6-7890-abcd-ef0123456789",
-        "type": "SWAP_REQUEST",
-        "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
-        "startDate": "2026-04-05",
-        "endDate": "2026-04-06",
-        "assignedParentId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-        "status": "PROPOSED",
-        "proposerId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-        "note": "Would like to take the kids to grandma's birthday party."
-      },
-      "canonicalJson": "{\"assignedParentId\":\"d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa\",\"childId\":\"c1d2e3f4-5678-9abc-def0-123456789012\",\"endDate\":\"2026-04-06\",\"entityId\":\"f1a2b3c4-d5e6-7890-abcd-ef0123456789\",\"note\":\"Would like to take the kids to grandma's birthday party.\",\"operationType\":\"CREATE\",\"overrideId\":\"f1a2b3c4-d5e6-7890-abcd-ef0123456789\",\"payloadType\":\"UpsertOverride\",\"proposerId\":\"d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa\",\"startDate\":\"2026-04-05\",\"status\":\"PROPOSED\",\"timestamp\":\"2026-03-25T08:00:00.000Z\",\"type\":\"SWAP_REQUEST\"}",
-      "canonicalSha256": "501412935641f86df9fc23d1d846bdc00960e14acd2f740c6fbc4bbfe51b4af7",
-      "envelope": {
-        "deviceId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
         "deviceSequence": 5,
         "entityType": "ScheduleOverride",
         "entityId": "f1a2b3c4-d5e6-7890-abcd-ef0123456789",
         "operation": "CREATE",
+        "clientTimestamp": "2026-03-25T08:00:00.000Z",
+        "protocolVersion": 2,
+        "data": {
+          "overrideId": "f1a2b3c4-d5e6-7890-abcd-ef0123456789",
+          "type": "SWAP_REQUEST",
+          "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+          "startDate": "2026-04-05",
+          "endDate": "2026-04-06",
+          "assignedParentId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "status": "PROPOSED",
+          "proposerId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+          "note": "Would like to take the kids to grandma's birthday party."
+        }
+      },
+      "canonicalJson": "{\"clientTimestamp\":\"2026-03-25T08:00:00.000Z\",\"data\":{\"assignedParentId\":\"d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa\",\"childId\":\"c1d2e3f4-5678-9abc-def0-123456789012\",\"endDate\":\"2026-04-06\",\"note\":\"Would like to take the kids to grandma's birthday party.\",\"overrideId\":\"f1a2b3c4-d5e6-7890-abcd-ef0123456789\",\"proposerId\":\"d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa\",\"startDate\":\"2026-04-05\",\"status\":\"PROPOSED\",\"type\":\"SWAP_REQUEST\"},\"deviceSequence\":5,\"entityId\":\"f1a2b3c4-d5e6-7890-abcd-ef0123456789\",\"entityType\":\"ScheduleOverride\",\"operation\":\"CREATE\",\"protocolVersion\":2}",
+      "canonicalSha256": "d273c6592129333e4ada4c15783855d692efc887e43783c6deef972f51102dd9",
+      "envelope": {
+        "deviceId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
         "keyEpoch": 1,
-        "clientTimestamp": "2026-03-25T08:00:00.000Z"
+        "encryptedPayload": "<base64-AES-256-GCM-ciphertext-of-canonical-json>",
+        "prevHash": "<currentHash-of-op-4>",
+        "currentHash": "<SHA256(hexDecode(prevHash) + base64Decode(encryptedPayload))>"
       }
     }
   ],

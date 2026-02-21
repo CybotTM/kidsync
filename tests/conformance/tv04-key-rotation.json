@@ -1,24 +1,26 @@
 {
   "id": "TV04",
   "title": "Key Rotation Scenario",
-  "description": "Key rotation scenario triggered by device revocation. Epoch 1 has 3 ops, a device is revoked triggering DEK rotation to epoch 2, then 2 more ops are created with epoch 2. Verifies that each op carries the correct keyEpoch and that ops from both epochs are decryptable with their respective DEK.",
-  "protocolVersion": 1,
+  "description": "Key rotation scenario triggered by device revocation. Epoch 1 has 3 ops, a device is revoked triggering DEK rotation to epoch 2, then 2 more ops are created with epoch 2. Verifies that each op carries the correct keyEpoch and that ops from both epochs are decryptable with their respective DEK. In v2, device revocation is a client-side concept: the revoking device creates a DeviceRevocation op inside the encrypted payload. Self-revoke only at the server level (DELETE /buckets/{id}/devices/me).",
+  "protocolVersion": 2,
   "specReferences": [
-    "encryption-spec.md Section 8 (Key Epochs)",
-    "encryption-spec.md Section 11 (Device Revocation and DEK Rotation)",
-    "encryption-spec.md Section 12 (OpLog Encryption and Decryption)",
-    "sync-protocol.md Section 5.3.3 (key_rotation WebSocket message)"
+    "encryption-spec.md Section 9 (Key Epochs)",
+    "encryption-spec.md Section 10 (DEK Wrapping Protocol)",
+    "encryption-spec.md Section 13 (OpLog Encryption and Decryption)",
+    "sync-protocol.md Section 8 (WebSocket Protocol)",
+    "wire-format.md Section 6 (DecryptedPayload)",
+    "wire-format.md Section 7.7 (DeviceRevocation Data)",
+    "wire-format.md Section 7.8 (KeyRotation Data)"
   ],
   "context": {
-    "familyId": "fam00004-aaaa-bbbb-cccc-dddddddddddd",
+    "bucketId": "bkt00004-aaaa-bbbb-cccc-dddddddddddd",
     "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
     "parentA": {
-      "userId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-      "name": "Parent A (Alice)",
-      "isAdmin": true
+      "signingKeyFingerprint": "SHA256:parentA-signing-key-fingerprint-placeholder",
+      "name": "Parent A (Alice)"
     },
     "parentB": {
-      "userId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+      "signingKeyFingerprint": "SHA256:parentB-signing-key-fingerprint-placeholder",
       "name": "Parent B (Bob)"
     },
     "devices": {
@@ -50,40 +52,43 @@
         "globalSequence": 1,
         "description": "Create custody schedule (epoch 1)",
         "decryptedPayload": {
-          "payloadType": "SetCustodySchedule",
+          "deviceSequence": 1,
+          "entityType": "CustodySchedule",
           "entityId": "sched001-aaaa-bbbb-cccc-dddddddddddd",
-          "timestamp": "2026-03-15T10:00:00.000Z",
-          "operationType": "CREATE",
-          "scheduleId": "sched001-aaaa-bbbb-cccc-dddddddddddd",
-          "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
-          "anchorDate": "2026-03-16",
-          "cycleLengthDays": 14,
-          "pattern": [
-            "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-            "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-            "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-            "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-            "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-            "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-            "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-            "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-            "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-            "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-            "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-            "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-            "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-            "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb"
-          ],
-          "effectiveFrom": "2026-03-16T00:00:00.000Z",
-          "timeZone": "Europe/Berlin"
+          "operation": "CREATE",
+          "clientTimestamp": "2026-03-15T10:00:00.000Z",
+          "protocolVersion": 2,
+          "data": {
+            "scheduleId": "sched001-aaaa-bbbb-cccc-dddddddddddd",
+            "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+            "anchorDate": "2026-03-16",
+            "cycleLengthDays": 14,
+            "pattern": [
+              "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+              "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+              "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+              "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+              "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+              "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+              "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+              "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+              "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+              "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+              "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+              "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+              "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+              "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb"
+            ],
+            "effectiveFrom": "2026-03-16T00:00:00.000Z",
+            "timeZone": "Europe/Berlin"
+          }
         },
         "envelope": {
           "deviceId": "aa111111-2222-3333-4444-555555555555",
-          "deviceSequence": 1,
-          "entityType": "CustodySchedule",
-          "operation": "CREATE",
           "keyEpoch": 1,
-          "clientTimestamp": "2026-03-15T10:00:00.000Z"
+          "encryptedPayload": "<base64-AES-256-GCM-ciphertext>",
+          "prevHash": "0000000000000000000000000000000000000000000000000000000000000000",
+          "currentHash": "<SHA256(hexDecode(prevHash) + base64Decode(encryptedPayload))>"
         }
       },
       {
@@ -91,27 +96,30 @@
         "globalSequence": 2,
         "description": "Create expense: school books (epoch 1)",
         "decryptedPayload": {
-          "payloadType": "CreateExpense",
+          "deviceSequence": 2,
+          "entityType": "Expense",
           "entityId": "exp00001-aaaa-bbbb-cccc-dddddddddddd",
-          "timestamp": "2026-03-17T14:00:00.000Z",
-          "operationType": "CREATE",
-          "expenseId": "exp00001-aaaa-bbbb-cccc-dddddddddddd",
-          "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
-          "paidByUserId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
-          "amountCents": 3499,
-          "currencyCode": "EUR",
-          "category": "EDUCATION",
-          "description": "School textbooks",
-          "incurredAt": "2026-03-17",
-          "payerResponsibilityRatio": 0.5
+          "operation": "CREATE",
+          "clientTimestamp": "2026-03-17T14:00:00.000Z",
+          "protocolVersion": 2,
+          "data": {
+            "expenseId": "exp00001-aaaa-bbbb-cccc-dddddddddddd",
+            "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+            "paidByUserId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa",
+            "amountCents": 3499,
+            "currencyCode": "EUR",
+            "category": "EDUCATION",
+            "description": "School textbooks",
+            "incurredAt": "2026-03-17",
+            "payerResponsibilityRatio": 0.5
+          }
         },
         "envelope": {
           "deviceId": "aa111111-2222-3333-4444-555555555555",
-          "deviceSequence": 2,
-          "entityType": "Expense",
-          "operation": "CREATE",
           "keyEpoch": 1,
-          "clientTimestamp": "2026-03-17T14:00:00.000Z"
+          "encryptedPayload": "<base64-AES-256-GCM-ciphertext>",
+          "prevHash": "<currentHash-of-op-1>",
+          "currentHash": "<SHA256(hexDecode(prevHash) + base64Decode(encryptedPayload))>"
         }
       },
       {
@@ -119,27 +127,30 @@
         "globalSequence": 3,
         "description": "Create swap request (epoch 1, from Bob's device)",
         "decryptedPayload": {
-          "payloadType": "UpsertOverride",
+          "deviceSequence": 1,
+          "entityType": "ScheduleOverride",
           "entityId": "swap0001-aaaa-bbbb-cccc-dddddddddddd",
-          "timestamp": "2026-03-19T09:30:00.000Z",
-          "operationType": "CREATE",
-          "overrideId": "swap0001-aaaa-bbbb-cccc-dddddddddddd",
-          "type": "SWAP_REQUEST",
-          "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
-          "startDate": "2026-04-12",
-          "endDate": "2026-04-13",
-          "assignedParentId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-          "status": "PROPOSED",
-          "proposerId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-          "note": "Taking kids to a family reunion."
+          "operation": "CREATE",
+          "clientTimestamp": "2026-03-19T09:30:00.000Z",
+          "protocolVersion": 2,
+          "data": {
+            "overrideId": "swap0001-aaaa-bbbb-cccc-dddddddddddd",
+            "type": "SWAP_REQUEST",
+            "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+            "startDate": "2026-04-12",
+            "endDate": "2026-04-13",
+            "assignedParentId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+            "status": "PROPOSED",
+            "proposerId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+            "note": "Taking kids to a family reunion."
+          }
         },
         "envelope": {
           "deviceId": "bb111111-2222-3333-4444-555555555555",
-          "deviceSequence": 1,
-          "entityType": "ScheduleOverride",
-          "operation": "CREATE",
           "keyEpoch": 1,
-          "clientTimestamp": "2026-03-19T09:30:00.000Z"
+          "encryptedPayload": "<base64-AES-256-GCM-ciphertext>",
+          "prevHash": "0000000000000000000000000000000000000000000000000000000000000000",
+          "currentHash": "<SHA256(hexDecode(prevHash) + base64Decode(encryptedPayload))>"
         }
       }
     ]
@@ -152,14 +163,44 @@
     "previousEpoch": 1,
     "newEpoch": 2,
     "newDekPlaceholder": "epoch-2-dek-256-bit-key-placeholder-00",
+    "revocationOp": {
+      "description": "In v2, device revocation is recorded as an encrypted op. The revoking device creates a DeviceRevocation op inside the encrypted payload.",
+      "decryptedPayload": {
+        "deviceSequence": 3,
+        "entityType": "DeviceRevocation",
+        "entityId": "aa222222-3333-4444-5555-666666666666",
+        "operation": "CREATE",
+        "clientTimestamp": "2026-03-20T12:00:00.000Z",
+        "protocolVersion": 2,
+        "data": {
+          "revokedDeviceId": "aa222222-3333-4444-5555-666666666666",
+          "reason": "ADMIN_REVOKE"
+        }
+      }
+    },
+    "keyRotationOp": {
+      "description": "After revocation, the revoking device creates a KeyRotation op to signal the new epoch.",
+      "decryptedPayload": {
+        "deviceSequence": 4,
+        "entityType": "KeyRotation",
+        "entityId": "keyrot01-aaaa-bbbb-cccc-dddddddddddd",
+        "operation": "CREATE",
+        "clientTimestamp": "2026-03-20T12:00:01.000Z",
+        "protocolVersion": 2,
+        "data": {
+          "newEpoch": 2,
+          "revokedDeviceId": "aa222222-3333-4444-5555-666666666666"
+        }
+      }
+    },
     "wrappedDekRecipients": [
       {
         "deviceId": "aa111111-2222-3333-4444-555555555555",
-        "description": "Alice's Phone - receives new wrapped DEK"
+        "description": "Alice's Phone - receives new wrapped DEK via POST /keys/wrapped"
       },
       {
         "deviceId": "bb111111-2222-3333-4444-555555555555",
-        "description": "Bob's Phone - receives new wrapped DEK"
+        "description": "Bob's Phone - receives new wrapped DEK via POST /keys/wrapped"
       }
     ],
     "excludedDevices": [
@@ -172,6 +213,9 @@
       "type": "key_rotation",
       "newEpoch": 2,
       "revokedDeviceId": "aa222222-3333-4444-5555-666666666666"
+    },
+    "serverSideEffect": {
+      "description": "The revoked device calls DELETE /buckets/{id}/devices/me to self-revoke at the server level. The server removes the device's session tokens and bucket membership. The server does NOT know why the device left (it only sees the self-revoke API call)."
     }
   },
   "epoch2": {
@@ -181,59 +225,64 @@
     "ops": [
       {
         "index": 4,
-        "globalSequence": 4,
+        "globalSequence": 6,
         "description": "Create expense: doctor visit (epoch 2, post-rotation)",
         "decryptedPayload": {
-          "payloadType": "CreateExpense",
+          "deviceSequence": 2,
+          "entityType": "Expense",
           "entityId": "exp00002-aaaa-bbbb-cccc-dddddddddddd",
-          "timestamp": "2026-03-21T11:00:00.000Z",
-          "operationType": "CREATE",
-          "expenseId": "exp00002-aaaa-bbbb-cccc-dddddddddddd",
-          "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
-          "paidByUserId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-          "amountCents": 7500,
-          "currencyCode": "EUR",
-          "category": "MEDICAL",
-          "description": "Dentist checkup",
-          "incurredAt": "2026-03-21",
-          "payerResponsibilityRatio": 0.5
+          "operation": "CREATE",
+          "clientTimestamp": "2026-03-21T11:00:00.000Z",
+          "protocolVersion": 2,
+          "data": {
+            "expenseId": "exp00002-aaaa-bbbb-cccc-dddddddddddd",
+            "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+            "paidByUserId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+            "amountCents": 7500,
+            "currencyCode": "EUR",
+            "category": "MEDICAL",
+            "description": "Dentist checkup",
+            "incurredAt": "2026-03-21",
+            "payerResponsibilityRatio": 0.5
+          }
         },
         "envelope": {
           "deviceId": "bb111111-2222-3333-4444-555555555555",
-          "deviceSequence": 2,
-          "entityType": "Expense",
-          "operation": "CREATE",
           "keyEpoch": 2,
-          "clientTimestamp": "2026-03-21T11:00:00.000Z"
+          "encryptedPayload": "<base64-AES-256-GCM-ciphertext>",
+          "prevHash": "<currentHash-of-bob-op-1>",
+          "currentHash": "<SHA256(hexDecode(prevHash) + base64Decode(encryptedPayload))>"
         }
       },
       {
         "index": 5,
-        "globalSequence": 5,
+        "globalSequence": 7,
         "description": "Approve swap request (epoch 2, Alice approves Bob's swap)",
         "decryptedPayload": {
-          "payloadType": "UpsertOverride",
+          "deviceSequence": 5,
+          "entityType": "ScheduleOverride",
           "entityId": "swap0001-aaaa-bbbb-cccc-dddddddddddd",
-          "timestamp": "2026-03-22T08:15:00.000Z",
-          "operationType": "UPDATE",
-          "overrideId": "swap0001-aaaa-bbbb-cccc-dddddddddddd",
-          "type": "SWAP_REQUEST",
-          "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
-          "startDate": "2026-04-12",
-          "endDate": "2026-04-13",
-          "assignedParentId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-          "status": "APPROVED",
-          "proposerId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
-          "responderId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa"
+          "operation": "UPDATE",
+          "clientTimestamp": "2026-03-22T08:15:00.000Z",
+          "protocolVersion": 2,
+          "data": {
+            "overrideId": "swap0001-aaaa-bbbb-cccc-dddddddddddd",
+            "type": "SWAP_REQUEST",
+            "childId": "c1d2e3f4-5678-9abc-def0-123456789012",
+            "startDate": "2026-04-12",
+            "endDate": "2026-04-13",
+            "assignedParentId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+            "status": "APPROVED",
+            "proposerId": "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb",
+            "responderId": "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa"
+          }
         },
         "envelope": {
           "deviceId": "aa111111-2222-3333-4444-555555555555",
-          "deviceSequence": 3,
-          "entityType": "ScheduleOverride",
-          "operation": "UPDATE",
-          "transitionTo": "APPROVED",
           "keyEpoch": 2,
-          "clientTimestamp": "2026-03-22T08:15:00.000Z"
+          "encryptedPayload": "<base64-AES-256-GCM-ciphertext>",
+          "prevHash": "<currentHash-of-alice-revocation-op>",
+          "currentHash": "<SHA256(hexDecode(prevHash) + base64Decode(encryptedPayload))>"
         }
       }
     ]
@@ -262,14 +311,14 @@
         "note": "Last epoch 1 op"
       },
       {
-        "op": "Op 4 (globalSeq=4)",
+        "op": "Op 4 (globalSeq=6, post-rotation)",
         "keyEpoch": 2,
         "decryptableBy": ["aa111111 (Alice's Phone)", "bb111111 (Bob's Phone)"],
         "notDecryptableBy": ["aa222222 (Alice's Tablet - REVOKED)"],
         "note": "Revoked device cannot decrypt epoch 2 ops (forward secrecy)"
       },
       {
-        "op": "Op 5 (globalSeq=5)",
+        "op": "Op 5 (globalSeq=7, post-rotation)",
         "keyEpoch": 2,
         "decryptableBy": ["aa111111 (Alice's Phone)", "bb111111 (Bob's Phone)"],
         "notDecryptableBy": ["aa222222 (Alice's Tablet - REVOKED)"],
@@ -290,7 +339,7 @@
     "revokedDeviceExperience": {
       "existingOps": "Can still read ops 1-3 (encrypted with epoch 1 DEK which it already has locally)",
       "newOps": "Cannot decrypt ops 4-5 (encrypted with epoch 2 DEK which it never received)",
-      "serverAccess": "Server rejects all API calls from revoked device with 401 Unauthorized"
+      "serverAccess": "After calling DELETE /buckets/{id}/devices/me, the server invalidates its session tokens. All subsequent API calls are rejected with 401 Unauthorized."
     }
   }
 }
