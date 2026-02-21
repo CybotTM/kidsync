@@ -48,8 +48,9 @@ class SyncRepositoryImpl @Inject constructor(
                 val acceptedOp = acceptedByIndex[index]
                 if (acceptedOp != null) {
                     // Find and mark the local entity as synced
+                    // Match by deviceSequence which is unique per device, not currentHash (fragile)
                     val pendingEntities = opLogDao.getPendingOps(bucketId)
-                    val entity = pendingEntities.firstOrNull { it.currentHash == op.currentHash }
+                    val entity = pendingEntities.firstOrNull { it.deviceSequence == op.deviceSequence }
                     if (entity != null) {
                         opLogDao.markAsSynced(
                             id = entity.id,
@@ -78,27 +79,46 @@ class SyncRepositoryImpl @Inject constructor(
         limit: Int
     ): Result<List<OpLogEntry>> {
         return try {
-            val pullResponse = apiService.pullOps(bucketId, since = afterSequence)
+            val allOps = mutableListOf<OpLogEntry>()
+            var currentAfterSequence = afterSequence
+            var hasMore = true
 
-            val ops = pullResponse.ops.map { dto ->
-                OpLogEntry(
-                    globalSequence = dto.globalSequence,
-                    bucketId = bucketId,
-                    deviceId = dto.deviceId,
-                    deviceSequence = 0, // Extracted from decrypted payload during apply
-                    keyEpoch = dto.keyEpoch,
-                    encryptedPayload = dto.encryptedPayload,
-                    devicePrevHash = dto.prevHash,
-                    currentHash = dto.currentHash,
-                    serverTimestamp = Instant.parse(dto.serverTimestamp)
+            while (hasMore) {
+                val pullResponse = apiService.pullOps(
+                    bucketId,
+                    since = currentAfterSequence,
+                    limit = limit
                 )
+
+                val ops = pullResponse.ops.map { dto ->
+                    OpLogEntry(
+                        globalSequence = dto.globalSequence,
+                        bucketId = bucketId,
+                        deviceId = dto.deviceId,
+                        deviceSequence = 0, // Extracted from decrypted payload during apply
+                        keyEpoch = dto.keyEpoch,
+                        encryptedPayload = dto.encryptedPayload,
+                        devicePrevHash = dto.prevHash,
+                        currentHash = dto.currentHash,
+                        serverTimestamp = Instant.parse(dto.serverTimestamp)
+                    )
+                }
+
+                // Store ops locally
+                val entities = ops.map { it.toEntity() }
+                opLogDao.insertOpLogEntries(entities)
+
+                allOps.addAll(ops)
+                hasMore = pullResponse.hasMore
+
+                if (ops.isNotEmpty()) {
+                    currentAfterSequence = ops.maxOf { it.globalSequence }
+                } else {
+                    hasMore = false
+                }
             }
 
-            // Store ops locally
-            val entities = ops.map { it.toEntity() }
-            opLogDao.insertOpLogEntries(entities)
-
-            Result.success(ops)
+            Result.success(allOps)
         } catch (e: Exception) {
             Result.failure(e)
         }

@@ -67,6 +67,11 @@ data class DeviceInfo(
     val grantedAt: String
 )
 
+@Serializable
+data class BucketDevicesResponse(
+    val devices: List<DeviceInfo>
+)
+
 // ── Ops ─────────────────────────────────────────────────────────────────────
 
 @Serializable

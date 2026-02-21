@@ -319,7 +319,7 @@ class TinkCryptoManager @Inject constructor(
 
         val combined = Base64.getDecoder().decode(first) + Base64.getDecoder().decode(second)
         val hash = sha256(combined)
-        return hash.joinToString("") { "%02x".format(it) }.substring(0, 16)
+        return hash.joinToString("") { "%02x".format(it) }.substring(0, 32)
     }
 
     // ─── Blob Encryption ────────────────────────────────────────────────────────

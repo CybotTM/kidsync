@@ -123,8 +123,8 @@ class BucketRepositoryImpl @Inject constructor(
 
     override suspend fun getBucketDevices(bucketId: String): Result<List<Device>> {
         return try {
-            val devices = apiService.getBucketDevices(bucketId)
-            val domainDevices = devices.map { dto ->
+            val response = apiService.getBucketDevices(bucketId)
+            val domainDevices = response.devices.map { dto ->
                 Device(
                     deviceId = dto.deviceId,
                     signingKey = "", // Server does not return signing key in device list

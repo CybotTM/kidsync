@@ -5,7 +5,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.HourglassBottom
 import androidx.compose.material.icons.filled.Report
-import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Icon
@@ -26,10 +25,9 @@ import com.kidsync.app.domain.model.ExpenseStatusType
  * Colored status badge chip for expense status.
  *
  * Color coding:
- * - PENDING: blue (primary)
+ * - LOGGED: blue (primary)
  * - ACKNOWLEDGED: green (secondary/teal)
  * - DISPUTED: red/amber (error)
- * - RESOLVED: gray (neutral)
  */
 @Composable
 fun ExpenseStatusBadge(
@@ -94,12 +92,6 @@ private fun statusAttributes(status: ExpenseStatusType): StatusAttributes {
             icon = Icons.Filled.Report,
             containerColor = MaterialTheme.colorScheme.errorContainer,
             labelColor = MaterialTheme.colorScheme.onErrorContainer
-        )
-        ExpenseStatusType.RESOLVED -> StatusAttributes(
-            label = stringResource(R.string.expense_status_resolved),
-            icon = Icons.Filled.TaskAlt,
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-            labelColor = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }

@@ -211,6 +211,7 @@
     <string name="expense_category_medical">Medical</string>
     <string name="expense_category_education">Education</string>
     <string name="expense_category_clothing">Clothing</string>
+    <string name="expense_category_food">Food</string>
     <string name="expense_category_activities">Activities</string>
     <string name="expense_category_transport">Transport</string>
     <string name="expense_category_childcare">Childcare</string>

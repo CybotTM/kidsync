@@ -212,6 +212,7 @@
     <string name="expense_category_medical">Medizin</string>
     <string name="expense_category_education">Bildung</string>
     <string name="expense_category_clothing">Kleidung</string>
+    <string name="expense_category_food">Essen</string>
     <string name="expense_category_activities">Aktivit\u00e4ten</string>
     <string name="expense_category_transport">Transport</string>
     <string name="expense_category_childcare">Kinderbetreuung</string>

@@ -18,5 +18,6 @@ data class CustodyScheduleEntity(
     val effectiveFrom: String,
     val timeZone: String,
     val status: String = "ACTIVE",
-    val clientTimestamp: String? = null
+    val clientTimestamp: String? = null,
+    val deviceId: String = ""
 )

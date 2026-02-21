@@ -1,5 +1,6 @@
 package com.kidsync.app.domain.usecase.sync
 
+import com.kidsync.app.crypto.CanonicalJsonSerializer
 import com.kidsync.app.crypto.CryptoManager
 import com.kidsync.app.crypto.KeyManager
 import com.kidsync.app.data.local.dao.OpLogDao
@@ -7,9 +8,10 @@ import com.kidsync.app.data.local.entity.OpLogEntryEntity
 import com.kidsync.app.domain.model.DecryptedPayload
 import com.kidsync.app.domain.model.EntityType
 import com.kidsync.app.domain.model.OperationType
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.jsonObject
 import java.time.Instant
 import javax.inject.Inject
 
@@ -28,7 +30,8 @@ class CreateOperationUseCase @Inject constructor(
     private val keyManager: KeyManager,
     private val hashChainVerifier: HashChainVerifier,
     private val opLogDao: OpLogDao,
-    private val json: Json
+    private val json: Json,
+    private val canonicalJsonSerializer: CanonicalJsonSerializer
 ) {
     suspend operator fun invoke(
         bucketId: String,
@@ -61,8 +64,10 @@ class CreateOperationUseCase @Inject constructor(
                 data = contentData
             )
 
-            // 4. Serialize to JSON
-            val payloadJson = json.encodeToString(decryptedPayload)
+            // 4. Serialize to canonical JSON (sorted keys, compact, no nulls)
+            val payloadJson = canonicalJsonSerializer.serializeElement(
+                json.encodeToJsonElement(decryptedPayload).jsonObject
+            )
 
             // 5. Encrypt: JSON -> gzip -> AES-256-GCM
             //    AAD = "bucketId|deviceId"

@@ -43,8 +43,8 @@ class ConflictResolver @Inject constructor(
         if (incomingClientTimestamp > existingTimestamp) return incoming
         if (existingTimestamp > incomingClientTimestamp) return existing
 
-        // 3. Tie-break by scheduleId (lexicographically greater wins)
-        return if (incoming.scheduleId.toString() > existing.scheduleId.toString()) {
+        // 3. Tie-break by deviceId (lexicographically greater wins, per spec Section 9.1)
+        return if (incoming.deviceId > existing.deviceId) {
             incoming
         } else {
             existing

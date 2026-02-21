@@ -21,7 +21,6 @@ import androidx.compose.material.icons.filled.HourglassBottom
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.Report
-import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -413,7 +412,6 @@ private fun StatusTimelineEntry(
         ExpenseStatusType.LOGGED -> Icons.Filled.HourglassBottom
         ExpenseStatusType.ACKNOWLEDGED -> Icons.Filled.CheckCircle
         ExpenseStatusType.DISPUTED -> Icons.Filled.Report
-        ExpenseStatusType.RESOLVED -> Icons.Filled.TaskAlt
     }
 
     val formattedTime = try {

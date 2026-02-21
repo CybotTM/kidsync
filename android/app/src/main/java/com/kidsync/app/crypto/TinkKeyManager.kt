@@ -199,13 +199,20 @@ class TinkKeyManager @Inject constructor(
         }
     }
 
-    // TODO(SC-06/SC-07): The spec requires the recovery blob to contain ALL epoch DEKs
-    // (not just a single DEK) plus the device seed, structured as:
+    // TODO(C3-A03): CRITICAL - Recovery blob only wraps single current-epoch DEK.
+    // The spec (encryption-spec.md Section 7) requires the recovery blob to contain ALL
+    // epoch DEKs plus the device seed, structured as:
     //   { "seed": base64(seed), "deks": { "1": base64(dek1), "2": base64(dek2), ... } }
+    // Implementation steps:
+    // 1. Iterate getAvailableEpochs(bucketId) and collect all DEKs
+    // 2. Include the device seed from getSeed()
+    // 3. Serialize as JSON, then encrypt with recovery key
+    // 4. Update unwrapDekWithRecoveryKey to parse the multi-DEK blob,
+    //    restore all epochs, and set currentEpoch to the latest
     // Currently we only wrap the single current-epoch DEK, which works for single-epoch
     // scenarios but will lose access to older epoch data after key rotation.
-    // Additionally, restoreFromRecovery always stores as epoch 1, which should instead
-    // restore all epochs from the blob and set the current epoch to the latest.
+    // The unwrapDekWithRecoveryKey below always stores as epoch 1, which is also wrong.
+    // This requires database schema changes to reliably enumerate all stored DEKs.
     override suspend fun wrapDekWithRecoveryKey(bucketId: String, recoveryKey: ByteArray) {
         val currentEpoch = getCurrentEpoch(bucketId)
         val dek = getDek(bucketId, currentEpoch)
@@ -260,9 +267,9 @@ class TinkKeyManager @Inject constructor(
         storeDek(bucketId, newEpoch, newDek)
 
         // Wrap for all active devices in this bucket
-        val devices = apiService.getBucketDevices(bucketId)
+        val response = apiService.getBucketDevices(bucketId)
 
-        for (device in devices) {
+        for (device in response.devices) {
             if (excludeDeviceId != null && device.deviceId == excludeDeviceId) continue
 
             val publicKey = cryptoManager.decodePublicKey(device.encryptionKey)

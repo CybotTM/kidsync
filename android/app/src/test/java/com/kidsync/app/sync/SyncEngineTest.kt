@@ -116,7 +116,7 @@ class SyncEngineTest : FunSpec({
         val result = useCase(bucketId)
 
         result.isFailure shouldBe true
-        result.exceptionOrNull() shouldBe instanceOf(HashChainBreakException::class)
+        assert(result.exceptionOrNull() is HashChainBreakException)
     }
 
     test("sync fails when DEK is missing for an epoch") {
@@ -310,5 +310,3 @@ class SyncEngineTest : FunSpec({
         )
     }
 }
-
-private inline fun <reified T> instanceOf(clazz: Class<T>): T? = null

@@ -53,6 +53,7 @@ enum class ExpenseCategory {
     MEDICAL,
     EDUCATION,
     CLOTHING,
+    FOOD,
     ACTIVITIES,
     TRANSPORT,
     CHILDCARE,
@@ -62,8 +63,7 @@ enum class ExpenseCategory {
 enum class ExpenseStatusType {
     LOGGED,
     ACKNOWLEDGED,
-    DISPUTED,
-    RESOLVED
+    DISPUTED
 }
 
 enum class DeviceStatus {

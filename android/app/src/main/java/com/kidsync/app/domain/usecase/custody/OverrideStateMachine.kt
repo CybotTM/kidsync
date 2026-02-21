@@ -3,6 +3,7 @@ package com.kidsync.app.domain.usecase.custody
 import com.kidsync.app.domain.model.DecryptedPayload
 import com.kidsync.app.domain.model.OverrideStatus
 import kotlinx.serialization.json.jsonPrimitive
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 
 /**
@@ -27,7 +28,7 @@ import javax.inject.Inject
  */
 class OverrideStateMachine @Inject constructor() {
 
-    private val states = mutableMapOf<String, OverrideState>()
+    private val states = ConcurrentHashMap<String, OverrideState>()
 
     companion object {
         private val VALID_TRANSITIONS: Map<OverrideStatus, Set<OverrideStatus>> = mapOf(
@@ -58,7 +59,9 @@ class OverrideStateMachine @Inject constructor() {
 
         when (op.operation) {
             "CREATE" -> {
-                val proposerId = op.data["proposerDeviceId"]?.jsonPrimitive?.content ?: return
+                val proposerId = op.data["proposerId"]?.jsonPrimitive?.content
+                    ?: op.data["proposerDeviceId"]?.jsonPrimitive?.content
+                    ?: return
                 states[op.entityId] = OverrideState(
                     entityId = op.entityId,
                     status = OverrideStatus.PROPOSED,

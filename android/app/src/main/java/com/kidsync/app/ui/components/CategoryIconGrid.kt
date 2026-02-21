@@ -144,6 +144,7 @@ fun categoryIcon(category: ExpenseCategory): ImageVector {
         ExpenseCategory.MEDICAL -> Icons.Filled.LocalHospital
         ExpenseCategory.EDUCATION -> Icons.Filled.School
         ExpenseCategory.CLOTHING -> Icons.Filled.ChildCare
+        ExpenseCategory.FOOD -> Icons.Filled.Restaurant
         ExpenseCategory.ACTIVITIES -> Icons.Filled.SportsBasketball
         ExpenseCategory.TRANSPORT -> Icons.Filled.DirectionsCar
         ExpenseCategory.CHILDCARE -> Icons.Filled.Home
@@ -157,6 +158,7 @@ fun categoryLabel(category: ExpenseCategory): String {
         ExpenseCategory.MEDICAL -> stringResource(R.string.expense_category_medical)
         ExpenseCategory.EDUCATION -> stringResource(R.string.expense_category_education)
         ExpenseCategory.CLOTHING -> stringResource(R.string.expense_category_clothing)
+        ExpenseCategory.FOOD -> stringResource(R.string.expense_category_food)
         ExpenseCategory.ACTIVITIES -> stringResource(R.string.expense_category_activities)
         ExpenseCategory.TRANSPORT -> stringResource(R.string.expense_category_transport)
         ExpenseCategory.CHILDCARE -> stringResource(R.string.expense_category_childcare)

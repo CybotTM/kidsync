@@ -52,7 +52,7 @@ interface ApiService {
     )
 
     @GET("buckets/{bucketId}/devices")
-    suspend fun getBucketDevices(@Path("bucketId") bucketId: String): List<DeviceInfo>
+    suspend fun getBucketDevices(@Path("bucketId") bucketId: String): BucketDevicesResponse
 
     @DELETE("buckets/{bucketId}/devices/me")
     suspend fun leaveBucket(@Path("bucketId") bucketId: String)
@@ -68,7 +68,8 @@ interface ApiService {
     @GET("buckets/{bucketId}/ops")
     suspend fun pullOps(
         @Path("bucketId") bucketId: String,
-        @Query("since") since: Long
+        @Query("since") since: Long,
+        @Query("limit") limit: Int? = null
     ): PullOpsResponse
 
     @GET("buckets/{bucketId}/checkpoint")

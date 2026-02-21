@@ -24,7 +24,6 @@ object AppModule {
             ignoreUnknownKeys = true
             encodeDefaults = false
             explicitNulls = false
-            isLenient = true
         }
     }
 

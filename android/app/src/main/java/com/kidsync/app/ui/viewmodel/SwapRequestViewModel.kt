@@ -213,7 +213,7 @@ class SwapRequestViewModel @Inject constructor(
                     put("endDate", JsonPrimitive(endDate.toString()))
                     put("assignedParentId", JsonPrimitive(assignedParentId))
                     put("status", JsonPrimitive(OverrideStatus.PROPOSED.name))
-                    put("proposerDeviceId", JsonPrimitive(session.deviceId))
+                    put("proposerId", JsonPrimitive(session.deviceId))
                     state.swapNote.ifBlank { null }?.let { put("note", JsonPrimitive(it)) }
                 }
 

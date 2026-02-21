@@ -162,13 +162,8 @@ class AuthRepositoryImpl @Inject constructor(
 
     /**
      * Build the challenge message to sign.
-     * Format: nonce || signingKey || serverOrigin || timestamp
-     * Concatenated directly as UTF-8 string bytes (no separator), matching server-side construction.
-     *
-     * TODO(SC-01): The spec requires raw byte concatenation of decoded binary values,
-     * but both client and server currently use string concatenation of base64-encoded values.
-     * This works because both sides use the same format. If the server changes to raw byte
-     * concatenation per spec, this must be updated to match.
+     * Format: nonce (32 bytes raw) || signingKey (32 bytes raw) || serverOrigin (UTF-8) || timestamp (UTF-8)
+     * Raw byte concatenation as specified in the authentication protocol.
      */
     private fun buildChallengeMessage(
         nonce: String,
@@ -176,7 +171,11 @@ class AuthRepositoryImpl @Inject constructor(
         serverOrigin: String,
         timestamp: String
     ): ByteArray {
-        return "$nonce$signingKey$serverOrigin$timestamp".toByteArray(Charsets.UTF_8)
+        val nonceBytes = Base64.getDecoder().decode(nonce)
+        val keyBytes = Base64.getDecoder().decode(signingKey)
+        val originBytes = serverOrigin.toByteArray(Charsets.UTF_8)
+        val timestampBytes = timestamp.toByteArray(Charsets.UTF_8)
+        return nonceBytes + keyBytes + originBytes + timestampBytes
     }
 }
 

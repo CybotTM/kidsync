@@ -40,7 +40,7 @@ class OpApplier @Inject constructor(
 
         // Route by entity type (now extracted from decrypted payload)
         return when (decryptedPayload.entityType) {
-            "CustodySchedule" -> applyCustodySchedule(decryptedPayload)
+            "CustodySchedule" -> applyCustodySchedule(decryptedPayload, op.deviceId)
             "ScheduleOverride" -> applyOverride(decryptedPayload)
             "Expense" -> applyExpense(decryptedPayload)
             "ExpenseStatus" -> applyExpenseStatus(decryptedPayload)
@@ -51,7 +51,8 @@ class OpApplier @Inject constructor(
     }
 
     private suspend fun applyCustodySchedule(
-        payload: DecryptedPayload
+        payload: DecryptedPayload,
+        sourceDeviceId: String
     ): ApplyResult {
         val data = payload.data
         val scheduleId = payload.entityId
@@ -68,7 +69,8 @@ class OpApplier @Inject constructor(
             effectiveFrom = effectiveFrom.toString(),
             timeZone = data["timeZone"]!!.jsonPrimitive.content,
             status = "ACTIVE",
-            clientTimestamp = payload.clientTimestamp
+            clientTimestamp = payload.clientTimestamp,
+            deviceId = sourceDeviceId
         )
 
         // Conflict resolution: check for existing schedule with same effectiveFrom for same child
@@ -112,8 +114,8 @@ class OpApplier @Inject constructor(
             endDate = data["endDate"]!!.jsonPrimitive.content,
             assignedParentId = data["assignedParentId"]!!.jsonPrimitive.content,
             status = status,
-            proposerId = data["proposerDeviceId"]?.jsonPrimitive?.content
-                ?: data["proposerId"]?.jsonPrimitive?.content
+            proposerId = data["proposerId"]?.jsonPrimitive?.content
+                ?: data["proposerDeviceId"]?.jsonPrimitive?.content
                 ?: "",
             responderId = data["responderDeviceId"]?.jsonPrimitive?.content
                 ?: data["responderId"]?.jsonPrimitive?.content,
@@ -170,7 +172,8 @@ class OpApplier @Inject constructor(
             id = java.util.UUID.randomUUID().toString(),
             expenseId = data["expenseId"]!!.jsonPrimitive.content,
             status = data["status"]!!.jsonPrimitive.content,
-            responderId = data["responderId"]!!.jsonPrimitive.content,
+            responderId = data["responderDeviceId"]?.jsonPrimitive?.content
+                ?: data["responderId"]!!.jsonPrimitive.content,
             note = data["note"]?.jsonPrimitive?.content,
             clientTimestamp = payload.clientTimestamp
         )
@@ -188,8 +191,15 @@ class OpApplier @Inject constructor(
     private suspend fun applyEvent(
         payload: DecryptedPayload
     ): ApplyResult {
-        // Events are stored in the oplog; the decrypted payload has all the data.
-        // Materialized event view can be derived from the oplog on demand.
+        // TODO(C3-A10): CalendarEvent operations are silently dropped. Need to:
+        // 1. Create CalendarEventEntity with fields: eventId, childId, title, startTime, endTime,
+        //    location, notes, cancelled, clientTimestamp
+        // 2. Create CalendarEventDao with CRUD operations
+        // 3. Add to AppDatabase entities and create migration
+        // 4. Implement event persistence here following the Expense pattern:
+        //    - CREATE: insert new entity
+        //    - UPDATE: update existing entity
+        //    - DELETE: mark as cancelled or remove
         return ApplyResult()
     }
 
