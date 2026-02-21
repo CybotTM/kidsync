@@ -62,6 +62,8 @@ import com.kidsync.app.domain.model.InfoBankCategory
 import com.kidsync.app.ui.components.TopAppBarWithBack
 import com.kidsync.app.ui.viewmodel.InfoBankViewModel
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * Main Info Bank list screen showing entries grouped by category
@@ -375,23 +377,40 @@ fun infoBankCategoryIcon(category: InfoBankCategory): ImageVector {
     }
 }
 
+/**
+ * Parse the content JSON field to extract a specific key, returning null if missing.
+ */
+private fun getContentField(entry: InfoBankEntryEntity, key: String): String? {
+    val content = entry.content ?: return null
+    return try {
+        val obj = kotlinx.serialization.json.Json.parseToJsonElement(content)
+        obj.jsonObject[key]?.jsonPrimitive?.content
+    } catch (_: Exception) {
+        null
+    }
+}
+
 private fun getEntryTitle(entry: InfoBankEntryEntity, category: InfoBankCategory): String {
+    // First try the dedicated title field
+    if (!entry.title.isNullOrBlank()) return entry.title
+
+    // Otherwise derive from content JSON
     return when (category) {
         InfoBankCategory.MEDICAL -> {
             listOfNotNull(
-                entry.doctorName?.let { "Dr. $it" },
-                entry.allergies?.let { "Allergies: $it" },
-                entry.medicationName
+                getContentField(entry, "doctorName")?.let { "Dr. $it" },
+                getContentField(entry, "allergies")?.let { "Allergies: $it" },
+                getContentField(entry, "medicationName")
             ).firstOrNull() ?: "Medical Info"
         }
         InfoBankCategory.SCHOOL -> {
-            entry.schoolName ?: "School Info"
+            getContentField(entry, "schoolName") ?: "School Info"
         }
         InfoBankCategory.EMERGENCY_CONTACT -> {
-            entry.contactName ?: "Emergency Contact"
+            getContentField(entry, "contactName") ?: "Emergency Contact"
         }
         InfoBankCategory.NOTE -> {
-            entry.title ?: "Note"
+            getContentField(entry, "title") ?: "Note"
         }
     }
 }
@@ -400,24 +419,24 @@ private fun getEntrySubtitle(entry: InfoBankEntryEntity, category: InfoBankCateg
     return when (category) {
         InfoBankCategory.MEDICAL -> {
             listOfNotNull(
-                entry.bloodType?.let { "Blood type: $it" },
-                entry.insuranceInfo
+                getContentField(entry, "bloodType")?.let { "Blood type: $it" },
+                getContentField(entry, "insuranceInfo")
             ).joinToString(" | ")
         }
         InfoBankCategory.SCHOOL -> {
             listOfNotNull(
-                entry.gradeClass,
-                entry.teacherNames
+                getContentField(entry, "gradeClass"),
+                getContentField(entry, "teacherNames")
             ).joinToString(" | ")
         }
         InfoBankCategory.EMERGENCY_CONTACT -> {
             listOfNotNull(
-                entry.relationship,
-                entry.phone
+                getContentField(entry, "relationship"),
+                getContentField(entry, "phone")
             ).joinToString(" | ")
         }
         InfoBankCategory.NOTE -> {
-            entry.tag ?: ""
+            getContentField(entry, "tag") ?: ""
         }
     }
 }

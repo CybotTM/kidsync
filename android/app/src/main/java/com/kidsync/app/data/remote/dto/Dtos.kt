@@ -104,7 +104,7 @@ data class OpsBatchResponse(
 @Serializable
 data class OpResponse(
     val globalSequence: Long,
-    val bucketId: String,
+    val bucketId: String = "",
     val deviceId: String,
     val encryptedPayload: String,
     val prevHash: String,
@@ -125,7 +125,9 @@ data class CheckpointResponse(
     val startSequence: Long,
     val endSequence: Long,
     val hash: String,
-    val opCount: Int
+    val opCount: Int,
+    val timestamp: String? = null,
+    val nextCheckpointAt: String? = null
 )
 
 // ── Blobs ───────────────────────────────────────────────────────────────────

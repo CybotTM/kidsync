@@ -95,7 +95,7 @@ class SyncRepositoryImpl @Inject constructor(
                         globalSequence = dto.globalSequence,
                         bucketId = bucketId,
                         deviceId = dto.deviceId,
-                        deviceSequence = 0, // Extracted from decrypted payload during apply
+                        deviceSequence = 0, // Set to real value in SyncOpsUseCase after decryption
                         keyEpoch = dto.keyEpoch,
                         encryptedPayload = dto.encryptedPayload,
                         devicePrevHash = dto.prevHash,
@@ -140,7 +140,7 @@ class SyncRepositoryImpl @Inject constructor(
                 ServerCheckpoint(
                     globalSequence = body.endSequence,
                     checkpointHash = body.hash,
-                    timestamp = Instant.now().toString()
+                    timestamp = body.timestamp ?: Instant.now().toString()
                 )
             )
         } catch (e: Exception) {

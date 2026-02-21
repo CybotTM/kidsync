@@ -19,9 +19,10 @@ import com.kidsync.app.data.local.entity.*
         DeviceEntity::class,
         KeyAttestationEntity::class,
         BucketEntity::class,
-        InfoBankEntryEntity::class
+        InfoBankEntryEntity::class,
+        CalendarEventEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -36,6 +37,7 @@ abstract class KidSyncDatabase : RoomDatabase() {
     abstract fun keyAttestationDao(): KeyAttestationDao
     abstract fun bucketDao(): BucketDao
     abstract fun infoBankDao(): InfoBankDao
+    abstract fun calendarEventDao(): CalendarEventDao
 
     companion object {
         const val DATABASE_NAME = "kidsync_db"

@@ -67,6 +67,8 @@ import com.kidsync.app.domain.model.InfoBankCategory
 import com.kidsync.app.ui.components.TopAppBarWithBack
 import com.kidsync.app.ui.viewmodel.InfoBankViewModel
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * Detail screen displaying all fields for a single Info Bank entry.
@@ -277,17 +279,30 @@ fun InfoBankDetailScreen(
     }
 }
 
+/**
+ * Parse the content JSON field to extract a specific key, returning null if missing.
+ */
+private fun getContentField(entry: InfoBankEntryEntity, key: String): String? {
+    val content = entry.content ?: return null
+    return try {
+        val obj = kotlinx.serialization.json.Json.parseToJsonElement(content)
+        obj.jsonObject[key]?.jsonPrimitive?.content
+    } catch (_: Exception) {
+        null
+    }
+}
+
 @Composable
 private fun MedicalDetailFields(entry: InfoBankEntryEntity) {
     val fields = listOfNotNull(
-        entry.allergies?.let { Triple(Icons.Filled.LocalHospital, R.string.info_bank_medical_allergies, it) },
-        entry.medicationName?.let { Triple(Icons.Filled.MedicalServices, R.string.info_bank_medical_medication_name, it) },
-        entry.medicationDosage?.let { Triple(Icons.Filled.MedicalServices, R.string.info_bank_medical_dosage, it) },
-        entry.medicationSchedule?.let { Triple(Icons.Filled.CalendarToday, R.string.info_bank_medical_schedule, it) },
-        entry.doctorName?.let { Triple(Icons.Filled.Person, R.string.info_bank_medical_doctor, it) },
-        entry.doctorPhone?.let { Triple(Icons.Filled.Phone, R.string.info_bank_medical_doctor_phone, it) },
-        entry.insuranceInfo?.let { Triple(Icons.Filled.Shield, R.string.info_bank_medical_insurance, it) },
-        entry.bloodType?.let { Triple(Icons.Filled.Cake, R.string.info_bank_medical_blood_type, it) }
+        getContentField(entry, "allergies")?.let { Triple(Icons.Filled.LocalHospital, R.string.info_bank_medical_allergies, it) },
+        getContentField(entry, "medicationName")?.let { Triple(Icons.Filled.MedicalServices, R.string.info_bank_medical_medication_name, it) },
+        getContentField(entry, "medicationDosage")?.let { Triple(Icons.Filled.MedicalServices, R.string.info_bank_medical_dosage, it) },
+        getContentField(entry, "medicationSchedule")?.let { Triple(Icons.Filled.CalendarToday, R.string.info_bank_medical_schedule, it) },
+        getContentField(entry, "doctorName")?.let { Triple(Icons.Filled.Person, R.string.info_bank_medical_doctor, it) },
+        getContentField(entry, "doctorPhone")?.let { Triple(Icons.Filled.Phone, R.string.info_bank_medical_doctor_phone, it) },
+        getContentField(entry, "insuranceInfo")?.let { Triple(Icons.Filled.Shield, R.string.info_bank_medical_insurance, it) },
+        getContentField(entry, "bloodType")?.let { Triple(Icons.Filled.Cake, R.string.info_bank_medical_blood_type, it) }
     )
 
     fields.forEachIndexed { index, (icon, labelRes, value) ->
@@ -305,11 +320,11 @@ private fun MedicalDetailFields(entry: InfoBankEntryEntity) {
 @Composable
 private fun SchoolDetailFields(entry: InfoBankEntryEntity) {
     val fields = listOfNotNull(
-        entry.schoolName?.let { Triple(Icons.Filled.School, R.string.info_bank_school_name, it) },
-        entry.teacherNames?.let { Triple(Icons.Filled.Person, R.string.info_bank_school_teachers, it) },
-        entry.gradeClass?.let { Triple(Icons.Filled.School, R.string.info_bank_school_grade, it) },
-        entry.schoolPhone?.let { Triple(Icons.Filled.Phone, R.string.info_bank_school_phone, it) },
-        entry.scheduleNotes?.let { Triple(Icons.Filled.CalendarToday, R.string.info_bank_school_schedule, it) }
+        getContentField(entry, "schoolName")?.let { Triple(Icons.Filled.School, R.string.info_bank_school_name, it) },
+        getContentField(entry, "teacherNames")?.let { Triple(Icons.Filled.Person, R.string.info_bank_school_teachers, it) },
+        getContentField(entry, "gradeClass")?.let { Triple(Icons.Filled.School, R.string.info_bank_school_grade, it) },
+        getContentField(entry, "schoolPhone")?.let { Triple(Icons.Filled.Phone, R.string.info_bank_school_phone, it) },
+        getContentField(entry, "scheduleNotes")?.let { Triple(Icons.Filled.CalendarToday, R.string.info_bank_school_schedule, it) }
     )
 
     fields.forEachIndexed { index, (icon, labelRes, value) ->
@@ -327,10 +342,10 @@ private fun SchoolDetailFields(entry: InfoBankEntryEntity) {
 @Composable
 private fun EmergencyContactDetailFields(entry: InfoBankEntryEntity) {
     val fields = listOfNotNull(
-        entry.contactName?.let { Triple(Icons.Filled.Person, R.string.info_bank_emergency_name, it) },
-        entry.relationship?.let { Triple(Icons.Filled.ContactPhone, R.string.info_bank_emergency_relationship, it) },
-        entry.phone?.let { Triple(Icons.Filled.Phone, R.string.info_bank_emergency_phone, it) },
-        entry.email?.let { Triple(Icons.Filled.Email, R.string.info_bank_emergency_email, it) }
+        getContentField(entry, "contactName")?.let { Triple(Icons.Filled.Person, R.string.info_bank_emergency_name, it) },
+        getContentField(entry, "relationship")?.let { Triple(Icons.Filled.ContactPhone, R.string.info_bank_emergency_relationship, it) },
+        getContentField(entry, "phone")?.let { Triple(Icons.Filled.Phone, R.string.info_bank_emergency_phone, it) },
+        getContentField(entry, "email")?.let { Triple(Icons.Filled.Email, R.string.info_bank_emergency_email, it) }
     )
 
     fields.forEachIndexed { index, (icon, labelRes, value) ->
@@ -348,9 +363,9 @@ private fun EmergencyContactDetailFields(entry: InfoBankEntryEntity) {
 @Composable
 private fun NoteDetailFields(entry: InfoBankEntryEntity) {
     val fields = listOfNotNull(
-        entry.title?.let { Triple(Icons.Filled.Note, R.string.info_bank_note_title, it) },
-        entry.content?.let { Triple(Icons.Filled.Note, R.string.info_bank_note_content, it) },
-        entry.tag?.let { Triple(Icons.Filled.Tag, R.string.info_bank_note_tag, it) }
+        (entry.title ?: getContentField(entry, "title"))?.let { Triple(Icons.Filled.Note, R.string.info_bank_note_title, it) },
+        getContentField(entry, "content")?.let { Triple(Icons.Filled.Note, R.string.info_bank_note_content, it) },
+        getContentField(entry, "tag")?.let { Triple(Icons.Filled.Tag, R.string.info_bank_note_tag, it) }
     )
 
     fields.forEachIndexed { index, (icon, labelRes, value) ->

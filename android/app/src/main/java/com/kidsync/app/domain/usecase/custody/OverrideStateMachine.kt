@@ -14,11 +14,13 @@ import javax.inject.Inject
  * derives the current state. This is the ONLY source of override state.
  *
  * Valid transitions:
- *   PROPOSED -> APPROVED (by other parent / any device except proposer)
- *   PROPOSED -> DECLINED (by other parent / any device except proposer)
- *   PROPOSED -> CANCELLED (by proposer device only)
- *   PROPOSED -> EXPIRED (by any device, when clientTimestamp + TTL < now)
- *   PROPOSED -> SUPERSEDED (automatic: new PROPOSED for same date range supersedes previous)
+ *   PROPOSED  -> APPROVED   (by other parent / any device except proposer)
+ *   PROPOSED  -> DECLINED   (by other parent / any device except proposer)
+ *   PROPOSED  -> CANCELLED  (by proposer device only)
+ *   PROPOSED  -> EXPIRED    (by any device, when clientTimestamp + TTL < now)
+ *   PROPOSED  -> SUPERSEDED (automatic: new PROPOSED for same date range supersedes previous)
+ *   APPROVED  -> SUPERSEDED (automatic: a new schedule or override supersedes this one)
+ *   APPROVED  -> EXPIRED    (automatic: the override's end date has passed)
  *
  * Terminal states (no transitions out):
  *   DECLINED, CANCELLED, SUPERSEDED, EXPIRED

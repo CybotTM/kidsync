@@ -16,8 +16,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.time.Instant
 import java.util.UUID
 import javax.inject.Inject
@@ -81,6 +85,8 @@ class InfoBankViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(InfoBankUiState())
     val uiState: StateFlow<InfoBankUiState> = _uiState.asStateFlow()
+
+    private val jsonParser = Json { ignoreUnknownKeys = true }
 
     init {
         loadEntries()
@@ -160,11 +166,7 @@ class InfoBankViewModel @Inject constructor(
 
     private fun entryMatchesSearch(entry: InfoBankEntryEntity, query: String): Boolean {
         val searchable = listOfNotNull(
-            entry.allergies, entry.medicationName, entry.doctorName,
-            entry.schoolName, entry.teacherNames,
-            entry.contactName, entry.relationship, entry.phone, entry.email,
-            entry.title, entry.content, entry.tag, entry.notes,
-            entry.insuranceInfo, entry.bloodType, entry.gradeClass
+            entry.title, entry.content, entry.notes
         )
         return searchable.any { it.lowercase().contains(query) }
     }
@@ -230,32 +232,35 @@ class InfoBankViewModel @Inject constructor(
         val category = try { InfoBankCategory.valueOf(entry.category) }
         catch (_: IllegalArgumentException) { InfoBankCategory.NOTE }
 
+        // Parse content JSON to extract category-specific fields
+        val contentData = parseContentJson(entry.content)
+
         _uiState.update {
             it.copy(
                 isEditing = true,
                 editingEntryId = entry.entryId,
                 formCategory = category,
                 formChildId = entry.childId,
-                formAllergies = entry.allergies ?: "",
-                formMedicationName = entry.medicationName ?: "",
-                formMedicationDosage = entry.medicationDosage ?: "",
-                formMedicationSchedule = entry.medicationSchedule ?: "",
-                formDoctorName = entry.doctorName ?: "",
-                formDoctorPhone = entry.doctorPhone ?: "",
-                formInsuranceInfo = entry.insuranceInfo ?: "",
-                formBloodType = entry.bloodType ?: "",
-                formSchoolName = entry.schoolName ?: "",
-                formTeacherNames = entry.teacherNames ?: "",
-                formGradeClass = entry.gradeClass ?: "",
-                formSchoolPhone = entry.schoolPhone ?: "",
-                formScheduleNotes = entry.scheduleNotes ?: "",
-                formContactName = entry.contactName ?: "",
-                formRelationship = entry.relationship ?: "",
-                formPhone = entry.phone ?: "",
-                formEmail = entry.email ?: "",
-                formTitle = entry.title ?: "",
-                formContent = entry.content ?: "",
-                formTag = entry.tag ?: "",
+                formAllergies = contentData["allergies"] ?: "",
+                formMedicationName = contentData["medicationName"] ?: "",
+                formMedicationDosage = contentData["medicationDosage"] ?: "",
+                formMedicationSchedule = contentData["medicationSchedule"] ?: "",
+                formDoctorName = contentData["doctorName"] ?: "",
+                formDoctorPhone = contentData["doctorPhone"] ?: "",
+                formInsuranceInfo = contentData["insuranceInfo"] ?: "",
+                formBloodType = contentData["bloodType"] ?: "",
+                formSchoolName = contentData["schoolName"] ?: "",
+                formTeacherNames = contentData["teacherNames"] ?: "",
+                formGradeClass = contentData["gradeClass"] ?: "",
+                formSchoolPhone = contentData["schoolPhone"] ?: "",
+                formScheduleNotes = contentData["scheduleNotes"] ?: "",
+                formContactName = contentData["contactName"] ?: "",
+                formRelationship = contentData["relationship"] ?: "",
+                formPhone = contentData["phone"] ?: "",
+                formEmail = contentData["email"] ?: "",
+                formTitle = entry.title ?: contentData["title"] ?: "",
+                formContent = contentData["content"] ?: "",
+                formTag = contentData["tag"] ?: "",
                 formNotes = entry.notes ?: ""
             )
         }
@@ -347,6 +352,9 @@ class InfoBankViewModel @Inject constructor(
             val isUpdate = state.isEditing
             val operationType = if (isUpdate) OperationType.UPDATE else OperationType.CREATE
 
+            // Derive a title from category-specific fields
+            val derivedTitle = deriveTitle(state)
+
             val contentData = buildJsonObject {
                 put("entryId", JsonPrimitive(entryId.toString()))
                 put("childId", JsonPrimitive(state.formChildId.toString()))
@@ -395,31 +403,17 @@ class InfoBankViewModel @Inject constructor(
 
             result.fold(
                 onSuccess = {
-                    // Also write locally immediately
+                    // Also write locally immediately using the generic schema.
+                    // Store the full contentData as JSON in the content field.
+                    val contentJson = jsonParser.encodeToString(
+                        JsonObject.serializer(), contentData
+                    )
                     val entity = InfoBankEntryEntity(
                         entryId = entryId,
                         childId = state.formChildId,
                         category = state.formCategory.name,
-                        allergies = state.formAllergies.ifBlank { null },
-                        medicationName = state.formMedicationName.ifBlank { null },
-                        medicationDosage = state.formMedicationDosage.ifBlank { null },
-                        medicationSchedule = state.formMedicationSchedule.ifBlank { null },
-                        doctorName = state.formDoctorName.ifBlank { null },
-                        doctorPhone = state.formDoctorPhone.ifBlank { null },
-                        insuranceInfo = state.formInsuranceInfo.ifBlank { null },
-                        bloodType = state.formBloodType.ifBlank { null },
-                        schoolName = state.formSchoolName.ifBlank { null },
-                        teacherNames = state.formTeacherNames.ifBlank { null },
-                        gradeClass = state.formGradeClass.ifBlank { null },
-                        schoolPhone = state.formSchoolPhone.ifBlank { null },
-                        scheduleNotes = state.formScheduleNotes.ifBlank { null },
-                        contactName = state.formContactName.ifBlank { null },
-                        relationship = state.formRelationship.ifBlank { null },
-                        phone = state.formPhone.ifBlank { null },
-                        email = state.formEmail.ifBlank { null },
-                        title = state.formTitle.ifBlank { null },
-                        content = state.formContent.ifBlank { null },
-                        tag = state.formTag.ifBlank { null },
+                        title = derivedTitle,
+                        content = contentJson,
                         notes = state.formNotes.ifBlank { null },
                         clientTimestamp = Instant.now().toString(),
                         updatedTimestamp = Instant.now().toString()
@@ -499,5 +493,42 @@ class InfoBankViewModel @Inject constructor(
 
     fun clearError() {
         _uiState.update { it.copy(error = null) }
+    }
+
+    // ─── Helpers ──────────────────────────────────────────────────────────────
+
+    /**
+     * Parse the JSON content field into a string map for populating form fields.
+     */
+    private fun parseContentJson(content: String?): Map<String, String> {
+        if (content.isNullOrBlank()) return emptyMap()
+        return try {
+            val obj = jsonParser.parseToJsonElement(content).jsonObject
+            obj.mapValues { (_, v) -> v.jsonPrimitive.content }
+        } catch (_: Exception) {
+            emptyMap()
+        }
+    }
+
+    /**
+     * Derive a display title from the form state based on category.
+     */
+    private fun deriveTitle(state: InfoBankUiState): String {
+        return when (state.formCategory) {
+            InfoBankCategory.MEDICAL -> listOfNotNull(
+                state.formDoctorName.ifBlank { null }?.let { "Dr. $it" },
+                state.formAllergies.ifBlank { null }?.let { "Allergies: $it" },
+                state.formMedicationName.ifBlank { null }
+            ).firstOrNull() ?: "Medical Info"
+
+            InfoBankCategory.SCHOOL ->
+                state.formSchoolName.ifBlank { null } ?: "School Info"
+
+            InfoBankCategory.EMERGENCY_CONTACT ->
+                state.formContactName.ifBlank { null } ?: "Emergency Contact"
+
+            InfoBankCategory.NOTE ->
+                state.formTitle.ifBlank { null } ?: "Note"
+        }
     }
 }

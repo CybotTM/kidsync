@@ -22,6 +22,7 @@ class OpApplier @Inject constructor(
     private val overrideDao: OverrideDao,
     private val expenseDao: ExpenseDao,
     private val infoBankDao: InfoBankDao,
+    private val calendarEventDao: CalendarEventDao,
     private val opLogDao: OpLogDao,
     private val conflictResolver: ConflictResolver,
     private val overrideStateMachine: OverrideStateMachine,
@@ -191,15 +192,26 @@ class OpApplier @Inject constructor(
     private suspend fun applyEvent(
         payload: DecryptedPayload
     ): ApplyResult {
-        // TODO(C3-A10): CalendarEvent operations are silently dropped. Need to:
-        // 1. Create CalendarEventEntity with fields: eventId, childId, title, startTime, endTime,
-        //    location, notes, cancelled, clientTimestamp
-        // 2. Create CalendarEventDao with CRUD operations
-        // 3. Add to AppDatabase entities and create migration
-        // 4. Implement event persistence here following the Expense pattern:
-        //    - CREATE: insert new entity
-        //    - UPDATE: update existing entity
-        //    - DELETE: mark as cancelled or remove
+        if (payload.operation == "DELETE") {
+            calendarEventDao.deleteEvent(payload.entityId)
+            return ApplyResult()
+        }
+
+        val data = payload.data
+        val entity = CalendarEventEntity(
+            eventId = payload.entityId,
+            childId = data["childId"]!!.jsonPrimitive.content,
+            title = data["title"]!!.jsonPrimitive.content,
+            description = data["description"]?.jsonPrimitive?.content,
+            startTime = data["startTime"]!!.jsonPrimitive.content,
+            endTime = data["endTime"]!!.jsonPrimitive.content,
+            allDay = data["allDay"]?.jsonPrimitive?.content?.toBooleanStrictOrNull() ?: false,
+            location = data["location"]?.jsonPrimitive?.content,
+            createdBy = data["createdBy"]?.jsonPrimitive?.content ?: "",
+            clientTimestamp = payload.clientTimestamp
+        )
+
+        calendarEventDao.insertEvent(entity)
         return ApplyResult()
     }
 
@@ -213,31 +225,21 @@ class OpApplier @Inject constructor(
         }
 
         val data = payload.data
+        val category = data["category"]!!.jsonPrimitive.content
+        val title = data["title"]?.jsonPrimitive?.content
+        val notes = data["notes"]?.jsonPrimitive?.content
+
+        // Store the full data payload as JSON in the content field.
+        // This preserves all category-specific fields for the UI to parse.
+        val contentJson = json.encodeToString(JsonObject.serializer(), data)
+
         val entity = InfoBankEntryEntity(
             entryId = UUID.fromString(payload.entityId),
             childId = UUID.fromString(data["childId"]!!.jsonPrimitive.content),
-            category = data["category"]!!.jsonPrimitive.content,
-            allergies = data["allergies"]?.jsonPrimitive?.content,
-            medicationName = data["medicationName"]?.jsonPrimitive?.content,
-            medicationDosage = data["medicationDosage"]?.jsonPrimitive?.content,
-            medicationSchedule = data["medicationSchedule"]?.jsonPrimitive?.content,
-            doctorName = data["doctorName"]?.jsonPrimitive?.content,
-            doctorPhone = data["doctorPhone"]?.jsonPrimitive?.content,
-            insuranceInfo = data["insuranceInfo"]?.jsonPrimitive?.content,
-            bloodType = data["bloodType"]?.jsonPrimitive?.content,
-            schoolName = data["schoolName"]?.jsonPrimitive?.content,
-            teacherNames = data["teacherNames"]?.jsonPrimitive?.content,
-            gradeClass = data["gradeClass"]?.jsonPrimitive?.content,
-            schoolPhone = data["schoolPhone"]?.jsonPrimitive?.content,
-            scheduleNotes = data["scheduleNotes"]?.jsonPrimitive?.content,
-            contactName = data["contactName"]?.jsonPrimitive?.content,
-            relationship = data["relationship"]?.jsonPrimitive?.content,
-            phone = data["phone"]?.jsonPrimitive?.content,
-            email = data["email"]?.jsonPrimitive?.content,
-            title = data["title"]?.jsonPrimitive?.content,
-            content = data["content"]?.jsonPrimitive?.content,
-            tag = data["tag"]?.jsonPrimitive?.content,
-            notes = data["notes"]?.jsonPrimitive?.content,
+            category = category,
+            title = title,
+            content = contentJson,
+            notes = notes,
             clientTimestamp = payload.clientTimestamp,
             updatedTimestamp = payload.clientTimestamp
         )

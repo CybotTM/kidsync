@@ -3,10 +3,12 @@ package com.kidsync.app.domain.usecase.sync
 import com.kidsync.app.crypto.CryptoManager
 import com.kidsync.app.crypto.KeyManager
 import com.kidsync.app.data.local.dao.*
-import com.kidsync.app.domain.model.EntityType
-import com.kidsync.app.domain.model.OperationType
+import com.kidsync.app.data.remote.api.ApiService
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.security.MessageDigest
 import java.time.Instant
 import java.util.UUID
@@ -14,7 +16,15 @@ import javax.inject.Inject
 
 /**
  * Creates and restores snapshots of the local database state.
- * Snapshots are signed DeviceSnapshot operations uploaded as part of the oplog.
+ *
+ * Snapshots are encrypted blobs uploaded via the dedicated snapshot API endpoint
+ * (`POST /buckets/{id}/snapshots`), NOT as oplog operations.
+ *
+ * Pipeline:
+ * 1. Serialize full local state as JSON
+ * 2. Encrypt with current DEK using AES-256-GCM
+ * 3. Sign the encrypted blob with Ed25519 key
+ * 4. Upload via multipart POST (metadata JSON + encrypted blob)
  */
 class SnapshotUseCase @Inject constructor(
     private val custodyScheduleDao: CustodyScheduleDao,
@@ -24,10 +34,12 @@ class SnapshotUseCase @Inject constructor(
     private val syncStateDao: SyncStateDao,
     private val cryptoManager: CryptoManager,
     private val keyManager: KeyManager,
-    private val createOperationUseCase: CreateOperationUseCase
+    private val apiService: ApiService
 ) {
     /**
-     * Create a snapshot of the current local state and publish it as a DeviceSnapshot operation.
+     * Create a snapshot of the current local state and upload via the snapshot API endpoint.
+     *
+     * @return Result containing the state hash on success
      */
     suspend fun createSnapshot(bucketId: String): Result<String> {
         return try {
@@ -37,26 +49,54 @@ class SnapshotUseCase @Inject constructor(
             val deviceId = keyManager.getDeviceId()
                 ?: return Result.failure(IllegalStateException("Device not registered"))
 
-            // Compute state hash from all materialized entities
+            val currentEpoch = keyManager.getCurrentEpoch(bucketId)
+            val dek = keyManager.getDek(bucketId, currentEpoch)
+                ?: return Result.failure(IllegalStateException("No DEK for epoch $currentEpoch"))
+
+            // 1. Compute state hash from all materialized entities
             val stateHash = computeStateHash()
 
+            // 2. Build snapshot content as JSON
             val snapshotId = UUID.randomUUID().toString()
-            val contentData = buildJsonObject {
+            val snapshotContent = buildJsonObject {
                 put("snapshotId", JsonPrimitive(snapshotId))
                 put("deviceId", JsonPrimitive(deviceId))
                 put("bucketId", JsonPrimitive(bucketId))
                 put("lastGlobalSequence", JsonPrimitive(syncState.lastGlobalSequence))
                 put("stateHash", JsonPrimitive(stateHash))
                 put("timestamp", JsonPrimitive(Instant.now().toString()))
-            }
+            }.toString()
 
-            createOperationUseCase(
-                bucketId = bucketId,
-                entityType = EntityType.DeviceSnapshot,
-                entityId = snapshotId,
-                operationType = OperationType.CREATE,
-                contentData = contentData
+            // 3. Encrypt with AES-256-GCM using current DEK
+            val aad = CryptoManager.buildPayloadAad(bucketId = bucketId, deviceId = deviceId)
+            val encryptedBlob = cryptoManager.encryptPayload(
+                plaintext = snapshotContent,
+                dek = dek,
+                aad = aad
             )
+
+            // 4. Sign the encrypted blob with Ed25519
+            val (_, seed) = keyManager.getOrCreateSigningKeyPair()
+            val encryptedBytes = encryptedBlob.toByteArray(Charsets.UTF_8)
+            val signature = cryptoManager.signEd25519(encryptedBytes, seed)
+            val signatureBase64 = java.util.Base64.getEncoder().encodeToString(signature)
+
+            // 5. Build metadata JSON
+            val metadata = buildJsonObject {
+                put("keyEpoch", JsonPrimitive(currentEpoch))
+                put("atSequence", JsonPrimitive(syncState.lastGlobalSequence))
+                put("stateHash", JsonPrimitive(stateHash))
+                put("signature", JsonPrimitive(signatureBase64))
+            }.toString()
+
+            // 6. Upload via multipart POST /buckets/{id}/snapshots
+            val metadataBody = metadata.toRequestBody("application/json".toMediaType())
+            val snapshotBody = encryptedBytes.toRequestBody("application/octet-stream".toMediaType())
+            val snapshotPart = MultipartBody.Part.createFormData(
+                "snapshot", "snapshot.bin", snapshotBody
+            )
+
+            apiService.uploadSnapshot(bucketId, metadataBody, snapshotPart)
 
             Result.success(stateHash)
         } catch (e: Exception) {

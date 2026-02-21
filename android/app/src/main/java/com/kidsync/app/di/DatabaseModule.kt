@@ -84,4 +84,9 @@ object DatabaseModule {
     fun provideInfoBankDao(database: KidSyncDatabase): InfoBankDao {
         return database.infoBankDao()
     }
+
+    @Provides
+    fun provideCalendarEventDao(database: KidSyncDatabase): CalendarEventDao {
+        return database.calendarEventDao()
+    }
 }

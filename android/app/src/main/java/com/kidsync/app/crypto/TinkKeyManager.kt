@@ -194,31 +194,56 @@ class TinkKeyManager @Inject constructor(
                 keyEpoch = wrappedKey.keyEpoch
             )
             storeDek(bucketId, wrappedKey.keyEpoch, dek)
-        } catch (_: Exception) {
-            // Log error but don't fail -- DEKs might already be cached
+        } catch (e: Exception) {
+            android.util.Log.w("TinkKeyManager", "Failed to fetch wrapped DEKs, using cached", e)
         }
     }
 
-    // TODO(C3-A03): CRITICAL - Recovery blob only wraps single current-epoch DEK.
-    // The spec (encryption-spec.md Section 7) requires the recovery blob to contain ALL
-    // epoch DEKs plus the device seed, structured as:
-    //   { "seed": base64(seed), "deks": { "1": base64(dek1), "2": base64(dek2), ... } }
-    // Implementation steps:
-    // 1. Iterate getAvailableEpochs(bucketId) and collect all DEKs
-    // 2. Include the device seed from getSeed()
-    // 3. Serialize as JSON, then encrypt with recovery key
-    // 4. Update unwrapDekWithRecoveryKey to parse the multi-DEK blob,
-    //    restore all epochs, and set currentEpoch to the latest
-    // Currently we only wrap the single current-epoch DEK, which works for single-epoch
-    // scenarios but will lose access to older epoch data after key rotation.
-    // The unwrapDekWithRecoveryKey below always stores as epoch 1, which is also wrong.
-    // This requires database schema changes to reliably enumerate all stored DEKs.
+    /**
+     * Create a recovery blob containing ALL epoch DEKs and the device seed.
+     *
+     * Blob format (JSON, then AES-256-GCM encrypted with recovery key):
+     * ```json
+     * {
+     *   "seed": "<base64(32-byte device seed)>",
+     *   "deks": {
+     *     "1": "<base64(dek1)>",
+     *     "2": "<base64(dek2)>",
+     *     ...
+     *   }
+     * }
+     * ```
+     *
+     * The encrypted output is: nonce (12 bytes) || ciphertext+tag
+     * AAD = "recovery"
+     */
     override suspend fun wrapDekWithRecoveryKey(bucketId: String, recoveryKey: ByteArray) {
-        val currentEpoch = getCurrentEpoch(bucketId)
-        val dek = getDek(bucketId, currentEpoch)
-            ?: throw IllegalStateException("No DEK for current epoch")
+        val encoder = Base64.getEncoder()
 
-        // Use AES-256-GCM to wrap with recovery key
+        // Collect all epoch DEKs
+        val epochs = getAvailableEpochs(bucketId)
+        if (epochs.isEmpty()) {
+            throw IllegalStateException("No DEKs available for bucket")
+        }
+
+        val deksMap = mutableMapOf<String, String>()
+        for (epoch in epochs) {
+            val dek = getDek(bucketId, epoch) ?: continue
+            deksMap[epoch.toString()] = encoder.encodeToString(dek)
+        }
+
+        if (deksMap.isEmpty()) {
+            throw IllegalStateException("No DEKs could be read for any epoch")
+        }
+
+        // Include device seed
+        val seed = getSeed()
+
+        // Build JSON blob: { "seed": base64(seed), "deks": { "1": base64(dek1), ... } }
+        val deksJson = deksMap.entries.joinToString(",") { (k, v) -> "\"$k\":\"$v\"" }
+        val blobJson = """{"seed":"${encoder.encodeToString(seed)}","deks":{$deksJson}}"""
+
+        // Encrypt with AES-256-GCM using recovery key
         val nonce = ByteArray(12)
         java.security.SecureRandom().nextBytes(nonce)
 
@@ -227,13 +252,13 @@ class TinkKeyManager @Inject constructor(
         val gcmSpec = javax.crypto.spec.GCMParameterSpec(128, nonce)
         cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, keySpec, gcmSpec)
         cipher.updateAAD("recovery".toByteArray())
-        val wrapped = cipher.doFinal(dek)
+        val encrypted = cipher.doFinal(blobJson.toByteArray(Charsets.UTF_8))
 
-        val result = ByteArray(nonce.size + wrapped.size)
+        val result = ByteArray(nonce.size + encrypted.size)
         System.arraycopy(nonce, 0, result, 0, nonce.size)
-        System.arraycopy(wrapped, 0, result, nonce.size, wrapped.size)
+        System.arraycopy(encrypted, 0, result, nonce.size, encrypted.size)
 
-        val encoded = Base64.getEncoder().encodeToString(result)
+        val encoded = encoder.encodeToString(result)
 
         // Upload encrypted recovery blob to server
         apiService.uploadRecoveryBlob(
@@ -241,22 +266,46 @@ class TinkKeyManager @Inject constructor(
         )
     }
 
+    /**
+     * Restore all epoch DEKs and device seed from a recovery blob.
+     *
+     * Decrypts the blob, parses the JSON, restores the seed, then iterates
+     * over all DEK epochs and stores each one. Sets current epoch to the highest.
+     */
     override suspend fun unwrapDekWithRecoveryKey(bucketId: String, recoveryKey: ByteArray) {
+        val decoder = Base64.getDecoder()
+
         // Download from server
         val response = apiService.getRecoveryBlob()
-        val data = Base64.getDecoder().decode(response.encryptedBlob)
+        val data = decoder.decode(response.encryptedBlob)
 
         val nonce = data.sliceArray(0 until 12)
-        val wrapped = data.sliceArray(12 until data.size)
+        val encrypted = data.sliceArray(12 until data.size)
 
         val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
         val keySpec = javax.crypto.spec.SecretKeySpec(recoveryKey, "AES")
         val gcmSpec = javax.crypto.spec.GCMParameterSpec(128, nonce)
         cipher.init(javax.crypto.Cipher.DECRYPT_MODE, keySpec, gcmSpec)
         cipher.updateAAD("recovery".toByteArray())
-        val dek = cipher.doFinal(wrapped)
+        val decrypted = cipher.doFinal(encrypted)
 
-        storeDek(bucketId, 1, dek)
+        // Parse JSON blob
+        val blobJson = org.json.JSONObject(String(decrypted, Charsets.UTF_8))
+
+        // Restore device seed
+        val seedBase64 = blobJson.getString("seed")
+        val seed = decoder.decode(seedBase64)
+        storeSeed(seed)
+
+        // Restore all epoch DEKs
+        val deksObj = blobJson.getJSONObject("deks")
+        var maxEpoch = 0
+        for (epochStr in deksObj.keys()) {
+            val epoch = epochStr.toInt()
+            val dekBytes = decoder.decode(deksObj.getString(epochStr))
+            storeDek(bucketId, epoch, dekBytes)
+            if (epoch > maxEpoch) maxEpoch = epoch
+        }
     }
 
     override suspend fun rotateKey(bucketId: String, newEpoch: Int, excludeDeviceId: String?) {

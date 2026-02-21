@@ -65,7 +65,11 @@ class SyncOpsUseCase @Inject constructor(
                 // Parse the decrypted payload to extract metadata
                 val decryptedPayload = json.decodeFromString<DecryptedPayload>(decryptedJson)
 
-                val applyResult = opApplier.apply(op, decryptedPayload)
+                // Update deviceSequence from decrypted payload (pullOps sets it to 0
+                // because the real value is inside the encrypted payload)
+                val opWithSequence = op.copy(deviceSequence = decryptedPayload.deviceSequence)
+
+                val applyResult = opApplier.apply(opWithSequence, decryptedPayload)
                 if (applyResult.conflictResolved) conflictsResolved++
                 appliedCount++
             }

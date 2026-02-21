@@ -17,7 +17,6 @@ enum class EntityType {
     ExpenseStatus,
     CalendarEvent,
     InfoBankEntry,
-    DeviceSnapshot,
     DeviceRevocation,
     KeyRotation
 }
