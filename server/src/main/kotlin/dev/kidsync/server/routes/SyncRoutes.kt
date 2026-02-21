@@ -234,68 +234,77 @@ fun Route.syncRoutes(
                 close(CloseReason(4001, "Auth timeout"))
                 return@webSocket
             }
-            if (authFrame is Frame.Text) {
-                val text = authFrame.readText()
-                val jsonObj = json.parseToJsonElement(text).jsonObject
-                val type = jsonObj["type"]?.jsonPrimitive?.content
-
-                if (type == "auth") {
-                    val token = jsonObj["token"]?.jsonPrimitive?.content
-                    if (token != null) {
-                        val session = sessionUtil.validateSession(token)
-                        if (session != null) {
-                            // Verify bucket access
-                            val hasAccess = try {
-                                dbQuery { BucketService.requireBucketAccess(bucketId, session.deviceId) }
-                                true
-                            } catch (_: ApiException) {
-                                false
-                            }
-
-                            if (hasAccess) {
-                                val latestSeq = syncService.getLatestSequence(bucketId)
-                                connection = WebSocketManager.WsConnection(this, session.deviceId, bucketId)
-                                wsManager.addConnection(bucketId, connection!!)
-
-                                send(
-                                    Frame.Text(
-                                        json.encodeToString(
-                                            WsAuthOk.serializer(),
-                                            WsAuthOk(
-                                                deviceId = session.deviceId,
-                                                bucketId = bucketId,
-                                                latestSequence = latestSeq,
-                                            )
-                                        )
-                                    )
-                                )
-                            } else {
-                                send(
-                                    Frame.Text(
-                                        json.encodeToString(
-                                            WsAuthFailed.serializer(),
-                                            WsAuthFailed(error = "NO_ACCESS", message = "No access to this bucket")
-                                        )
-                                    )
-                                )
-                                close(CloseReason(4001, "No access"))
-                                return@webSocket
-                            }
-                        } else {
-                            send(
-                                Frame.Text(
-                                    json.encodeToString(
-                                        WsAuthFailed.serializer(),
-                                        WsAuthFailed(error = "TOKEN_INVALID", message = "Session token invalid or expired")
-                                    )
-                                )
-                            )
-                            close(CloseReason(4001, "Auth failed"))
-                            return@webSocket
-                        }
-                    }
-                }
+            if (authFrame !is Frame.Text) {
+                close(CloseReason(4001, "Expected text frame for auth"))
+                return@webSocket
             }
+
+            val authText = authFrame.readText()
+            val authJsonObj = json.parseToJsonElement(authText).jsonObject
+            val authType = authJsonObj["type"]?.jsonPrimitive?.content
+
+            if (authType != "auth") {
+                close(CloseReason(4001, "Expected auth message"))
+                return@webSocket
+            }
+
+            val token = authJsonObj["token"]?.jsonPrimitive?.content
+            if (token == null) {
+                close(CloseReason(4001, "Missing auth token"))
+                return@webSocket
+            }
+
+            val session = sessionUtil.validateSession(token)
+            if (session == null) {
+                send(
+                    Frame.Text(
+                        json.encodeToString(
+                            WsAuthFailed.serializer(),
+                            WsAuthFailed(error = "TOKEN_INVALID", message = "Session token invalid or expired")
+                        )
+                    )
+                )
+                close(CloseReason(4001, "Auth failed"))
+                return@webSocket
+            }
+
+            // Verify bucket access
+            val hasAccess = try {
+                dbQuery { BucketService.requireBucketAccess(bucketId, session.deviceId) }
+                true
+            } catch (_: ApiException) {
+                false
+            }
+
+            if (!hasAccess) {
+                send(
+                    Frame.Text(
+                        json.encodeToString(
+                            WsAuthFailed.serializer(),
+                            WsAuthFailed(error = "NO_ACCESS", message = "No access to this bucket")
+                        )
+                    )
+                )
+                close(CloseReason(4001, "No access"))
+                return@webSocket
+            }
+
+            val latestSeq = syncService.getLatestSequence(bucketId)
+            connection = WebSocketManager.WsConnection(this, session.deviceId, bucketId)
+            wsManager.addConnection(bucketId, connection!!)
+
+            send(
+                Frame.Text(
+                    json.encodeToString(
+                        WsAuthOk.serializer(),
+                        WsAuthOk(
+                            deviceId = session.deviceId,
+                            bucketId = bucketId,
+                            latestSequence = latestSeq,
+                        )
+                    )
+                )
+            )
 
             // Main message loop
             for (frame in incoming) {

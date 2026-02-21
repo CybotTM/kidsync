@@ -5,6 +5,7 @@ import dev.kidsync.server.db.*
 import dev.kidsync.server.db.DatabaseFactory.dbQuery
 import dev.kidsync.server.models.*
 import dev.kidsync.server.util.HashUtil
+import dev.kidsync.server.util.ValidationUtil
 import org.jetbrains.exposed.sql.*
 import java.time.LocalDateTime
 import java.time.ZoneOffset
@@ -45,6 +46,19 @@ class SyncService(private val config: AppConfig) {
                 // Validate key epoch
                 if (op.keyEpoch < 1) {
                     throw ApiException(400, "INVALID_REQUEST", "keyEpoch must be >= 1")
+                }
+
+                // Validate prevHash and currentHash are valid SHA-256 hex
+                if (!ValidationUtil.isValidSha256Hex(op.prevHash)) {
+                    throw ApiException(400, "INVALID_REQUEST", "prevHash must be a valid 64-character hex SHA-256 hash")
+                }
+                if (!ValidationUtil.isValidSha256Hex(op.currentHash)) {
+                    throw ApiException(400, "INVALID_REQUEST", "currentHash must be a valid 64-character hex SHA-256 hash")
+                }
+
+                // Validate encryptedPayload is valid base64
+                if (!ValidationUtil.isValidBase64(op.encryptedPayload)) {
+                    throw ApiException(400, "INVALID_REQUEST", "encryptedPayload must be valid base64")
                 }
 
                 // Enforce per-op payload size limit

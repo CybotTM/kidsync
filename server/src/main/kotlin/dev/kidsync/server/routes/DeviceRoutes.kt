@@ -4,6 +4,7 @@ import dev.kidsync.server.db.Devices
 import dev.kidsync.server.db.DatabaseFactory.dbQuery
 import dev.kidsync.server.models.*
 import dev.kidsync.server.services.ApiException
+import dev.kidsync.server.util.ValidationUtil
 import io.ktor.http.*
 import io.ktor.server.plugins.ratelimit.*
 import io.ktor.server.request.*
@@ -29,6 +30,12 @@ fun Route.deviceRoutes() {
             }
             if (request.encryptionKey.isBlank()) {
                 throw ApiException(400, "INVALID_REQUEST", "encryptionKey is required")
+            }
+            if (!ValidationUtil.isValidPublicKey(request.signingKey)) {
+                throw ApiException(400, "INVALID_REQUEST", "signingKey is not a valid public key")
+            }
+            if (!ValidationUtil.isValidPublicKey(request.encryptionKey)) {
+                throw ApiException(400, "INVALID_REQUEST", "encryptionKey is not a valid public key")
             }
 
             val deviceId = UUID.randomUUID().toString()

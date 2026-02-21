@@ -21,6 +21,10 @@ class KeyService {
      * the wrapping device is responsible for only wrapping for devices it trusts.
      */
     suspend fun uploadWrappedKey(callerDeviceId: String, request: WrappedKeyRequest) {
+        if (request.wrappedDek.length > 8192) {
+            throw ApiException(413, "PAYLOAD_TOO_LARGE", "Wrapped key exceeds maximum size of 8KB")
+        }
+
         dbQuery {
             // Verify target device exists
             Devices.selectAll().where { Devices.id eq request.targetDevice }.firstOrNull()
@@ -78,6 +82,10 @@ class KeyService {
      * The signer device attests that the attested device owns the specified encryption key.
      */
     suspend fun uploadAttestation(signerDeviceId: String, request: KeyAttestationRequest) {
+        if (request.signature.length > 4096) {
+            throw ApiException(413, "PAYLOAD_TOO_LARGE", "Attestation signature exceeds maximum size of 4KB")
+        }
+
         dbQuery {
             // Verify attested device exists
             Devices.selectAll().where { Devices.id eq request.attestedDeviceId }.firstOrNull()
@@ -130,6 +138,10 @@ class KeyService {
      * Upload an encrypted recovery blob for the authenticated device.
      */
     suspend fun uploadRecoveryBlob(deviceId: String, request: RecoveryBlobRequest) {
+        if (request.encryptedBlob.length > 1_048_576) {
+            throw ApiException(413, "PAYLOAD_TOO_LARGE", "Recovery blob exceeds maximum size of 1MB")
+        }
+
         dbQuery {
             // Upsert: replace existing recovery blob
             RecoveryBlobs.deleteWhere { RecoveryBlobs.deviceId eq deviceId }

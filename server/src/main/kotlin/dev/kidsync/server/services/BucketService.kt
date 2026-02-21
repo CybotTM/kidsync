@@ -98,8 +98,10 @@ class BucketService(
                 throw ApiException(429, "RATE_LIMITED", "Too many active invites for this bucket (max 5)")
             }
 
-            // Upsert: replace if same hash exists
-            InviteTokens.deleteWhere { InviteTokens.tokenHash eq tokenHash }
+            // Upsert: replace if same hash exists within this bucket
+            InviteTokens.deleteWhere {
+                (InviteTokens.tokenHash eq tokenHash) and (InviteTokens.bucketId eq bucketId)
+            }
 
             InviteTokens.insert {
                 it[InviteTokens.tokenHash] = tokenHash
