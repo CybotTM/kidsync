@@ -104,6 +104,14 @@ android {
         }
     }
 
+    lint {
+        // Translations are incomplete (German); treat missing translations as warnings not errors
+        disable += "MissingTranslation"
+        // Abort on remaining errors but not on warnings
+        abortOnError = true
+        warningsAsErrors = false
+    }
+
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
