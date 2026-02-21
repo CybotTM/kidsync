@@ -7,17 +7,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import com.kidsync.app.ui.screens.auth.LoginScreen
+import androidx.navigation.navArgument
+import com.kidsync.app.ui.screens.auth.KeySetupScreen
 import com.kidsync.app.ui.screens.auth.RecoveryKeyScreen
 import com.kidsync.app.ui.screens.auth.RecoveryRestoreScreen
-import com.kidsync.app.ui.screens.auth.RegisterScreen
-import com.kidsync.app.ui.screens.auth.TotpSetupScreen
 import com.kidsync.app.ui.screens.auth.WelcomeScreen
-import com.kidsync.app.ui.viewmodel.AuthViewModel
-import androidx.navigation.NavType
-import androidx.navigation.navArgument
+import com.kidsync.app.ui.screens.bucket.BucketSetupScreen
+import com.kidsync.app.ui.screens.bucket.JoinBucketScreen
+import com.kidsync.app.ui.screens.bucket.PairingScreen
 import com.kidsync.app.ui.screens.calendar.AnchorDateScreen
 import com.kidsync.app.ui.screens.calendar.CalendarScreen
 import com.kidsync.app.ui.screens.calendar.CustomPatternScreen
@@ -32,19 +32,17 @@ import com.kidsync.app.ui.screens.expense.ExpenseDetailScreen
 import com.kidsync.app.ui.screens.expense.ExpenseListScreen
 import com.kidsync.app.ui.screens.expense.ExpenseSummaryScreen
 import com.kidsync.app.ui.screens.family.AddChildrenScreen
-import com.kidsync.app.ui.screens.family.FamilySetupScreen
-import com.kidsync.app.ui.viewmodel.FamilyViewModel
-import com.kidsync.app.ui.screens.family.InviteCoParentScreen
-import com.kidsync.app.ui.screens.family.JoinFamilyScreen
 import com.kidsync.app.ui.screens.infobank.InfoBankDetailScreen
 import com.kidsync.app.ui.screens.infobank.InfoBankFormScreen
 import com.kidsync.app.ui.screens.infobank.InfoBankScreen
 import com.kidsync.app.ui.screens.settings.DeviceListScreen
 import com.kidsync.app.ui.screens.settings.ServerConfigScreen
 import com.kidsync.app.ui.screens.settings.SettingsScreen
+import com.kidsync.app.ui.viewmodel.AuthViewModel
 
 /**
- * SEC-C2: Auth guard wrapper that redirects unauthenticated users to Welcome.
+ * Auth guard wrapper that redirects unauthenticated users to Welcome.
+ * Uses key-based authentication check instead of email/password session.
  */
 @Composable
 fun AuthenticatedRoute(
@@ -53,14 +51,14 @@ fun AuthenticatedRoute(
     content: @Composable () -> Unit
 ) {
     val uiState by authViewModel.uiState.collectAsState()
-    LaunchedEffect(uiState.isLoggedIn) {
-        if (!uiState.isLoggedIn) {
+    LaunchedEffect(uiState.isAuthenticated) {
+        if (!uiState.isAuthenticated) {
             navController.navigate(Routes.Welcome.route) {
                 popUpTo(0) { inclusive = true }
             }
         }
     }
-    if (uiState.isLoggedIn) {
+    if (uiState.isAuthenticated) {
         content()
     }
 }
@@ -68,12 +66,13 @@ fun AuthenticatedRoute(
 /**
  * Main navigation graph for the KidSync app.
  *
- * Flow:
- * Splash -> Welcome -> Register/Login -> TotpSetup -> RecoveryKey -> FamilySetup ->
- * AddChildren -> InviteCoParent -> Dashboard
+ * Zero-knowledge auth flow:
+ * Splash -> Welcome -> KeySetup -> RecoveryKey -> BucketSetup ->
+ * AddChildren -> Pairing -> Dashboard
  *
- * Alternative: Welcome -> Login -> Dashboard (returning user)
- * Alternative: Welcome -> JoinFamily -> Dashboard (invited co-parent)
+ * Alternative: Welcome -> RecoveryRestore -> Dashboard (recovering user)
+ * Alternative: Welcome -> (auto-auth) -> Dashboard (returning device)
+ * Alternative: JoinBucket -> Dashboard (scanning co-parent's QR code)
  */
 @Composable
 fun KidSyncNavGraph(
@@ -81,7 +80,6 @@ fun KidSyncNavGraph(
     modifier: Modifier = Modifier,
     startDestination: String = Routes.Splash.route
 ) {
-    // SEC-C2: Shared auth view model for navigation-level auth checks
     val authViewModel: AuthViewModel = hiltViewModel()
 
     NavHost(
@@ -89,85 +87,38 @@ fun KidSyncNavGraph(
         startDestination = startDestination,
         modifier = modifier
     ) {
+        // Splash: auto-navigates based on existing device keys
         composable(Routes.Splash.route) {
-            // Splash auto-navigates based on auth state
-            // Handled by AuthViewModel checking stored session
-            WelcomeScreen(
-                onGetStarted = {
-                    navController.navigate(Routes.Register.route) {
+            val uiState by authViewModel.uiState.collectAsState()
+            LaunchedEffect(uiState.isAuthenticated) {
+                if (uiState.isAuthenticated) {
+                    navController.navigate(Routes.Dashboard.route) {
                         popUpTo(Routes.Splash.route) { inclusive = true }
                     }
-                },
-                onHaveAccount = {
-                    navController.navigate(Routes.Login.route) {
+                } else if (!uiState.isLoading) {
+                    navController.navigate(Routes.Welcome.route) {
                         popUpTo(Routes.Splash.route) { inclusive = true }
                     }
-                },
-                onJoinFamily = {
-                    navController.navigate(Routes.JoinFamily.route)
                 }
-            )
+            }
         }
 
         composable(Routes.Welcome.route) {
             WelcomeScreen(
-                onGetStarted = {
-                    navController.navigate(Routes.Register.route)
+                onSetUpNew = {
+                    navController.navigate(Routes.KeySetup.route)
                 },
-                onHaveAccount = {
-                    navController.navigate(Routes.Login.route)
-                },
-                onJoinFamily = {
-                    navController.navigate(Routes.JoinFamily.route)
+                onRestoreFromRecovery = {
+                    navController.navigate(Routes.RecoveryRestore.route)
                 }
             )
         }
 
-        composable(Routes.Register.route) {
-            RegisterScreen(
-                onRegistered = {
-                    navController.navigate(Routes.TotpSetup.route) {
-                        popUpTo(Routes.Welcome.route) { inclusive = true }
-                    }
-                },
-                onNavigateToLogin = {
-                    navController.navigate(Routes.Login.route) {
-                        popUpTo(Routes.Register.route) { inclusive = true }
-                    }
-                },
-                onBack = { navController.popBackStack() }
-            )
-        }
-
-        composable(Routes.Login.route) {
-            LoginScreen(
-                onLoggedIn = {
-                    navController.navigate(Routes.Dashboard.route) {
-                        popUpTo(Routes.Welcome.route) { inclusive = true }
-                    }
-                },
-                onNavigateToRegister = {
-                    navController.navigate(Routes.Register.route) {
-                        popUpTo(Routes.Login.route) { inclusive = true }
-                    }
-                },
-                onRecoveryRestore = {
-                    navController.navigate(Routes.RecoveryRestore.route)
-                },
-                onBack = { navController.popBackStack() }
-            )
-        }
-
-        composable(Routes.TotpSetup.route) {
-            TotpSetupScreen(
-                onTotpVerified = {
+        composable(Routes.KeySetup.route) {
+            KeySetupScreen(
+                onKeysReady = {
                     navController.navigate(Routes.RecoveryKey.route) {
-                        popUpTo(Routes.TotpSetup.route) { inclusive = true }
-                    }
-                },
-                onSkip = {
-                    navController.navigate(Routes.RecoveryKey.route) {
-                        popUpTo(Routes.TotpSetup.route) { inclusive = true }
+                        popUpTo(Routes.Welcome.route) { inclusive = true }
                     }
                 },
                 onBack = { navController.popBackStack() }
@@ -177,7 +128,7 @@ fun KidSyncNavGraph(
         composable(Routes.RecoveryKey.route) {
             RecoveryKeyScreen(
                 onContinue = {
-                    navController.navigate(Routes.FamilySetup.route) {
+                    navController.navigate(Routes.BucketSetup.route) {
                         popUpTo(Routes.RecoveryKey.route) { inclusive = true }
                     }
                 },
@@ -196,53 +147,37 @@ fun KidSyncNavGraph(
             )
         }
 
-        composable(Routes.FamilySetup.route) {
-            val familyViewModel: FamilyViewModel = hiltViewModel()
-            FamilySetupScreen(
-                onFamilyCreated = {
-                    // Store solo flag for downstream navigation decisions
-                    val isSolo = familyViewModel.uiState.value.isSolo
-                    navController.currentBackStackEntry
-                        ?.savedStateHandle?.set("isSolo", isSolo)
+        composable(Routes.BucketSetup.route) {
+            BucketSetupScreen(
+                onBucketCreated = {
                     navController.navigate(Routes.AddChildren.route)
                 },
-                onBack = { navController.popBackStack() },
-                viewModel = familyViewModel
+                onBack = { navController.popBackStack() }
             )
         }
 
         composable(Routes.AddChildren.route) {
             AddChildrenScreen(
                 onContinue = {
-                    // Check if the previous entry stored solo mode flag
-                    val isSolo = navController.previousBackStackEntry
-                        ?.savedStateHandle?.get<Boolean>("isSolo") ?: false
-                    if (isSolo) {
-                        // Solo mode: skip invite and go straight to dashboard
-                        navController.navigate(Routes.Dashboard.route) {
-                            popUpTo(Routes.FamilySetup.route) { inclusive = true }
-                        }
-                    } else {
-                        navController.navigate(Routes.InviteCoParent.route)
-                    }
+                    navController.navigate(Routes.Pairing.route)
                 },
                 onBack = { navController.popBackStack() }
             )
         }
 
-        composable(Routes.InviteCoParent.route) {
-            InviteCoParentScreen(
+        composable(Routes.Pairing.route) {
+            PairingScreen(
                 onContinue = {
                     navController.navigate(Routes.Dashboard.route) {
-                        popUpTo(Routes.FamilySetup.route) { inclusive = true }
+                        popUpTo(Routes.BucketSetup.route) { inclusive = true }
                     }
                 },
                 onBack = { navController.popBackStack() }
             )
         }
 
-        composable(Routes.JoinFamily.route) {
-            JoinFamilyScreen(
+        composable(Routes.JoinBucket.route) {
+            JoinBucketScreen(
                 onJoined = {
                     navController.navigate(Routes.Dashboard.route) {
                         popUpTo(Routes.Welcome.route) { inclusive = true }
@@ -268,7 +203,7 @@ fun KidSyncNavGraph(
                         navController.navigate(Routes.InfoBankList.route)
                     },
                     onInviteCoParent = {
-                        navController.navigate(Routes.InviteCoParent.route)
+                        navController.navigate(Routes.Pairing.route)
                     }
                 )
             }
@@ -527,7 +462,7 @@ fun KidSyncNavGraph(
                         navController.navigate(Routes.ServerConfig.route)
                     },
                     onInviteCoParent = {
-                        navController.navigate(Routes.InviteCoParent.route)
+                        navController.navigate(Routes.Pairing.route)
                     },
                     onLogout = {
                         navController.navigate(Routes.Welcome.route) {

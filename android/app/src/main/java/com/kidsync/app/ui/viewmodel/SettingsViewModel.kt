@@ -3,16 +3,16 @@ package com.kidsync.app.ui.viewmodel
 import android.content.SharedPreferences
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kidsync.app.crypto.KeyManager
 import com.kidsync.app.domain.model.Device
 import com.kidsync.app.domain.repository.AuthRepository
-import com.kidsync.app.domain.repository.FamilyRepository
+import com.kidsync.app.domain.repository.BucketRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Named
 
@@ -20,8 +20,9 @@ data class SettingsUiState(
     val isLoading: Boolean = false,
     val error: String? = null,
 
-    // Solo mode
-    val isSolo: Boolean = false,
+    // Device identity
+    val keyFingerprint: String = "",
+    val deviceId: String = "",
 
     // Server config
     val serverUrl: String = "",
@@ -32,6 +33,9 @@ data class SettingsUiState(
     val devices: List<Device> = emptyList(),
     val isLoadingDevices: Boolean = false,
 
+    // Buckets
+    val buckets: List<BucketInfo> = emptyList(),
+
     // Preferences
     val notificationsEnabled: Boolean = true,
     val defaultCurrency: String = "EUR",
@@ -40,8 +44,9 @@ data class SettingsUiState(
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
-    private val familyRepository: FamilyRepository,
+    private val bucketRepository: BucketRepository,
     private val authRepository: AuthRepository,
+    private val keyManager: KeyManager,
     @Named("prefs") private val prefs: SharedPreferences
 ) : ViewModel() {
 
@@ -49,20 +54,41 @@ class SettingsViewModel @Inject constructor(
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
     init {
-        loadSoloMode()
+        loadDeviceInfo()
         loadPreferences()
+        loadBucketList()
     }
 
-    private fun loadSoloMode() {
+    private fun loadDeviceInfo() {
         viewModelScope.launch {
             try {
-                val session = authRepository.getSession() ?: return@launch
-                val family = familyRepository.getFamily(session.familyId)
-                if (family?.isSolo == true) {
-                    _uiState.update { it.copy(isSolo = true) }
+                val fingerprint = keyManager.getSigningKeyFingerprint()
+                val deviceId = keyManager.getDeviceId()
+                _uiState.update {
+                    it.copy(
+                        keyFingerprint = fingerprint,
+                        deviceId = deviceId
+                    )
                 }
             } catch (_: Exception) {
-                // Non-critical: default to shared mode behavior
+                // Non-critical
+            }
+        }
+    }
+
+    private fun loadBucketList() {
+        viewModelScope.launch {
+            try {
+                val bucketIds = bucketRepository.getAccessibleBuckets()
+                val buckets = bucketIds.map { id ->
+                    BucketInfo(
+                        bucketId = id,
+                        localName = bucketRepository.getLocalBucketName(id) ?: "Bucket"
+                    )
+                }
+                _uiState.update { it.copy(buckets = buckets) }
+            } catch (_: Exception) {
+                // Non-critical
             }
         }
     }
@@ -98,8 +124,7 @@ class SettingsViewModel @Inject constructor(
             _uiState.update { it.copy(isTestingConnection = true, isServerConnected = null, error = null) }
 
             try {
-                // Attempt a lightweight API call to verify connectivity
-                val isLoggedIn = authRepository.isLoggedIn()
+                authRepository.testConnection()
                 _uiState.update {
                     it.copy(
                         isTestingConnection = false,
@@ -125,15 +150,26 @@ class SettingsViewModel @Inject constructor(
             _uiState.update { it.copy(isLoadingDevices = true, error = null) }
 
             try {
-                val session = authRepository.getSession()
-                if (session != null) {
-                    val devices = familyRepository.getDevices(session.familyId)
+                val currentBucket = _uiState.value.buckets.firstOrNull()
+                if (currentBucket != null) {
+                    val devices = bucketRepository.getBucketDevices(currentBucket.bucketId)
+                        .map { deviceInfo ->
+                            Device(
+                                deviceId = deviceInfo.deviceId,
+                                name = deviceInfo.localNickname
+                                    ?: formatFingerprintShort(deviceInfo.signingKey),
+                                status = deviceInfo.status,
+                                registeredAt = deviceInfo.registeredAt,
+                                keyFingerprint = deviceInfo.signingKey,
+                                isVerified = deviceInfo.isVerified
+                            )
+                        }
                     _uiState.update {
                         it.copy(isLoadingDevices = false, devices = devices)
                     }
                 } else {
                     _uiState.update {
-                        it.copy(isLoadingDevices = false, error = "Not logged in")
+                        it.copy(isLoadingDevices = false, error = "No bucket selected")
                     }
                 }
             } catch (e: Exception) {
@@ -147,35 +183,26 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun revokeDevice(deviceId: UUID) {
+    /**
+     * Self-revoke: a device can only remove itself from a bucket.
+     */
+    fun leaveBucket(bucketId: String) {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
 
             try {
-                val session = authRepository.getSession()
-                if (session != null) {
-                    val result = familyRepository.revokeDevice(session.familyId, deviceId)
-                    result.fold(
-                        onSuccess = {
-                            // Reload device list
-                            loadDevices()
-                            _uiState.update { it.copy(isLoading = false) }
-                        },
-                        onFailure = { error ->
-                            _uiState.update {
-                                it.copy(
-                                    isLoading = false,
-                                    error = error.message ?: "Failed to revoke device"
-                                )
-                            }
-                        }
+                bucketRepository.leaveBucket(bucketId)
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        buckets = it.buckets.filter { b -> b.bucketId != bucketId }
                     )
                 }
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        error = e.message ?: "Failed to revoke device"
+                        error = e.message ?: "Failed to leave bucket"
                     )
                 }
             }
@@ -207,6 +234,10 @@ class SettingsViewModel @Inject constructor(
 
     fun clearError() {
         _uiState.update { it.copy(error = null) }
+    }
+
+    private fun formatFingerprintShort(key: String): String {
+        return key.take(16).chunked(4).joinToString(" ")
     }
 
     companion object {

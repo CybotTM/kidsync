@@ -2,70 +2,53 @@
 <resources>
     <string name="app_name">KidSync</string>
 
-    <!-- Welcome Screen -->
+    <!-- Welcome Screen (zero-knowledge) -->
     <string name="welcome_tagline">Co-parenting made simple</string>
     <string name="welcome_description">Securely share calendars, expenses, and schedules with your co-parent. End-to-end encrypted for your family\'s privacy.</string>
-    <string name="welcome_get_started">Get Started</string>
-    <string name="welcome_have_account">I have an account</string>
-    <string name="welcome_join_family">Join an existing family</string>
+    <string name="welcome_set_up_new">Set Up New Device</string>
+    <string name="welcome_restore">Restore from Recovery Phrase</string>
+    <string name="welcome_zk_explanation">Your device key is your identity. No email or password needed. All data is end-to-end encrypted -- the server never sees your information.</string>
 
-    <!-- Register Screen -->
-    <string name="register_title">Create Account</string>
-    <string name="register_heading">Create Your Account</string>
-    <string name="register_subtitle">Set up your secure co-parenting account</string>
-    <string name="register_display_name">Display Name</string>
-    <string name="register_email">Email</string>
-    <string name="register_password">Password</string>
-    <string name="register_confirm_password">Confirm Password</string>
-    <string name="register_button">Create Account</string>
-    <string name="register_already_have_account">Already have an account? Sign in</string>
-    <string name="register_passwords_mismatch">Passwords do not match</string>
-
-    <!-- Login Screen -->
-    <string name="login_title">Sign In</string>
-    <string name="login_heading">Welcome Back</string>
-    <string name="login_subtitle">Sign in to your KidSync account</string>
-    <string name="login_email">Email</string>
-    <string name="login_password">Password</string>
-    <string name="login_totp_code">2FA Code (optional)</string>
-    <string name="login_totp_placeholder">6-digit code</string>
-    <string name="login_button">Sign In</string>
-    <string name="login_forgot_password">Recover account with recovery key</string>
-    <string name="login_no_account">Don\'t have an account? Sign up</string>
-
-    <!-- TOTP Setup Screen -->
-    <string name="totp_title">Two-Factor Auth</string>
-    <string name="totp_heading">Secure Your Account</string>
-    <string name="totp_description">Add an extra layer of security by connecting an authenticator app like Google Authenticator or Authy.</string>
-    <string name="totp_scan_qr">Scan this QR code with your authenticator app</string>
-    <string name="totp_manual_entry">Or enter this code manually:</string>
-    <string name="totp_verification_code">Verification Code</string>
-    <string name="totp_verify_button">Verify</string>
-    <string name="totp_skip">Skip for now</string>
+    <!-- Key Setup Screen -->
+    <string name="key_setup_title">Device Setup</string>
+    <string name="key_setup_heading">Setting Up Your Device</string>
+    <string name="key_setup_description">Generating cryptographic keys for your device. These keys are your identity and are used to authenticate with the server.</string>
+    <string name="key_setup_step_generate">Generating keypairs</string>
+    <string name="key_setup_step_register">Registering with server</string>
+    <string name="key_setup_step_auth">Authenticating</string>
+    <string name="key_setup_your_fingerprint">Your Device Fingerprint</string>
+    <string name="key_setup_retry">Retry Setup</string>
 
     <!-- Recovery Key Screen -->
     <string name="recovery_title">Recovery Key</string>
-    <string name="recovery_heading">Save Your Recovery Key</string>
-    <string name="recovery_description">Write down these 24 words in order. They are the only way to recover your account if you lose access to all your devices.</string>
+    <string name="recovery_heading">Save Your Recovery Phrase</string>
+    <string name="recovery_description">Write down these 24 words in order. They are the only way to recover your data if you lose access to all your devices.</string>
     <string name="recovery_warning">If you lose these words and all your devices, your encrypted data cannot be recovered. Store them somewhere safe and offline.</string>
     <string name="recovery_saved_checkbox">I have written down and securely stored these words</string>
     <string name="recovery_continue">Continue</string>
-    <string name="recovery_generating">Generating recovery key\u2026</string>
+    <string name="recovery_generating">Generating recovery phrase\u2026</string>
+    <string name="recovery_passphrase_heading">Advanced: Passphrase (Optional)</string>
+    <string name="recovery_passphrase_description">Add a passphrase for extra security. You will need both the 24 words AND this passphrase to recover. If you forget the passphrase, recovery is impossible.</string>
+    <string name="recovery_passphrase_label">Passphrase (optional)</string>
 
     <!-- Recovery Restore Screen -->
     <string name="recovery_restore_title">Account Recovery</string>
-    <string name="recovery_restore_heading">Restore Your Account</string>
-    <string name="recovery_restore_description">Enter the 24 recovery words you saved during account setup to restore access to your encrypted data.</string>
+    <string name="recovery_restore_heading">Restore Your Data</string>
+    <string name="recovery_restore_description">Enter the 24 recovery words you saved during setup to restore access to your encrypted data on this device.</string>
     <string name="recovery_restore_progress">%1$d of %2$d words entered</string>
-    <string name="recovery_restore_button">Restore Account</string>
+    <string name="recovery_restore_button">Restore</string>
+    <string name="recovery_restore_passphrase_heading">Passphrase (if set)</string>
+    <string name="recovery_restore_passphrase_description">If you set a passphrase during setup, enter it here. Leave blank if you did not set one.</string>
 
-    <!-- Family Setup Screen -->
-    <string name="family_setup_title">Family Setup</string>
-    <string name="family_setup_heading">Create Your Family</string>
-    <string name="family_setup_description">Choose a name for your family group. This will be visible to all family members.</string>
-    <string name="family_setup_name_label">Family Name</string>
-    <string name="family_setup_name_placeholder">e.g. The Smiths</string>
-    <string name="family_setup_continue">Create Family</string>
+    <!-- Bucket Setup Screen -->
+    <string name="bucket_setup_title">Create Bucket</string>
+    <string name="bucket_setup_heading">Create Your Bucket</string>
+    <string name="bucket_setup_description">A bucket is your private, encrypted storage space. All calendar, expense, and info bank data is stored here.</string>
+    <string name="bucket_setup_privacy_note">The server only stores an anonymous identifier for your bucket. The name you choose is stored locally on your device and shared only with paired devices through encrypted data.</string>
+    <string name="bucket_setup_name_label">Bucket Name (local only)</string>
+    <string name="bucket_setup_name_placeholder">e.g. Smith Family</string>
+    <string name="bucket_setup_name_hint">This name is stored only on your device, not on the server.</string>
+    <string name="bucket_setup_create">Create Bucket</string>
 
     <!-- Add Children Screen -->
     <string name="add_children_title">Add Children</string>
@@ -78,28 +61,36 @@
     <string name="add_children_add_more">Add Another Child</string>
     <string name="add_children_continue">Continue</string>
 
-    <!-- Invite Co-Parent Screen -->
-    <string name="invite_title">Invite Co-Parent</string>
-    <string name="invite_heading">Invite Your Co-Parent</string>
-    <string name="invite_description">Generate an invite link to share with your co-parent. They can use it to join your family and access shared information securely.</string>
-    <string name="invite_generate_button">Generate Invite Link</string>
-    <string name="invite_copy">Copy</string>
-    <string name="invite_share">Share</string>
-    <string name="invite_skip">Skip for now, I\'ll invite later</string>
+    <!-- Pairing Screen -->
+    <string name="pairing_title">Pair with Co-Parent</string>
+    <string name="pairing_heading">Pair Your Devices</string>
+    <string name="pairing_description">Generate a QR code for your co-parent to scan. This securely connects their device to your shared bucket without revealing any data to the server.</string>
+    <string name="pairing_generate_button">Generate Pairing QR Code</string>
+    <string name="pairing_qr_instruction">Have your co-parent scan this QR code with their KidSync app.</string>
+    <string name="pairing_copy">Copy</string>
+    <string name="pairing_share">Share</string>
+    <string name="pairing_skip">Skip for now, I\'ll pair later</string>
 
-    <!-- Join Family Screen -->
-    <string name="join_title">Join Family</string>
-    <string name="join_heading">Join a Family</string>
-    <string name="join_description">Enter the invite code you received from your co-parent to join their family group.</string>
-    <string name="join_invite_code_label">Invite Code</string>
-    <string name="join_invite_code_placeholder">Paste your invite code</string>
-    <string name="join_verify_fingerprint">Verify Key Fingerprint</string>
-    <string name="join_verify_instruction">Compare this fingerprint with your co-parent to verify the secure connection.</string>
-    <string name="join_button">Join Family</string>
+    <!-- Join Bucket Screen -->
+    <string name="join_bucket_title">Join Bucket</string>
+    <string name="join_bucket_heading">Scan QR Code</string>
+    <string name="join_bucket_description">Point your camera at the QR code shown on your co-parent\'s device to securely join their bucket.</string>
+    <string name="join_bucket_waiting_title">Waiting for Approval</string>
+    <string name="join_bucket_waiting_description">Waiting for your co-parent to approve the connection and share the encryption key\u2026</string>
+    <string name="join_bucket_peer_fingerprint">Co-Parent\'s Key Fingerprint</string>
+    <string name="join_bucket_verify_instruction">Verify this fingerprint matches what your co-parent sees on their device.</string>
+
+    <!-- QR Code Scanner -->
+    <string name="qr_camera_permission_needed">Camera permission is needed to scan QR codes.</string>
+    <string name="qr_grant_permission">Grant Camera Permission</string>
+    <string name="qr_scan_hint">Position the QR code within the camera view</string>
+
+    <!-- Key Fingerprint -->
+    <string name="key_fingerprint_label">Device Key Fingerprint</string>
 
     <!-- Dashboard Screen -->
     <string name="dashboard_welcome">Welcome!</string>
-    <string name="dashboard_family_subtitle">Your family dashboard</string>
+    <string name="dashboard_bucket_subtitle">Your encrypted co-parenting hub</string>
     <string name="dashboard_quick_access">Quick Access</string>
     <string name="dashboard_calendar">Calendar</string>
     <string name="dashboard_calendar_desc">Custody schedule</string>
@@ -107,9 +98,23 @@
     <string name="dashboard_expenses_desc">Shared costs</string>
     <string name="dashboard_no_events">No upcoming events</string>
     <string name="dashboard_no_events_subtitle">Your shared calendar events will appear here</string>
+    <string name="dashboard_no_coparent">No Co-Parent Paired</string>
+    <string name="dashboard_no_coparent_desc">Pair with your co-parent to share calendars, expenses, and information.</string>
+    <string name="dashboard_pair">Pair</string>
 
     <!-- Settings Screen -->
     <string name="settings_title">Settings</string>
+    <string name="settings_section_device_key">Device Identity</string>
+    <string name="settings_device_fingerprint">Device Key Fingerprint</string>
+    <string name="settings_section_buckets">Buckets</string>
+    <string name="settings_no_buckets">No Buckets</string>
+    <string name="settings_no_buckets_subtitle">Create or join a bucket to get started</string>
+    <string name="settings_bucket_id_short">ID: %1$s\u2026</string>
+    <string name="settings_pair_device">Pair Device</string>
+    <string name="settings_pair_device_subtitle">Invite a co-parent or link another device</string>
+    <string name="settings_section_recovery">Recovery</string>
+    <string name="settings_recovery_phrase">Recovery Phrase</string>
+    <string name="settings_recovery_phrase_subtitle">View your 24-word recovery phrase</string>
     <string name="settings_section_server">Server</string>
     <string name="settings_server_config">Server Configuration</string>
     <string name="settings_section_notifications">Notifications</string>
@@ -118,7 +123,7 @@
     <string name="settings_default_currency">Default Currency</string>
     <string name="settings_section_devices">Devices</string>
     <string name="settings_manage_devices">Manage Devices</string>
-    <string name="settings_manage_devices_subtitle">View and revoke device access</string>
+    <string name="settings_manage_devices_subtitle">View paired devices and cross-signature status</string>
     <string name="settings_section_about">About</string>
     <string name="settings_about">About KidSync</string>
     <string name="settings_version">Version %1$s</string>
@@ -128,9 +133,8 @@
     <string name="devices_title">Devices</string>
     <string name="devices_loading">Loading devices\u2026</string>
     <string name="devices_empty">No devices registered</string>
-    <string name="devices_registered">Registered %1$s</string>
-    <string name="devices_revoked">Revoked</string>
-    <string name="devices_revoke">Revoke</string>
+    <string name="devices_verified">Verified</string>
+    <string name="devices_unverified">Unverified</string>
 
     <!-- Server Config Screen -->
     <string name="server_config_title">Server</string>
@@ -141,11 +145,6 @@
     <string name="server_config_test">Test Connection</string>
     <string name="server_config_connected">Connection successful</string>
     <string name="server_config_failed">Connection failed</string>
-
-    <!-- Password Strength -->
-    <string name="password_strength_weak">Weak</string>
-    <string name="password_strength_medium">Medium</string>
-    <string name="password_strength_strong">Strong</string>
 
     <!-- Expense Module -->
     <string name="expense_list_title">Expenses</string>
@@ -328,22 +327,16 @@
     <!-- Content Descriptions (Accessibility) -->
     <string name="cd_app_logo">KidSync app logo</string>
     <string name="cd_navigate_back">Navigate back</string>
-    <string name="cd_show_password">Show password</string>
-    <string name="cd_hide_password">Hide password</string>
+    <string name="cd_show_passphrase">Show passphrase</string>
+    <string name="cd_hide_passphrase">Hide passphrase</string>
     <string name="cd_settings">Open settings</string>
-    <string name="cd_registering">Creating your account</string>
-    <string name="cd_signing_in">Signing in</string>
-    <string name="cd_verifying_code">Verifying code</string>
-    <string name="cd_creating_family">Creating family</string>
-    <string name="cd_generating_invite">Generating invite link</string>
-    <string name="cd_joining_family">Joining family</string>
+    <string name="cd_creating_bucket">Creating bucket</string>
+    <string name="cd_generating_invite">Generating pairing QR code</string>
     <string name="cd_restoring_account">Restoring account</string>
     <string name="cd_testing_connection">Testing server connection</string>
-    <string name="cd_invite_qr_code">QR code for invite link</string>
-    <string name="cd_password_strength_none">No password entered</string>
-    <string name="cd_password_strength_weak">Password strength: weak</string>
-    <string name="cd_password_strength_medium">Password strength: medium</string>
-    <string name="cd_password_strength_strong">Password strength: strong</string>
+    <string name="cd_qr_code">QR code</string>
+    <string name="cd_pairing_qr_code">QR code for pairing with co-parent</string>
+    <string name="cd_key_fingerprint">Device key fingerprint: %1$s</string>
     <string name="cd_mnemonic_grid">Recovery key with %1$d words</string>
     <string name="cd_mnemonic_word">Word %1$d: %2$s</string>
     <string name="cd_mnemonic_input_grid">Recovery word input, %1$d words</string>
@@ -366,21 +359,6 @@
     <!-- Dashboard - Info Bank -->
     <string name="dashboard_info_bank">Info Bank</string>
     <string name="dashboard_info_bank_desc">Child information</string>
-
-    <!-- Solo Mode -->
-    <string name="family_setup_mode_label">How will you use KidSync?</string>
-    <string name="family_setup_mode_shared">Set up with co-parent</string>
-    <string name="family_setup_mode_shared_desc">Invite your co-parent to share calendars, expenses, and schedules together.</string>
-    <string name="family_setup_mode_solo">Use solo</string>
-    <string name="family_setup_mode_solo_desc">Start as a personal parenting logger. You can invite a co-parent later.</string>
-    <string name="dashboard_solo_mode">Solo Mode</string>
-    <string name="dashboard_solo_mode_desc">You are using KidSync as a personal parenting logger.</string>
-    <string name="dashboard_invite_coparent">Invite</string>
-    <string name="settings_section_solo">Solo Mode</string>
-    <string name="settings_invite_coparent">Invite Co-Parent</string>
-    <string name="settings_invite_coparent_subtitle">Convert to shared mode by inviting your co-parent</string>
-    <string name="calendar_swap_solo_title">Swap Not Needed</string>
-    <string name="calendar_swap_solo_subtitle">In solo mode, you manage the schedule by yourself. Swap requests are not needed.</string>
 
     <!-- Info Bank Module -->
     <string name="info_bank_title">Info Bank</string>

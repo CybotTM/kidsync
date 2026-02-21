@@ -46,7 +46,7 @@ import com.kidsync.app.ui.viewmodel.SettingsViewModel
 
 /**
  * Server configuration screen for setting the KidSync server URL
- * and testing the connection.
+ * and testing the connection. Kept mostly as-is, removed email-related config.
  */
 @Composable
 fun ServerConfigScreen(

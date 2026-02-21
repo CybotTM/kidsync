@@ -2,24 +2,24 @@ package com.kidsync.app.ui.navigation
 
 /**
  * Sealed class defining all navigation routes in the KidSync app.
+ * Updated for zero-knowledge architecture: removed Login, Register, TotpSetup.
+ * Added KeySetup, BucketSetup, Pairing, JoinBucket routes.
  * Each route has a unique [route] string used by the Navigation component.
  */
 sealed class Routes(val route: String) {
 
-    // Auth flow
+    // Auth flow (zero-knowledge)
     data object Splash : Routes("splash")
     data object Welcome : Routes("welcome")
-    data object Register : Routes("register")
-    data object Login : Routes("login")
-    data object TotpSetup : Routes("totp_setup")
+    data object KeySetup : Routes("key_setup")
     data object RecoveryKey : Routes("recovery_key")
     data object RecoveryRestore : Routes("recovery_restore")
 
-    // Family onboarding flow
-    data object FamilySetup : Routes("family_setup")
+    // Bucket onboarding flow (replaces family flow)
+    data object BucketSetup : Routes("bucket_setup")
     data object AddChildren : Routes("add_children")
-    data object InviteCoParent : Routes("invite_co_parent")
-    data object JoinFamily : Routes("join_family")
+    data object Pairing : Routes("pairing")
+    data object JoinBucket : Routes("join_bucket")
 
     // Main app
     data object Dashboard : Routes("dashboard")

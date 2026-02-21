@@ -149,6 +149,18 @@ dependencies {
 
     // Crypto
     implementation(libs.tink)
+    implementation(libs.bouncycastle)
+
+    // QR Code
+    implementation(libs.zxing.core)
+
+    // CameraX (QR scanning)
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
+
+    // ML Kit (barcode scanning)
+    implementation(libs.mlkit.barcode.scanning)
 
     // DI
     implementation(libs.hilt.android)

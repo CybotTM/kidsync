@@ -10,13 +10,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FamilyRestroom
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -29,14 +30,14 @@ import androidx.compose.ui.unit.dp
 import com.kidsync.app.R
 
 /**
- * Welcome screen showing the app value proposition with primary actions
- * to get started (register) or sign in (existing account).
+ * Welcome screen for zero-knowledge onboarding.
+ * Two options: "Set Up New" (generates keypair) and "Restore from Recovery" (mnemonic input).
+ * No email or password fields -- the device key IS the identity.
  */
 @Composable
 fun WelcomeScreen(
-    onGetStarted: () -> Unit,
-    onHaveAccount: () -> Unit,
-    onJoinFamily: () -> Unit,
+    onSetUpNew: () -> Unit,
+    onRestoreFromRecovery: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -84,19 +85,37 @@ fun WelcomeScreen(
                 textAlign = TextAlign.Center
             )
 
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Zero-knowledge explanation
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer
+                )
+            ) {
+                Text(
+                    text = stringResource(R.string.welcome_zk_explanation),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(16.dp)
+                )
+            }
+
             Spacer(modifier = Modifier.height(48.dp))
 
             ElevatedButton(
-                onClick = onGetStarted,
+                onClick = onSetUpNew,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp)
                     .semantics {
-                        contentDescription = "Get started and create a new account"
+                        contentDescription = "Set up a new device with fresh keys"
                     }
             ) {
                 Text(
-                    text = stringResource(R.string.welcome_get_started),
+                    text = stringResource(R.string.welcome_set_up_new),
                     style = MaterialTheme.typography.labelLarge
                 )
             }
@@ -104,32 +123,17 @@ fun WelcomeScreen(
             Spacer(modifier = Modifier.height(12.dp))
 
             OutlinedButton(
-                onClick = onHaveAccount,
+                onClick = onRestoreFromRecovery,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp)
                     .semantics {
-                        contentDescription = "Sign in with existing account"
+                        contentDescription = "Restore from a recovery phrase"
                     }
             ) {
                 Text(
-                    text = stringResource(R.string.welcome_have_account),
+                    text = stringResource(R.string.welcome_restore),
                     style = MaterialTheme.typography.labelLarge
-                )
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            TextButton(
-                onClick = onJoinFamily,
-                modifier = Modifier.semantics {
-                    contentDescription = "Join an existing family with an invite code"
-                }
-            ) {
-                Text(
-                    text = stringResource(R.string.welcome_join_family),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.primary
                 )
             }
         }

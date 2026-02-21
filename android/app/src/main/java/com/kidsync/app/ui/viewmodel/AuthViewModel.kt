@@ -2,56 +2,48 @@ package com.kidsync.app.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.kidsync.app.domain.model.UserSession
+import com.kidsync.app.crypto.KeyManager
 import com.kidsync.app.domain.repository.AuthRepository
-import com.kidsync.app.domain.repository.TotpSetup
-import com.kidsync.app.domain.usecase.auth.LoginUseCase
 import com.kidsync.app.domain.usecase.auth.RecoveryUseCase
-import com.kidsync.app.domain.usecase.auth.RegisterUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.util.UUID
 import javax.inject.Inject
 
+/**
+ * UI state for key-based authentication.
+ * No email, password, or TOTP fields -- the device key is the identity.
+ */
 data class AuthUiState(
     val isLoading: Boolean = false,
-    val isLoggedIn: Boolean = false,
-    val session: UserSession? = null,
+    val isAuthenticated: Boolean = false,
+    val deviceId: String? = null,
+    val keyFingerprint: String? = null,
     val error: String? = null,
 
-    // Registration fields
-    val registerEmail: String = "",
-    val registerPassword: String = "",
-    val registerConfirmPassword: String = "",
-    val registerDisplayName: String = "",
-
-    // Login fields
-    val loginEmail: String = "",
-    val loginPassword: String = "",
-    val loginTotpCode: String = "",
-
-    // TOTP setup
-    val totpSetup: TotpSetup? = null,
-    val totpVerificationCode: String = "",
-    val isTotpVerified: Boolean = false,
+    // Key setup progress
+    val isKeyGenerated: Boolean = false,
+    val isRegisteredWithServer: Boolean = false,
+    val setupProgress: String = "",
 
     // Recovery
     val recoveryWords: List<String> = emptyList(),
+    val recoveryPassphrase: String = "",
     val hasSavedRecoveryKey: Boolean = false,
     val recoveryInputWords: List<String> = List(24) { "" },
-    val isRecoveryComplete: Boolean = false
+    val recoveryInputPassphrase: String = "",
+    val isRecoveryComplete: Boolean = false,
+    val recoveryProgress: String = ""
 )
 
 @HiltViewModel
 class AuthViewModel @Inject constructor(
-    private val registerUseCase: RegisterUseCase,
-    private val loginUseCase: LoginUseCase,
+    private val authRepository: AuthRepository,
     private val recoveryUseCase: RecoveryUseCase,
-    private val authRepository: AuthRepository
+    private val keyManager: KeyManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AuthUiState())
@@ -63,247 +55,153 @@ class AuthViewModel @Inject constructor(
 
     private fun checkExistingSession() {
         viewModelScope.launch {
-            val session = authRepository.getSession()
-            if (session != null) {
+            try {
+                val session = authRepository.getSession()
+                if (session != null) {
+                    val fingerprint = keyManager.getSigningKeyFingerprint()
+                    _uiState.update {
+                        it.copy(
+                            isAuthenticated = true,
+                            deviceId = session.deviceId,
+                            keyFingerprint = fingerprint
+                        )
+                    }
+                }
+            } catch (_: Exception) {
+                // No existing session
+            }
+        }
+    }
+
+    // -- Device Setup --
+
+    /**
+     * Generates Ed25519 + X25519 keypairs, registers with server via
+     * challenge-response, and authenticates. This is the main onboarding action.
+     */
+    fun setupDevice() {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(isLoading = true, error = null, setupProgress = "Generating keypairs...")
+            }
+
+            try {
+                // Step 1: Generate keypairs
+                val seed = keyManager.generateSeed()
+                val signingKeyPair = keyManager.deriveSigningKeyPair(seed)
+                val encryptionKeyPair = keyManager.deriveEncryptionKeyPair(seed)
+                keyManager.storeSeed(seed)
+
                 _uiState.update {
-                    it.copy(isLoggedIn = true, session = session)
+                    it.copy(
+                        isKeyGenerated = true,
+                        setupProgress = "Registering with server..."
+                    )
+                }
+
+                // Step 2: Register with server (POST /register)
+                val deviceId = authRepository.registerDevice(
+                    signingKey = keyManager.encodePublicKey(signingKeyPair.public),
+                    encryptionKey = keyManager.encodePublicKey(encryptionKeyPair.public)
+                )
+
+                _uiState.update {
+                    it.copy(
+                        isRegisteredWithServer = true,
+                        deviceId = deviceId,
+                        setupProgress = "Authenticating..."
+                    )
+                }
+
+                // Step 3: Authenticate via challenge-response
+                authRepository.authenticateWithChallenge(signingKeyPair)
+
+                val fingerprint = keyManager.getSigningKeyFingerprint()
+
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        isAuthenticated = true,
+                        keyFingerprint = fingerprint,
+                        setupProgress = ""
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        error = e.message ?: "Device setup failed",
+                        setupProgress = ""
+                    )
                 }
             }
         }
     }
 
-    // -- Registration --
-
-    fun onRegisterEmailChanged(email: String) {
-        _uiState.update { it.copy(registerEmail = email, error = null) }
-    }
-
-    fun onRegisterPasswordChanged(password: String) {
-        _uiState.update { it.copy(registerPassword = password, error = null) }
-    }
-
-    fun onRegisterConfirmPasswordChanged(password: String) {
-        _uiState.update { it.copy(registerConfirmPassword = password, error = null) }
-    }
-
-    fun onRegisterDisplayNameChanged(name: String) {
-        _uiState.update { it.copy(registerDisplayName = name, error = null) }
-    }
-
-    fun register() {
-        val state = _uiState.value
-
-        if (state.registerEmail.isBlank()) {
-            _uiState.update { it.copy(error = "Email is required") }
-            return
-        }
-        if (state.registerPassword.length < 12) {
-            _uiState.update { it.copy(error = "Password must be at least 12 characters") }
-            return
-        }
-        if (!state.registerPassword.any { it.isUpperCase() } ||
-            !state.registerPassword.any { it.isLowerCase() } ||
-            !state.registerPassword.any { it.isDigit() }) {
-            _uiState.update { it.copy(error = "Password must contain uppercase, lowercase, and a number") }
-            return
-        }
-        if (state.registerPassword != state.registerConfirmPassword) {
-            _uiState.update { it.copy(error = "Passwords do not match") }
-            return
-        }
-
+    /**
+     * Authenticate an existing device via challenge-response.
+     * Used when the device already has keys but needs a new session.
+     */
+    fun authenticate() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
 
-            val result = registerUseCase(
-                email = state.registerEmail.trim(),
-                password = state.registerPassword,
-                displayName = state.registerDisplayName.trim().ifBlank { state.registerEmail.substringBefore("@") }
-            )
+            try {
+                val signingKeyPair = keyManager.getSigningKeyPair()
+                authRepository.authenticateWithChallenge(signingKeyPair)
 
-            result.fold(
-                onSuccess = { session ->
-                    _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            session = session,
-                            isLoggedIn = true,
-                            // SEC-C3: Clear credentials from memory after successful registration
-                            registerPassword = "",
-                            registerConfirmPassword = ""
-                        )
-                    }
-                },
-                onFailure = { error ->
-                    _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            error = error.message ?: "Registration failed"
-                        )
-                    }
+                val fingerprint = keyManager.getSigningKeyFingerprint()
+                val deviceId = keyManager.getDeviceId()
+
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        isAuthenticated = true,
+                        deviceId = deviceId,
+                        keyFingerprint = fingerprint
+                    )
                 }
-            )
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        error = e.message ?: "Authentication failed"
+                    )
+                }
+            }
         }
     }
 
-    // -- Login --
+    // -- Recovery Key Generation --
 
-    fun onLoginEmailChanged(email: String) {
-        _uiState.update { it.copy(loginEmail = email, error = null) }
-    }
-
-    fun onLoginPasswordChanged(password: String) {
-        _uiState.update { it.copy(loginPassword = password, error = null) }
-    }
-
-    fun onLoginTotpCodeChanged(code: String) {
-        _uiState.update { it.copy(loginTotpCode = code, error = null) }
-    }
-
-    fun login() {
-        val state = _uiState.value
-
-        if (state.loginEmail.isBlank()) {
-            _uiState.update { it.copy(error = "Email is required") }
-            return
-        }
-        if (state.loginPassword.isBlank()) {
-            _uiState.update { it.copy(error = "Password is required") }
-            return
-        }
-
+    /**
+     * Generates a 24-word BIP39 mnemonic from the device seed.
+     */
+    fun generateRecoveryPhrase() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
 
-            val result = loginUseCase(
-                email = state.loginEmail.trim(),
-                password = state.loginPassword
-            )
+            try {
+                val words = recoveryUseCase.generateMnemonicFromSeed(
+                    seed = keyManager.getSeed()
+                )
 
-            result.fold(
-                onSuccess = { session ->
-                    _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            session = session,
-                            isLoggedIn = true,
-                            // SEC-C3: Clear credentials from memory after successful login
-                            loginPassword = "",
-                            loginTotpCode = ""
-                        )
-                    }
-                },
-                onFailure = { error ->
-                    _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            error = error.message ?: "Login failed"
-                        )
-                    }
+                _uiState.update {
+                    it.copy(isLoading = false, recoveryWords = words)
                 }
-            )
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        error = e.message ?: "Recovery phrase generation failed"
+                    )
+                }
+            }
         }
     }
 
-    // -- TOTP --
-
-    fun setupTotp() {
-        val session = _uiState.value.session ?: return
-
-        viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
-
-            val result = authRepository.setupTotp(session.userId)
-
-            result.fold(
-                onSuccess = { setup ->
-                    _uiState.update {
-                        it.copy(isLoading = false, totpSetup = setup)
-                    }
-                },
-                onFailure = { error ->
-                    _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            error = error.message ?: "TOTP setup failed"
-                        )
-                    }
-                }
-            )
-        }
-    }
-
-    fun onTotpVerificationCodeChanged(code: String) {
-        _uiState.update { it.copy(totpVerificationCode = code, error = null) }
-    }
-
-    fun verifyTotp() {
-        val state = _uiState.value
-        val session = state.session ?: return
-
-        if (state.totpVerificationCode.length != 6) {
-            _uiState.update { it.copy(error = "Enter a 6-digit code") }
-            return
-        }
-
-        viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
-
-            val result = authRepository.verifyTotp(session.userId, state.totpVerificationCode)
-
-            result.fold(
-                onSuccess = { verified ->
-                    _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            isTotpVerified = verified,
-                            // SEC-C3: Clear TOTP code from memory after verification attempt
-                            totpVerificationCode = if (verified) "" else it.totpVerificationCode,
-                            error = if (!verified) "Invalid code, please try again" else null
-                        )
-                    }
-                },
-                onFailure = { error ->
-                    _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            error = error.message ?: "Verification failed"
-                        )
-                    }
-                }
-            )
-        }
-    }
-
-    // -- Recovery Key --
-
-    fun generateRecoveryKey() {
-        val session = _uiState.value.session ?: return
-
-        viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
-
-            val result = recoveryUseCase.generateRecoveryKey(
-                userId = session.userId,
-                familyId = session.familyId
-            )
-
-            result.fold(
-                onSuccess = { words ->
-                    _uiState.update {
-                        it.copy(isLoading = false, recoveryWords = words)
-                    }
-                },
-                onFailure = { error ->
-                    _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            error = error.message ?: "Recovery key generation failed"
-                        )
-                    }
-                }
-            )
-        }
+    fun onRecoveryPassphraseChanged(passphrase: String) {
+        _uiState.update { it.copy(recoveryPassphrase = passphrase, error = null) }
     }
 
     fun onRecoverySavedChecked(checked: Boolean) {
@@ -312,10 +210,30 @@ class AuthViewModel @Inject constructor(
 
     /**
      * SEC-C3: Called when the user confirms they have saved their recovery key
-     * and navigates away. Clears recovery words from memory.
+     * and navigates away. Clears recovery words from memory and uploads
+     * the encrypted recovery blob.
      */
     fun confirmRecoveryKeySaved() {
-        _uiState.update { it.copy(recoveryWords = emptyList(), hasSavedRecoveryKey = true) }
+        viewModelScope.launch {
+            try {
+                val passphrase = _uiState.value.recoveryPassphrase
+                recoveryUseCase.uploadRecoveryBlob(
+                    seed = keyManager.getSeed(),
+                    passphrase = passphrase
+                )
+            } catch (_: Exception) {
+                // Recovery blob upload failure is non-fatal during onboarding;
+                // user can re-upload later from settings
+            }
+
+            _uiState.update {
+                it.copy(
+                    recoveryWords = emptyList(),
+                    recoveryPassphrase = "",
+                    hasSavedRecoveryKey = true
+                )
+            }
+        }
     }
 
     // -- Recovery Restore --
@@ -328,10 +246,19 @@ class AuthViewModel @Inject constructor(
         }
     }
 
+    fun onRecoveryInputPassphraseChanged(passphrase: String) {
+        _uiState.update { it.copy(recoveryInputPassphrase = passphrase, error = null) }
+    }
+
+    /**
+     * Restores from a 24-word mnemonic + optional passphrase:
+     * 1. Derive recovery key from mnemonic + passphrase via HKDF
+     * 2. Download and decrypt recovery blob from server
+     * 3. Re-derive Ed25519 + X25519 keypairs from recovered seed
+     * 4. Register as new device, authenticate
+     */
     fun restoreFromRecovery() {
         val state = _uiState.value
-        val session = state.session
-
         val words = state.recoveryInputWords.map { it.trim().lowercase() }
         val filledWords = words.filter { it.isNotBlank() }
 
@@ -341,32 +268,77 @@ class AuthViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
+            _uiState.update {
+                it.copy(isLoading = true, error = null, recoveryProgress = "Deriving recovery key...")
+            }
 
-            val userId = session?.userId ?: UUID(0, 0)
-            val familyId = session?.familyId ?: UUID(0, 0)
+            try {
+                // Step 1: Derive seed from mnemonic
+                val seed = recoveryUseCase.deriveSeedFromMnemonic(
+                    mnemonic = words,
+                    passphrase = state.recoveryInputPassphrase
+                )
 
-            val result = recoveryUseCase.restoreFromRecovery(
-                mnemonic = words,
-                userId = userId,
-                familyId = familyId
-            )
-
-            result.fold(
-                onSuccess = {
-                    _uiState.update {
-                        it.copy(isLoading = false, isRecoveryComplete = true)
-                    }
-                },
-                onFailure = { error ->
-                    _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            error = error.message ?: "Recovery failed. Check your words and try again."
-                        )
-                    }
+                _uiState.update {
+                    it.copy(recoveryProgress = "Downloading recovery data...")
                 }
-            )
+
+                // Step 2: Download and decrypt recovery blob
+                recoveryUseCase.downloadAndDecryptRecoveryBlob(
+                    seed = seed,
+                    passphrase = state.recoveryInputPassphrase
+                )
+
+                _uiState.update {
+                    it.copy(recoveryProgress = "Re-deriving keypairs...")
+                }
+
+                // Step 3: Re-derive keypairs and store seed
+                val signingKeyPair = keyManager.deriveSigningKeyPair(seed)
+                val encryptionKeyPair = keyManager.deriveEncryptionKeyPair(seed)
+                keyManager.storeSeed(seed)
+
+                _uiState.update {
+                    it.copy(recoveryProgress = "Registering device...")
+                }
+
+                // Step 4: Register as new device
+                val deviceId = authRepository.registerDevice(
+                    signingKey = keyManager.encodePublicKey(signingKeyPair.public),
+                    encryptionKey = keyManager.encodePublicKey(encryptionKeyPair.public)
+                )
+
+                _uiState.update {
+                    it.copy(recoveryProgress = "Authenticating...")
+                }
+
+                // Step 5: Authenticate
+                authRepository.authenticateWithChallenge(signingKeyPair)
+
+                val fingerprint = keyManager.getSigningKeyFingerprint()
+
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        isAuthenticated = true,
+                        isRecoveryComplete = true,
+                        deviceId = deviceId,
+                        keyFingerprint = fingerprint,
+                        recoveryProgress = "",
+                        // SEC-C3: Clear recovery input from memory
+                        recoveryInputWords = List(24) { "" },
+                        recoveryInputPassphrase = ""
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        error = e.message ?: "Recovery failed. Check your words and try again.",
+                        recoveryProgress = ""
+                    )
+                }
+            }
         }
     }
 

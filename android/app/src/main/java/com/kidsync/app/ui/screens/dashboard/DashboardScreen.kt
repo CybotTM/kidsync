@@ -15,12 +15,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.FamilyRestroom
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Payments
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -49,8 +48,8 @@ import com.kidsync.app.R
 import com.kidsync.app.ui.viewmodel.DashboardViewModel
 
 /**
- * Placeholder dashboard screen showing family info and quick-access cards
- * for calendar, expenses, and other features.
+ * Dashboard screen updated for zero-knowledge architecture.
+ * Uses bucketId instead of familyId. No email/displayName references.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,12 +59,10 @@ fun DashboardScreen(
     onNavigateToCalendar: () -> Unit = {},
     onNavigateToInfoBank: () -> Unit = {},
     onInviteCoParent: () -> Unit = {},
-    isSolo: Boolean = false,
     modifier: Modifier = Modifier,
     viewModel: DashboardViewModel = hiltViewModel()
 ) {
     val dashboardState by viewModel.uiState.collectAsStateWithLifecycle()
-    val effectiveSolo = isSolo || dashboardState.isSolo
 
     Scaffold(
         topBar = {
@@ -106,11 +103,11 @@ fun DashboardScreen(
         ) {
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Family info card
+            // Bucket info card
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .semantics { contentDescription = "Family overview" },
+                    .semantics { contentDescription = "Bucket overview" },
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer
                 )
@@ -122,7 +119,7 @@ fun DashboardScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.FamilyRestroom,
+                        imageVector = Icons.Filled.Shield,
                         contentDescription = null,
                         modifier = Modifier.size(48.dp),
                         tint = MaterialTheme.colorScheme.onPrimaryContainer
@@ -130,13 +127,15 @@ fun DashboardScreen(
                     Spacer(modifier = Modifier.width(16.dp))
                     Column {
                         Text(
-                            text = stringResource(R.string.dashboard_welcome),
+                            text = dashboardState.currentBucketName.ifBlank {
+                                stringResource(R.string.dashboard_welcome)
+                            },
                             style = MaterialTheme.typography.headlineSmall,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                             modifier = Modifier.semantics { heading() }
                         )
                         Text(
-                            text = stringResource(R.string.dashboard_family_subtitle),
+                            text = stringResource(R.string.dashboard_bucket_subtitle),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                         )
@@ -144,14 +143,14 @@ fun DashboardScreen(
                 }
             }
 
-            // Solo mode indicator
-            if (effectiveSolo) {
+            // Pair device prompt (if no co-parent yet)
+            if (!dashboardState.hasCoParent) {
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .semantics { contentDescription = "Solo mode active" },
+                        .semantics { contentDescription = "Pair with co-parent" },
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.tertiaryContainer
                     )
@@ -162,21 +161,14 @@ fun DashboardScreen(
                             .padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.Filled.Person,
-                            contentDescription = null,
-                            modifier = Modifier.size(24.dp),
-                            tint = MaterialTheme.colorScheme.onTertiaryContainer
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = stringResource(R.string.dashboard_solo_mode),
+                                text = stringResource(R.string.dashboard_no_coparent),
                                 style = MaterialTheme.typography.titleSmall,
                                 color = MaterialTheme.colorScheme.onTertiaryContainer
                             )
                             Text(
-                                text = stringResource(R.string.dashboard_solo_mode_desc),
+                                text = stringResource(R.string.dashboard_no_coparent_desc),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.8f)
                             )
@@ -189,7 +181,7 @@ fun DashboardScreen(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = stringResource(R.string.dashboard_invite_coparent),
+                                text = stringResource(R.string.dashboard_pair),
                                 style = MaterialTheme.typography.labelSmall
                             )
                         }

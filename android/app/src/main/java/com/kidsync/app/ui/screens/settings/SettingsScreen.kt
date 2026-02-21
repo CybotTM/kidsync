@@ -16,7 +16,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CurrencyExchange
+import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PhoneAndroid
@@ -37,6 +40,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -45,8 +49,9 @@ import com.kidsync.app.ui.components.TopAppBarWithBack
 import com.kidsync.app.ui.viewmodel.SettingsViewModel
 
 /**
- * Settings screen with sections for server configuration,
- * notification preferences, expense defaults, device management, and about.
+ * Settings screen updated for zero-knowledge architecture.
+ * Shows device key fingerprint instead of email, buckets instead of families,
+ * and removes TOTP-related settings.
  */
 @Composable
 fun SettingsScreen(
@@ -55,12 +60,10 @@ fun SettingsScreen(
     onInviteCoParent: () -> Unit = {},
     onLogout: () -> Unit,
     onBack: () -> Unit,
-    isSolo: Boolean = false,
     modifier: Modifier = Modifier,
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val effectiveSolo = isSolo || uiState.isSolo
 
     Scaffold(
         topBar = {
@@ -77,19 +80,62 @@ fun SettingsScreen(
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
         ) {
-            // Solo mode section (only shown when in solo mode)
-            if (effectiveSolo) {
-                SettingsSectionHeader(title = stringResource(R.string.settings_section_solo))
+            // Device Key section
+            SettingsSectionHeader(title = stringResource(R.string.settings_section_device_key))
 
+            SettingsItem(
+                icon = Icons.Filled.Fingerprint,
+                title = stringResource(R.string.settings_device_fingerprint),
+                subtitle = formatFingerprintShort(uiState.keyFingerprint),
+                onClick = { }
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+
+            // Buckets section
+            SettingsSectionHeader(title = stringResource(R.string.settings_section_buckets))
+
+            if (uiState.buckets.isEmpty()) {
                 SettingsItem(
-                    icon = Icons.Filled.PersonAdd,
-                    title = stringResource(R.string.settings_invite_coparent),
-                    subtitle = stringResource(R.string.settings_invite_coparent_subtitle),
-                    onClick = onInviteCoParent
+                    icon = Icons.Filled.Folder,
+                    title = stringResource(R.string.settings_no_buckets),
+                    subtitle = stringResource(R.string.settings_no_buckets_subtitle),
+                    onClick = { }
                 )
-
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+            } else {
+                uiState.buckets.forEach { bucket ->
+                    SettingsItem(
+                        icon = Icons.Filled.Folder,
+                        title = bucket.localName,
+                        subtitle = stringResource(
+                            R.string.settings_bucket_id_short,
+                            bucket.bucketId.take(8)
+                        ),
+                        onClick = { }
+                    )
+                }
             }
+
+            SettingsItem(
+                icon = Icons.Filled.PersonAdd,
+                title = stringResource(R.string.settings_pair_device),
+                subtitle = stringResource(R.string.settings_pair_device_subtitle),
+                onClick = onInviteCoParent
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+
+            // Recovery section
+            SettingsSectionHeader(title = stringResource(R.string.settings_section_recovery))
+
+            SettingsItem(
+                icon = Icons.Filled.Key,
+                title = stringResource(R.string.settings_recovery_phrase),
+                subtitle = stringResource(R.string.settings_recovery_phrase_subtitle),
+                onClick = { /* Navigate to recovery phrase re-view */ }
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
 
             // Server section
             SettingsSectionHeader(title = stringResource(R.string.settings_section_server))
@@ -163,7 +209,7 @@ fun SettingsScreen(
                         onLogout()
                     }
                     .semantics {
-                        contentDescription = "Sign out of your account"
+                        contentDescription = "Sign out and clear device session"
                     },
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.errorContainer
@@ -193,6 +239,11 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.height(32.dp))
         }
     }
+}
+
+private fun formatFingerprintShort(fingerprint: String): String {
+    if (fingerprint.isBlank()) return ""
+    return fingerprint.take(24).chunked(4).joinToString(" ")
 }
 
 @Composable
@@ -238,11 +289,16 @@ private fun SettingsItem(
                 text = title,
                 style = MaterialTheme.typography.bodyLarge
             )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            if (subtitle.isNotBlank()) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontFamily = if (title.contains("Fingerprint", ignoreCase = true))
+                            FontFamily.Monospace else FontFamily.Default
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }

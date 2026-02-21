@@ -11,14 +11,21 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -27,14 +34,22 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -46,8 +61,12 @@ import com.kidsync.app.ui.components.TopAppBarWithBack
 import com.kidsync.app.ui.viewmodel.AuthViewModel
 
 /**
- * Recovery key screen displaying BIP39 24-word mnemonic in a grid.
- * User must confirm they have saved the words before continuing.
+ * Recovery key screen displaying a 24-word BIP39 mnemonic grid.
+ * Updated for zero-knowledge architecture:
+ * - Shows 24-word mnemonic from device seed
+ * - Optional passphrase field (BIP39 25th word) for extra security
+ * - Confirmation checkbox before continuing
+ * - Navigates to bucket setup after confirmation
  */
 @Composable
 fun RecoveryKeyScreen(
@@ -58,6 +77,9 @@ fun RecoveryKeyScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    val focusManager = LocalFocusManager.current
+
+    var passphraseVisible by rememberSaveable { mutableStateOf(false) }
 
     // SEC-C1: Prevent screenshots/screen recording while recovery key is visible
     val context = LocalContext.current
@@ -72,10 +94,10 @@ fun RecoveryKeyScreen(
         }
     }
 
-    // Generate recovery key on first composition
+    // Generate recovery phrase on first composition
     LaunchedEffect(Unit) {
         if (uiState.recoveryWords.isEmpty()) {
-            viewModel.generateRecoveryKey()
+            viewModel.generateRecoveryPhrase()
         }
     }
 
@@ -162,6 +184,74 @@ fun RecoveryKeyScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Optional passphrase (BIP39 25th word)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = stringResource(R.string.recovery_passphrase_heading),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Text(
+                        text = stringResource(R.string.recovery_passphrase_description),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value = uiState.recoveryPassphrase,
+                        onValueChange = viewModel::onRecoveryPassphraseChanged,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .semantics {
+                                contentDescription = "Optional recovery passphrase"
+                            },
+                        label = { Text(stringResource(R.string.recovery_passphrase_label)) },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Filled.Lock,
+                                contentDescription = null
+                            )
+                        },
+                        trailingIcon = {
+                            IconButton(
+                                onClick = { passphraseVisible = !passphraseVisible }
+                            ) {
+                                Icon(
+                                    imageVector = if (passphraseVisible) Icons.Filled.VisibilityOff
+                                    else Icons.Filled.Visibility,
+                                    contentDescription = if (passphraseVisible)
+                                        stringResource(R.string.cd_hide_passphrase)
+                                    else stringResource(R.string.cd_show_passphrase)
+                                )
+                            }
+                        },
+                        visualTransformation = if (passphraseVisible) VisualTransformation.None
+                        else PasswordVisualTransformation(),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Password,
+                            imeAction = ImeAction.Done
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onDone = { focusManager.clearFocus() }
+                        )
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
