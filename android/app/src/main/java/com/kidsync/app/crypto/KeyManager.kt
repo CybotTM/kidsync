@@ -37,6 +37,11 @@ interface KeyManager {
     suspend fun getSigningKeyFingerprint(): String
 
     /**
+     * Get the SHA-256 fingerprint of this device's encryption public key.
+     */
+    suspend fun getEncryptionKeyFingerprint(): String
+
+    /**
      * Get the device's X25519 encryption key pair, derived from the Ed25519 seed.
      *
      * @return Java KeyPair for X25519 ECDH operations

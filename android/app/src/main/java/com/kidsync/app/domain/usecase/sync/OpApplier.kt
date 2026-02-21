@@ -54,8 +54,8 @@ class OpApplier @Inject constructor(
         payload: DecryptedPayload
     ): ApplyResult {
         val data = payload.data
-        val scheduleId = UUID.fromString(payload.entityId)
-        val childId = UUID.fromString(data["childId"]!!.jsonPrimitive.content)
+        val scheduleId = payload.entityId
+        val childId = data["childId"]!!.jsonPrimitive.content
         val effectiveFrom = Instant.parse(data["effectiveFrom"]!!.jsonPrimitive.content)
         val pattern = data["pattern"]!!.jsonArray.map { it.jsonPrimitive.content }
 
@@ -101,19 +101,22 @@ class OpApplier @Inject constructor(
         payload: DecryptedPayload
     ): ApplyResult {
         val data = payload.data
-        val overrideId = UUID.fromString(payload.entityId)
+        val overrideId = payload.entityId
         val status = data["status"]?.jsonPrimitive?.content ?: "PROPOSED"
 
         val entity = ScheduleOverrideEntity(
             overrideId = overrideId,
             type = data["type"]!!.jsonPrimitive.content,
-            childId = UUID.fromString(data["childId"]!!.jsonPrimitive.content),
+            childId = data["childId"]!!.jsonPrimitive.content,
             startDate = data["startDate"]!!.jsonPrimitive.content,
             endDate = data["endDate"]!!.jsonPrimitive.content,
-            assignedParentId = UUID.fromString(data["assignedParentId"]!!.jsonPrimitive.content),
+            assignedParentId = data["assignedParentId"]!!.jsonPrimitive.content,
             status = status,
-            proposerId = UUID.fromString(data["proposerId"]!!.jsonPrimitive.content),
-            responderId = data["responderId"]?.jsonPrimitive?.content?.let { UUID.fromString(it) },
+            proposerId = data["proposerDeviceId"]?.jsonPrimitive?.content
+                ?: data["proposerId"]?.jsonPrimitive?.content
+                ?: "",
+            responderId = data["responderDeviceId"]?.jsonPrimitive?.content
+                ?: data["responderId"]?.jsonPrimitive?.content,
             note = data["note"]?.jsonPrimitive?.content,
             clientTimestamp = payload.clientTimestamp
         )
@@ -140,9 +143,9 @@ class OpApplier @Inject constructor(
     ): ApplyResult {
         val data = payload.data
         val entity = ExpenseEntity(
-            expenseId = UUID.fromString(payload.entityId),
-            childId = UUID.fromString(data["childId"]!!.jsonPrimitive.content),
-            paidByUserId = UUID.fromString(data["paidByDeviceId"]!!.jsonPrimitive.content),
+            expenseId = payload.entityId,
+            childId = data["childId"]!!.jsonPrimitive.content,
+            paidByDeviceId = data["paidByDeviceId"]!!.jsonPrimitive.content,
             amountCents = data["amountCents"]!!.jsonPrimitive.int,
             currencyCode = data["currencyCode"]!!.jsonPrimitive.content,
             category = data["category"]!!.jsonPrimitive.content,

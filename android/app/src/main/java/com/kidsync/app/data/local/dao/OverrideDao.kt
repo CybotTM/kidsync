@@ -6,7 +6,6 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
 import com.kidsync.app.data.local.entity.ScheduleOverrideEntity
-import java.util.UUID
 
 @Dao
 interface OverrideDao {
@@ -18,7 +17,7 @@ interface OverrideDao {
     suspend fun updateOverride(override: ScheduleOverrideEntity)
 
     @Query("SELECT * FROM schedule_overrides WHERE overrideId = :overrideId")
-    suspend fun getOverrideById(overrideId: UUID): ScheduleOverrideEntity?
+    suspend fun getOverrideById(overrideId: String): ScheduleOverrideEntity?
 
     @Query(
         """
@@ -29,13 +28,13 @@ interface OverrideDao {
         """
     )
     suspend fun getOverridesForChildInRange(
-        childId: UUID,
+        childId: String,
         rangeStart: String,
         rangeEnd: String
     ): List<ScheduleOverrideEntity>
 
     @Query("SELECT * FROM schedule_overrides WHERE childId = :childId AND status = 'APPROVED'")
-    suspend fun getApprovedOverridesForChild(childId: UUID): List<ScheduleOverrideEntity>
+    suspend fun getApprovedOverridesForChild(childId: String): List<ScheduleOverrideEntity>
 
     @Query("SELECT * FROM schedule_overrides")
     suspend fun getAllOverrides(): List<ScheduleOverrideEntity>

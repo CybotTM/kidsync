@@ -3,7 +3,6 @@ package com.kidsync.app.data.local.entity
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
-import java.util.UUID
 
 @Entity(
     tableName = "custody_schedules",
@@ -11,8 +10,8 @@ import java.util.UUID
 )
 data class CustodyScheduleEntity(
     @PrimaryKey
-    val scheduleId: UUID,
-    val childId: UUID,
+    val scheduleId: String,
+    val childId: String,
     val anchorDate: String,
     val cycleLengthDays: Int,
     val patternJson: String,

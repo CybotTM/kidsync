@@ -5,7 +5,6 @@ import com.kidsync.app.data.local.dao.OverrideDao
 import com.kidsync.app.domain.model.*
 import java.time.Instant
 import java.time.LocalDate
-import java.util.UUID
 import javax.inject.Inject
 
 /**
@@ -19,7 +18,7 @@ class GetCustodyCalendarUseCase @Inject constructor(
     private val patternGenerator: PatternGenerator
 ) {
     suspend operator fun invoke(
-        childId: UUID,
+        childId: String,
         startDate: LocalDate,
         endDate: LocalDate
     ): Result<List<CustodyDay>> {
@@ -50,15 +49,14 @@ class GetCustodyCalendarUseCase @Inject constructor(
     }
 
     private fun com.kidsync.app.data.local.entity.CustodyScheduleEntity.toDomain(): CustodySchedule {
-        val patternUuids = kotlinx.serialization.json.Json.decodeFromString<List<String>>(patternJson)
-            .map { UUID.fromString(it) }
+        val patternStrings = kotlinx.serialization.json.Json.decodeFromString<List<String>>(patternJson)
 
         return CustodySchedule(
             scheduleId = scheduleId,
             childId = childId,
             anchorDate = LocalDate.parse(anchorDate),
             cycleLengthDays = cycleLengthDays,
-            pattern = patternUuids,
+            pattern = patternStrings,
             effectiveFrom = Instant.parse(effectiveFrom),
             timeZone = timeZone,
             status = status,

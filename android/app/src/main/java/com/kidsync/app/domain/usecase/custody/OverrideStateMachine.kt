@@ -58,7 +58,7 @@ class OverrideStateMachine @Inject constructor() {
 
         when (op.operation) {
             "CREATE" -> {
-                val proposerId = op.data["proposerId"]?.jsonPrimitive?.content ?: return
+                val proposerId = op.data["proposerDeviceId"]?.jsonPrimitive?.content ?: return
                 states[op.entityId] = OverrideState(
                     entityId = op.entityId,
                     status = OverrideStatus.PROPOSED,
@@ -68,9 +68,9 @@ class OverrideStateMachine @Inject constructor() {
             }
             "UPDATE" -> {
                 val current = states[op.entityId] ?: return
-                val transitionStr = op.data["transitionTo"]?.jsonPrimitive?.content ?: return
+                val transitionStr = op.data["status"]?.jsonPrimitive?.content ?: return
                 val transitionTo = runCatching { OverrideStatus.valueOf(transitionStr) }.getOrNull() ?: return
-                val actorDeviceId = op.data["actorDeviceId"]?.jsonPrimitive?.content
+                val actorDeviceId = op.data["responderDeviceId"]?.jsonPrimitive?.content
 
                 if (isValidTransition(current.status, transitionTo)) {
                     val authorityResult = validateAuthority(

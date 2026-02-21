@@ -35,13 +35,13 @@ data class SwapRequestUiState(
     val isSolo: Boolean = false,
 
     // Parent context (needed for swap logic)
-    val parentAId: UUID? = null,
-    val parentBId: UUID? = null,
+    val parentAId: String? = null,
+    val parentBId: String? = null,
     val parentAName: String = "Parent A",
     val parentBName: String = "Parent B",
 
     // Child context
-    val childId: UUID? = null,
+    val childId: String? = null,
 
     // Current calendar assignments (needed for swap preview)
     val assignments: Map<LocalDate, CustodyDay> = emptyMap(),
@@ -93,11 +93,11 @@ class SwapRequestViewModel @Inject constructor(
 
     // ── Context Setup ────────────────────────────────────────────────
 
-    fun setChildId(childId: UUID) {
+    fun setChildId(childId: String) {
         _uiState.update { it.copy(childId = childId) }
     }
 
-    fun setParentInfo(parentAId: UUID, parentAName: String, parentBId: UUID, parentBName: String) {
+    fun setParentInfo(parentAId: String, parentAName: String, parentBId: String, parentBName: String) {
         _uiState.update {
             it.copy(
                 parentAId = parentAId,
@@ -201,17 +201,17 @@ class SwapRequestViewModel @Inject constructor(
                     return@launch
                 }
 
-                val overrideId = UUID.randomUUID()
+                val overrideId = UUID.randomUUID().toString()
                 // The swap assigns the OTHER parent for the requested days
                 val assignedParentId = parentBId // Default swap target
 
                 val contentData = buildJsonObject {
-                    put("overrideId", JsonPrimitive(overrideId.toString()))
+                    put("overrideId", JsonPrimitive(overrideId))
                     put("type", JsonPrimitive(OverrideType.SWAP_REQUEST.name))
-                    put("childId", JsonPrimitive(childId.toString()))
+                    put("childId", JsonPrimitive(childId))
                     put("startDate", JsonPrimitive(startDate.toString()))
                     put("endDate", JsonPrimitive(endDate.toString()))
-                    put("assignedParentId", JsonPrimitive(assignedParentId.toString()))
+                    put("assignedParentId", JsonPrimitive(assignedParentId))
                     put("status", JsonPrimitive(OverrideStatus.PROPOSED.name))
                     put("proposerDeviceId", JsonPrimitive(session.deviceId))
                     state.swapNote.ifBlank { null }?.let { put("note", JsonPrimitive(it)) }
@@ -220,7 +220,7 @@ class SwapRequestViewModel @Inject constructor(
                 val result = createOperationUseCase(
                     bucketId = bucketId,
                     entityType = EntityType.ScheduleOverride,
-                    entityId = overrideId.toString(),
+                    entityId = overrideId,
                     operationType = OperationType.CREATE,
                     contentData = contentData
                 )
@@ -254,15 +254,15 @@ class SwapRequestViewModel @Inject constructor(
 
     // ── Swap Approval/Decline ────────────────────────────────────────
 
-    fun approveSwap(overrideId: UUID) {
+    fun approveSwap(overrideId: String) {
         respondToSwap(overrideId, OverrideStatus.APPROVED)
     }
 
-    fun declineSwap(overrideId: UUID) {
+    fun declineSwap(overrideId: String) {
         respondToSwap(overrideId, OverrideStatus.DECLINED)
     }
 
-    private fun respondToSwap(overrideId: UUID, newStatus: OverrideStatus) {
+    private fun respondToSwap(overrideId: String, newStatus: OverrideStatus) {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
 
@@ -278,7 +278,7 @@ class SwapRequestViewModel @Inject constructor(
                 }
 
                 val contentData = buildJsonObject {
-                    put("overrideId", JsonPrimitive(overrideId.toString()))
+                    put("overrideId", JsonPrimitive(overrideId))
                     put("status", JsonPrimitive(newStatus.name))
                     put("responderDeviceId", JsonPrimitive(session.deviceId))
                 }
@@ -286,7 +286,7 @@ class SwapRequestViewModel @Inject constructor(
                 val result = createOperationUseCase(
                     bucketId = bucketId,
                     entityType = EntityType.ScheduleOverride,
-                    entityId = overrideId.toString(),
+                    entityId = overrideId,
                     operationType = OperationType.UPDATE,
                     contentData = contentData
                 )

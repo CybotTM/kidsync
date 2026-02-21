@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kidsync.app.crypto.KeyManager
 import com.kidsync.app.domain.repository.AuthRepository
+import com.kidsync.app.domain.repository.BucketRepository
 import com.kidsync.app.domain.usecase.auth.RecoveryUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,7 +45,8 @@ data class AuthUiState(
 class AuthViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val recoveryUseCase: RecoveryUseCase,
-    private val keyManager: KeyManager
+    private val keyManager: KeyManager,
+    private val bucketRepository: BucketRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AuthUiState())
@@ -189,8 +191,10 @@ class AuthViewModel @Inject constructor(
             try {
                 // Generate recovery key for the first accessible bucket
                 // The recovery use case generates a mnemonic and wraps the DEK
+                val currentBucketId = bucketRepository.getAccessibleBuckets().firstOrNull()?.bucketId
+                    ?: throw IllegalStateException("No accessible bucket for recovery key generation")
                 val result = recoveryUseCase.generateRecoveryKey(
-                    bucketId = _uiState.value.deviceId ?: "default",
+                    bucketId = currentBucketId,
                     passphrase = _uiState.value.recoveryPassphrase
                 )
                 val words = result.getOrThrow()
@@ -301,9 +305,11 @@ class AuthViewModel @Inject constructor(
                 }
 
                 // Step 4: Restore DEK from recovery mnemonic
+                val recoveryBucketId = bucketRepository.getAccessibleBuckets().firstOrNull()?.bucketId
+                    ?: throw IllegalStateException("No accessible bucket after authentication")
                 val restoreResult = recoveryUseCase.restoreFromRecovery(
                     mnemonic = words,
-                    bucketId = "default", // Will be resolved once bucket list is loaded
+                    bucketId = recoveryBucketId,
                     passphrase = state.recoveryInputPassphrase
                 )
                 restoreResult.getOrThrow()

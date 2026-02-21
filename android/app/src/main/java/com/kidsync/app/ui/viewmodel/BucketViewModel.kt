@@ -151,7 +151,7 @@ class BucketViewModel @Inject constructor(
 
                 // Build QR payload
                 val serverUrl = authRepository.getServerUrl()
-                val fingerprint = keyManager.getSigningKeyFingerprint()
+                val fingerprint = keyManager.getEncryptionKeyFingerprint()
 
                 val payload = QrPairingPayload(
                     v = 1,

@@ -4,6 +4,7 @@ import android.content.SharedPreferences
 import com.kidsync.app.crypto.CryptoManager
 import com.kidsync.app.crypto.KeyManager
 import com.kidsync.app.data.local.dao.BucketDao
+import com.kidsync.app.data.local.dao.ExpenseDao
 import com.kidsync.app.data.local.dao.KeyAttestationDao
 import com.kidsync.app.data.local.dao.OpLogDao
 import com.kidsync.app.data.local.dao.SyncStateDao
@@ -57,6 +58,14 @@ object RepositoryModule {
             opLogDao = opLogDao,
             syncStateDao = syncStateDao
         )
+    }
+
+    @Provides
+    @Singleton
+    fun provideExpenseRepository(
+        expenseDao: ExpenseDao
+    ): ExpenseRepository {
+        return ExpenseRepositoryImpl(expenseDao)
     }
 
     @Provides

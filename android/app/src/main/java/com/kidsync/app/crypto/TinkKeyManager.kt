@@ -67,6 +67,15 @@ class TinkKeyManager @Inject constructor(
         return cryptoManager.computeKeyFingerprint(publicKey)
     }
 
+    override suspend fun getEncryptionKeyFingerprint(): String {
+        val encKeyPair = getEncryptionKeyPair()
+        val rawPublicKey = encKeyPair.public.encoded.let { encoded ->
+            // Extract raw 32-byte X25519 public key from X.509 SubjectPublicKeyInfo (44 bytes)
+            if (encoded.size == 44) encoded.copyOfRange(12, 44) else encoded
+        }
+        return cryptoManager.computeKeyFingerprint(rawPublicKey)
+    }
+
     override suspend fun getEncryptionKeyPair(): KeyPair {
         val (_, seed) = getOrCreateSigningKeyPair()
 

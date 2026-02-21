@@ -3,6 +3,8 @@ package com.kidsync.app.di
 import android.content.SharedPreferences
 import com.kidsync.app.crypto.CryptoManager
 import com.kidsync.app.crypto.KeyManager
+import com.kidsync.app.crypto.RecoveryKeyGenerator
+import com.kidsync.app.crypto.RecoveryKeyGeneratorImpl
 import com.kidsync.app.crypto.TinkCryptoManager
 import com.kidsync.app.crypto.TinkKeyManager
 import com.kidsync.app.data.local.dao.KeyEpochDao
@@ -32,6 +34,12 @@ object CryptoModule {
     @Singleton
     fun provideCryptoManager(keyManager: dagger.Lazy<KeyManager>): CryptoManager {
         return TinkCryptoManager(keyManager)
+    }
+
+    @Provides
+    @Singleton
+    fun provideRecoveryKeyGenerator(): RecoveryKeyGenerator {
+        return RecoveryKeyGeneratorImpl()
     }
 
     @Provides

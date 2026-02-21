@@ -3,7 +3,6 @@ package com.kidsync.app.data.local.entity
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
-import java.util.UUID
 
 @Entity(
     tableName = "schedule_overrides",
@@ -11,15 +10,15 @@ import java.util.UUID
 )
 data class ScheduleOverrideEntity(
     @PrimaryKey
-    val overrideId: UUID,
+    val overrideId: String,
     val type: String,
-    val childId: UUID,
+    val childId: String,
     val startDate: String,
     val endDate: String,
-    val assignedParentId: UUID,
+    val assignedParentId: String,
     val status: String,
-    val proposerId: UUID,
-    val responderId: UUID? = null,
+    val proposerId: String,
+    val responderId: String? = null,
     val note: String? = null,
     val clientTimestamp: String? = null
 )

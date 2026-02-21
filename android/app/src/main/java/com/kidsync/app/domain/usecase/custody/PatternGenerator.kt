@@ -5,7 +5,6 @@ import com.kidsync.app.domain.model.CustodyDaySource
 import com.kidsync.app.domain.model.CustodySchedule
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
-import java.util.UUID
 import javax.inject.Inject
 
 /**
@@ -23,7 +22,7 @@ class PatternGenerator @Inject constructor() {
     /**
      * Get the assigned parent for a specific date.
      */
-    fun getAssignedParent(schedule: CustodySchedule, date: LocalDate): UUID {
+    fun getAssignedParent(schedule: CustodySchedule, date: LocalDate): String {
         val dayIndex = computeDayIndex(schedule, date)
         return schedule.pattern[dayIndex]
     }

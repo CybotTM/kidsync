@@ -6,7 +6,7 @@ package com.kidsync.app.crypto
  * From encryption-spec.md:
  * - Generate 256 bits of entropy
  * - Encode as BIP39 24-word mnemonic
- * - Derive recovery key via HKDF-SHA256(IKM=entropy || passphrase, salt="kidsync-recovery-v1", info="recovery", L=32)
+ * - Derive recovery key via HKDF-SHA256(IKM=entropy || passphrase, salt="kidsync-recovery-v2", info="recovery-key", L=32)
  *
  * The optional passphrase acts as a "25th word" per BIP39 specification.
  * Without a passphrase, the mnemonic alone is sufficient for recovery.
@@ -33,7 +33,7 @@ interface RecoveryKeyGenerator {
     /**
      * Derive a 32-byte recovery key from entropy using HKDF-SHA256.
      *
-     * HKDF-SHA256(IKM=entropy || passphrase_bytes, salt="kidsync-recovery-v1", info="recovery", L=32)
+     * HKDF-SHA256(IKM=entropy || passphrase_bytes, salt="kidsync-recovery-v2", info="recovery-key", L=32)
      *
      * The passphrase provides additional security: a stolen mnemonic alone cannot
      * derive the recovery key without the passphrase.

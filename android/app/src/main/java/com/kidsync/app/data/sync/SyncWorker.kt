@@ -27,7 +27,7 @@ class SyncWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
     private val syncOpsUseCase: SyncOpsUseCase,
-    private val prefs: SharedPreferences
+    @javax.inject.Named("prefs") private val prefs: SharedPreferences
 ) : CoroutineWorker(appContext, workerParams) {
 
     companion object {

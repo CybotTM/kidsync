@@ -17,7 +17,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.YearMonth
-import java.util.UUID
 import javax.inject.Inject
 
 // ── UI State ────────────────────────────────────────────────────────────────
@@ -34,20 +33,20 @@ data class CalendarUiState(
     val selectedDate: LocalDate? = null,
 
     // Child selection
-    val childId: UUID? = null,
+    val childId: String? = null,
     val children: List<ChildInfo> = emptyList(),
 
     // Custody assignments for the displayed month
     val assignments: Map<LocalDate, CustodyDay> = emptyMap(),
 
     // Parent info
-    val parentAId: UUID? = null,
-    val parentBId: UUID? = null,
+    val parentAId: String? = null,
+    val parentBId: String? = null,
     val parentAName: String = "Parent A",
     val parentBName: String = "Parent B",
 
     // Today's assigned parent
-    val todayAssignedParentId: UUID? = null,
+    val todayAssignedParentId: String? = null,
 
     // Events for the selected day
     val events: List<CalendarEvent> = emptyList(),
@@ -64,7 +63,7 @@ data class CalendarUiState(
 )
 
 data class ChildInfo(
-    val id: UUID,
+    val id: String,
     val name: String
 )
 
@@ -225,7 +224,7 @@ class CalendarViewModel @Inject constructor(
 
     // ── Child Selection ─────────────────────────────────────────────────
 
-    fun selectChild(childId: UUID) {
+    fun selectChild(childId: String) {
         _uiState.update { it.copy(childId = childId) }
         loadMonth()
     }
@@ -237,7 +236,7 @@ class CalendarViewModel @Inject constructor(
         }
     }
 
-    fun setParentInfo(parentAId: UUID, parentAName: String, parentBId: UUID, parentBName: String) {
+    fun setParentInfo(parentAId: String, parentAName: String, parentBId: String, parentBName: String) {
         _uiState.update {
             it.copy(
                 parentAId = parentAId,
