@@ -17,10 +17,10 @@ object HashUtil {
     }
 
     /**
-     * Verify hash chain: currentHash == SHA256(bytes(devicePrevHash) + base64Decode(encryptedPayload))
+     * Verify hash chain: currentHash == SHA256(bytes(prevHash) + base64Decode(encryptedPayload))
      */
-    fun verifyHashChain(devicePrevHash: String, encryptedPayload: String, expectedCurrentHash: String): Boolean {
-        val prevHashBytes = hexToBytes(devicePrevHash)
+    fun verifyHashChain(prevHash: String, encryptedPayload: String, expectedCurrentHash: String): Boolean {
+        val prevHashBytes = hexToBytes(prevHash)
         val payloadBytes = Base64.getDecoder().decode(encryptedPayload)
         val computed = sha256Hex(prevHashBytes, payloadBytes)
         return computed == expectedCurrentHash

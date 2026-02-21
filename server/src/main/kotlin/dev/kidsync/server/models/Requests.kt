@@ -2,111 +2,92 @@ package dev.kidsync.server.models
 
 import kotlinx.serialization.Serializable
 
-// ---- Auth ----
+// ---- Device Registration ----
 
 @Serializable
 data class RegisterRequest(
-    val email: String,
-    val password: String,
+    val signingKey: String,
+    val encryptionKey: String,
+)
+
+// ---- Auth (Challenge-Response) ----
+
+@Serializable
+data class ChallengeRequest(
+    val signingKey: String,
 )
 
 @Serializable
-data class LoginRequest(
-    val email: String,
-    val password: String,
-    val totpCode: String? = null,
+data class VerifyRequest(
+    val signingKey: String,
+    val nonce: String,
+    val signature: String,
+    val timestamp: String,
+)
+
+// ---- Buckets ----
+
+@Serializable
+class CreateBucketRequest
+
+// ---- Invites ----
+
+@Serializable
+data class InviteRequest(
+    val tokenHash: String,
 )
 
 @Serializable
-data class TotpVerifyRequest(
-    val code: String,
-)
-
-@Serializable
-data class RefreshRequest(
-    val refreshToken: String,
-)
-
-// ---- Families ----
-
-@Serializable
-data class CreateFamilyRequest(
-    val name: String,
-    val solo: Boolean = false,
-)
-
-@Serializable
-data class JoinFamilyRequest(
+data class JoinBucketRequest(
     val inviteToken: String,
-    val devicePublicKey: String,
-)
-
-// ---- Devices ----
-
-@Serializable
-data class RegisterDeviceRequest(
-    val deviceName: String,
-    val publicKey: String,
 )
 
 // ---- Sync ----
 
 @Serializable
-data class UploadOpsRequest(
-    val ops: List<OpInput>,
-)
-
-@Serializable
 data class OpInput(
     val deviceId: String,
-    val deviceSequence: Int? = null,
-    val entityType: String? = null,
-    val entityId: String? = null,
-    val operation: String? = null,
     val keyEpoch: Int,
     val encryptedPayload: String,
-    val devicePrevHash: String,
+    val prevHash: String,
     val currentHash: String,
-    val clientTimestamp: String? = null,
-    val protocolVersion: Int = 1,
-    val signature: String? = null,
-    val transitionTo: String? = null,
-    val localId: String? = null, // transient, not persisted
 )
 
-// ---- Sync Handshake ----
-
 @Serializable
-data class HandshakeRequest(
-    val familyId: String,
-    val deviceId: String,
-    val protocolVersion: Int,
-    val lastGlobalSequence: Long = 0,
-)
-
-// ---- Blobs ----
-// (multipart, no request body DTO needed)
-
-// ---- Push ----
-
-@Serializable
-data class RegisterPushRequest(
-    val token: String,
-    val platform: String,
+data class OpsBatchRequest(
+    val ops: List<OpInput>,
 )
 
 // ---- Keys ----
 
 @Serializable
-data class UploadWrappedKeyRequest(
-    val targetDeviceId: String,
+data class WrappedKeyRequest(
+    val targetDevice: String,
     val wrappedDek: String,
     val keyEpoch: Int,
+    val crossSignature: String? = null,
 )
 
 @Serializable
-data class UploadRecoveryBlobRequest(
-    val encryptedRecoveryBlob: String,
+data class KeyAttestationRequest(
+    val attestedDeviceId: String,
+    val attestedEncryptionKey: String,
+    val signature: String,
+)
+
+// ---- Recovery ----
+
+@Serializable
+data class RecoveryBlobRequest(
+    val encryptedBlob: String,
+)
+
+// ---- Push ----
+
+@Serializable
+data class PushTokenRequest(
+    val token: String,
+    val platform: String,
 )
 
 // ---- Snapshot metadata (multipart JSON part) ----

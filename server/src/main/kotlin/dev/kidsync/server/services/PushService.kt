@@ -15,12 +15,12 @@ class PushService {
     /**
      * Register or update a push notification token for a device.
      */
-    suspend fun registerToken(deviceId: String, token: String, platform: String): Result<Unit> {
+    suspend fun registerToken(deviceId: String, token: String, platform: String) {
         if (platform !in listOf("FCM", "APNS")) {
-            return Result.failure(ApiException(400, "INVALID_REQUEST", "Platform must be FCM or APNS"))
+            throw ApiException(400, "INVALID_REQUEST", "Platform must be FCM or APNS")
         }
         if (token.isBlank() || token.length > 4096) {
-            return Result.failure(ApiException(400, "INVALID_REQUEST", "Invalid push token"))
+            throw ApiException(400, "INVALID_REQUEST", "Invalid push token")
         }
 
         dbQuery {
@@ -35,28 +35,22 @@ class PushService {
                 it[updatedAt] = now
             }
         }
-
-        return Result.success(Unit)
     }
 
     /**
-     * Send push notifications to all family devices (except the source device).
-     * This is a stub implementation -- in production, this would call FCM/APNS APIs.
+     * Send push notifications to all devices in a bucket (except the source device).
+     * This is a stub -- in production, this would call FCM/APNS APIs.
      */
-    suspend fun notifyFamilyDevices(familyId: String, excludeDeviceId: String, latestSequence: Long) {
+    suspend fun notifyBucketDevices(bucketId: String, excludeDeviceId: String, latestSequence: Long) {
         dbQuery {
-            // Get all devices in the family
-            val familyUserIds = FamilyMembers.selectAll()
-                .where { FamilyMembers.familyId eq familyId }
-                .map { it[FamilyMembers.userId] }
-
-            val deviceIds = Devices.selectAll()
+            // Get all devices with active access to this bucket
+            val deviceIds = BucketAccess.selectAll()
                 .where {
-                    (Devices.userId inList familyUserIds) and
-                        Devices.revokedAt.isNull() and
-                        (Devices.id neq excludeDeviceId)
+                    (BucketAccess.bucketId eq bucketId) and
+                        BucketAccess.revokedAt.isNull() and
+                        (BucketAccess.deviceId neq excludeDeviceId)
                 }
-                .map { it[Devices.id] }
+                .map { it[BucketAccess.deviceId] }
 
             // Get push tokens for those devices
             val tokens = PushTokens.selectAll()
@@ -64,15 +58,15 @@ class PushService {
                 .toList()
 
             for (tokenRow in tokens) {
-                val pushToken = tokenRow[PushTokens.token]
                 val platform = tokenRow[PushTokens.platform]
 
                 // In production, this would call the actual push API
+                // Payload is opaque: { "type": "sync", "bucket": bucketId }
                 logger.info(
-                    "PUSH [{}] -> device={} family={} latestSeq={}",
+                    "PUSH [{}] -> device={} bucket={} latestSeq={}",
                     platform,
                     tokenRow[PushTokens.deviceId],
-                    familyId,
+                    bucketId,
                     latestSequence,
                 )
             }

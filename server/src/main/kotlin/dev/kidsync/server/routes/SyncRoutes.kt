@@ -4,18 +4,18 @@ import dev.kidsync.server.AppConfig
 import dev.kidsync.server.db.*
 import dev.kidsync.server.db.DatabaseFactory.dbQuery
 import dev.kidsync.server.models.*
-import dev.kidsync.server.plugins.userPrincipal
+import dev.kidsync.server.plugins.devicePrincipal
 import dev.kidsync.server.services.*
-import dev.kidsync.server.util.JwtUtil
+import dev.kidsync.server.util.SessionUtil
 import io.ktor.http.*
 import io.ktor.http.content.*
 import io.ktor.server.auth.*
-import io.ktor.utils.io.*
 import io.ktor.server.plugins.ratelimit.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
+import io.ktor.utils.io.*
 import io.ktor.websocket.*
 import kotlinx.serialization.json.*
 import org.jetbrains.exposed.sql.*
@@ -31,109 +31,68 @@ fun Route.syncRoutes(
     syncService: SyncService,
     pushService: PushService,
     wsManager: WebSocketManager,
-    jwtUtil: JwtUtil,
+    sessionUtil: SessionUtil,
 ) {
-    authenticate("auth-jwt") {
-        route("/sync") {
-            // POST /sync/handshake
-            rateLimit(RateLimitName("general")) {
-                post("/handshake") {
-                    val principal = call.userPrincipal()
-                    val request = call.receive<HandshakeRequest>()
-
-                    // Check device exists and is not revoked
-                    val deviceOk = dbQuery {
-                        val device = Devices.selectAll().where { Devices.id eq request.deviceId }.firstOrNull()
-                        if (device == null) return@dbQuery "DEVICE_UNKNOWN"
-                        if (device[Devices.revokedAt] != null) return@dbQuery "DEVICE_REVOKED"
-                        null
-                    }
-
-                    if (deviceOk != null) {
-                        val status = if (deviceOk == "DEVICE_REVOKED") HttpStatusCode.Forbidden else HttpStatusCode.NotFound
-                        call.respond(
-                            status,
-                            HandshakeResponse(
-                                error = deviceOk,
-                                message = if (deviceOk == "DEVICE_REVOKED") "Device has been revoked" else "Device not found",
-                            )
-                        )
-                        return@post
-                    }
-
-                    val familyId = request.familyId
-                    val currentGlobalSeq = syncService.getLatestSequence(familyId)
-                    val pendingOps = if (request.lastGlobalSequence < currentGlobalSeq) {
-                        currentGlobalSeq - request.lastGlobalSequence
-                    } else {
-                        0L
-                    }
-
-                    // Get the latest key epoch for this family
-                    val latestKeyEpoch = dbQuery {
-                        OpLog.selectAll()
-                            .where { OpLog.familyId eq familyId }
-                            .orderBy(OpLog.globalSequence, SortOrder.DESC)
-                            .limit(1)
-                            .firstOrNull()
-                            ?.get(OpLog.keyEpoch) ?: 1
-                    }
-
-                    call.respond(
-                        HttpStatusCode.OK,
-                        HandshakeResponse(
-                            serverVersion = 1,
-                            currentGlobalSequence = currentGlobalSeq,
-                            pendingOpsCount = pendingOps,
-                            keyEpoch = latestKeyEpoch,
-                        )
-                    )
-                }
-            }
-
-            // POST /sync/ops
+    authenticate("auth-session") {
+        route("/buckets/{id}") {
+            // POST /buckets/{id}/ops
             rateLimit(RateLimitName("sync-upload")) {
                 post("/ops") {
-                    val principal = call.userPrincipal()
-                    val familyId = principal.familyIds.firstOrNull()
-                        ?: throw ApiException(403, "FORBIDDEN", "User is not a member of any family")
+                    val principal = call.devicePrincipal()
+                    val bucketId = call.parameters["id"]
+                        ?: throw ApiException(400, "INVALID_REQUEST", "Missing bucket id")
 
-                    val request = call.receive<UploadOpsRequest>()
-                    val response = syncService.uploadOps(principal.userId, familyId, request)
+                    val request = call.receive<OpsBatchRequest>()
+                    val response = syncService.uploadOps(bucketId, principal.deviceId, request)
 
                     call.respond(HttpStatusCode.OK, response)
 
                     // Notify via WebSocket and push
-                    val latestSeq = response.accepted.lastOrNull()?.globalSequence ?: 0L
-                    val sourceDeviceId = request.ops.firstOrNull()?.deviceId ?: principal.deviceId
-
-                    wsManager.notifyOpsAvailable(familyId, latestSeq, sourceDeviceId)
-                    pushService.notifyFamilyDevices(familyId, sourceDeviceId, latestSeq)
+                    wsManager.notifyOpsAvailable(bucketId, response.latestSequence, principal.deviceId)
+                    pushService.notifyBucketDevices(bucketId, principal.deviceId, response.latestSequence)
                 }
             }
 
-            // GET /sync/ops
+            // GET /buckets/{id}/ops?since={seq}
             rateLimit(RateLimitName("sync-pull")) {
                 get("/ops") {
-                    val principal = call.userPrincipal()
-                    val familyId = principal.familyIds.firstOrNull()
-                        ?: throw ApiException(403, "FORBIDDEN", "User is not a member of any family")
+                    val principal = call.devicePrincipal()
+                    val bucketId = call.parameters["id"]
+                        ?: throw ApiException(400, "INVALID_REQUEST", "Missing bucket id")
 
                     val since = call.request.queryParameters["since"]?.toLongOrNull()
                         ?: throw ApiException(400, "INVALID_REQUEST", "Missing or invalid 'since' parameter")
                     val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 100
 
-                    val response = syncService.pullOps(familyId, since, limit)
-                    call.respond(HttpStatusCode.OK, response)
+                    val ops = syncService.pullOps(bucketId, principal.deviceId, since, limit)
+                    call.respond(HttpStatusCode.OK, ops)
                 }
             }
 
-            // POST /sync/snapshot
+            // GET /buckets/{id}/checkpoint
+            rateLimit(RateLimitName("general")) {
+                get("/checkpoint") {
+                    val principal = call.devicePrincipal()
+                    val bucketId = call.parameters["id"]
+                        ?: throw ApiException(400, "INVALID_REQUEST", "Missing bucket id")
+
+                    val checkpoint = syncService.getCheckpoint(bucketId, principal.deviceId)
+                    if (checkpoint == null) {
+                        throw ApiException(404, "NOT_FOUND", "No checkpoint available")
+                    }
+                    call.respond(HttpStatusCode.OK, checkpoint)
+                }
+            }
+
+            // POST /buckets/{id}/snapshots
             rateLimit(RateLimitName("snapshot")) {
-                post("/snapshot") {
-                    val principal = call.userPrincipal()
-                    val familyId = principal.familyIds.firstOrNull()
-                        ?: throw ApiException(403, "FORBIDDEN", "User is not a member of any family")
+                post("/snapshots") {
+                    val principal = call.devicePrincipal()
+                    val bucketId = call.parameters["id"]
+                        ?: throw ApiException(400, "INVALID_REQUEST", "Missing bucket id")
+
+                    // Verify bucket access
+                    dbQuery { BucketService.requireBucketAccess(bucketId, principal.deviceId) }
 
                     val multipart = call.receiveMultipart()
                     var metadata: SnapshotMetadata? = null
@@ -162,7 +121,7 @@ fun Route.syncRoutes(
                         ?: throw ApiException(400, "INVALID_REQUEST", "Missing snapshot part")
 
                     if (blob.size > config.maxSnapshotSizeBytes) {
-                        throw ApiException(413, "SNAPSHOT_TOO_LARGE", "Snapshot exceeds 50 MB limit")
+                        throw ApiException(413, "SNAPSHOT_TOO_LARGE", "Snapshot exceeds size limit")
                     }
 
                     val snapshotId = UUID.randomUUID().toString()
@@ -174,8 +133,8 @@ fun Route.syncRoutes(
                     dbQuery {
                         Snapshots.insert {
                             it[id] = snapshotId
-                            it[Snapshots.familyId] = familyId
-                            it[deviceId] = meta.deviceId
+                            it[Snapshots.bucketId] = bucketId
+                            it[deviceId] = principal.deviceId
                             it[atSequence] = meta.atSequence
                             it[keyEpoch] = meta.keyEpoch
                             it[sizeBytes] = meta.sizeBytes
@@ -186,96 +145,72 @@ fun Route.syncRoutes(
                         }
                     }
 
-                    wsManager.notifySnapshotAvailable(familyId, meta.atSequence, snapshotId)
+                    wsManager.notifySnapshotAvailable(bucketId, meta.atSequence, snapshotId)
 
                     call.respond(
                         HttpStatusCode.Created,
-                        UploadSnapshotResponse(snapshotId = snapshotId, sequence = meta.atSequence)
+                        SnapshotResponse(
+                            id = snapshotId,
+                            atSequence = meta.atSequence,
+                            keyEpoch = meta.keyEpoch,
+                            sizeBytes = meta.sizeBytes,
+                            sha256Hash = meta.sha256,
+                            signature = meta.signature,
+                            createdAt = meta.createdAt,
+                        )
                     )
                 }
             }
 
-            // GET /sync/snapshot/latest
+            // GET /buckets/{id}/snapshots/latest
             rateLimit(RateLimitName("general")) {
-                get("/snapshot/latest") {
-                    val principal = call.userPrincipal()
-                    val familyId = principal.familyIds.firstOrNull()
-                        ?: throw ApiException(403, "FORBIDDEN", "User is not a member of any family")
+                get("/snapshots/latest") {
+                    val principal = call.devicePrincipal()
+                    val bucketId = call.parameters["id"]
+                        ?: throw ApiException(400, "INVALID_REQUEST", "Missing bucket id")
+
+                    dbQuery { BucketService.requireBucketAccess(bucketId, principal.deviceId) }
 
                     val snapshot = dbQuery {
                         Snapshots.selectAll()
-                            .where { Snapshots.familyId eq familyId }
+                            .where { Snapshots.bucketId eq bucketId }
                             .orderBy(Snapshots.atSequence, SortOrder.DESC)
                             .limit(1)
                             .firstOrNull()
                     }
 
                     if (snapshot == null) {
-                        throw ApiException(404, "NO_SNAPSHOT", "No snapshot has been uploaded for this family")
+                        throw ApiException(404, "NOT_FOUND", "No snapshot available")
                     }
-
-                    val expiresAt = Instant.now().plusSeconds(3600)
 
                     call.respond(
                         HttpStatusCode.OK,
-                        LatestSnapshotResponse(
-                            snapshotId = snapshot[Snapshots.id],
-                            deviceId = snapshot[Snapshots.deviceId],
+                        SnapshotResponse(
+                            id = snapshot[Snapshots.id],
                             atSequence = snapshot[Snapshots.atSequence],
-                            sequence = snapshot[Snapshots.atSequence],
                             keyEpoch = snapshot[Snapshots.keyEpoch],
                             sizeBytes = snapshot[Snapshots.sizeBytes],
-                            sha256 = snapshot[Snapshots.sha256Hash],
+                            sha256Hash = snapshot[Snapshots.sha256Hash],
                             signature = snapshot[Snapshots.signature],
-                            createdAt = snapshot[Snapshots.createdAt].atOffset(ZoneOffset.UTC)
+                            createdAt = snapshot[Snapshots.createdAt]
+                                .atOffset(ZoneOffset.UTC)
                                 .format(DateTimeFormatter.ISO_INSTANT),
-                            downloadUrl = "/sync/snapshot/${snapshot[Snapshots.id]}/blob",
-                            downloadUrlExpiresAt = expiresAt.toString(),
                         )
                     )
-                }
-
-                // GET /sync/snapshot/{id}/blob
-                get("/snapshot/{snapshotId}/blob") {
-                    val principal = call.userPrincipal()
-                    val snapshotId = call.parameters["snapshotId"]
-                        ?: throw ApiException(400, "INVALID_REQUEST", "Missing snapshotId")
-                    val familyId = principal.familyIds.firstOrNull()
-                        ?: throw ApiException(403, "FORBIDDEN", "Not a family member")
-
-                    val snapshot = dbQuery {
-                        Snapshots.selectAll().where {
-                            (Snapshots.id eq snapshotId) and (Snapshots.familyId eq familyId)
-                        }.firstOrNull()
-                    } ?: throw ApiException(404, "NOT_FOUND", "Snapshot not found")
-
-                    val file = File(snapshot[Snapshots.filePath])
-                    if (!file.exists()) {
-                        throw ApiException(404, "NOT_FOUND", "Snapshot file not found")
-                    }
-
-                    call.respondBytes(file.readBytes(), ContentType.Application.OctetStream)
-                }
-            }
-
-            // GET /sync/checkpoint
-            rateLimit(RateLimitName("general")) {
-                get("/checkpoint") {
-                    val principal = call.userPrincipal()
-                    val familyId = principal.familyIds.firstOrNull()
-                        ?: throw ApiException(403, "FORBIDDEN", "User is not a member of any family")
-
-                    val atSequence = call.request.queryParameters["atSequence"]?.toLongOrNull()
-                    val response = syncService.getCheckpoint(familyId, atSequence)
-                    call.respond(HttpStatusCode.OK, response)
                 }
             }
         }
     }
 
-    // WebSocket /sync/ws
-    webSocket("/sync/ws") {
+    // WebSocket /buckets/{id}/ws
+    webSocket("/buckets/{id}/ws") {
         val json = Json { ignoreUnknownKeys = true }
+        val bucketId = call.parameters["id"]
+        if (bucketId == null) {
+            close(CloseReason(4000, "Missing bucket id"))
+            return@webSocket
+        }
+
         var connection: WebSocketManager.WsConnection? = null
 
         try {
@@ -289,23 +224,30 @@ fun Route.syncRoutes(
                 if (type == "auth") {
                     val token = jsonObj["token"]?.jsonPrimitive?.content
                     if (token != null) {
-                        try {
-                            val decoded = jwtUtil.verifyAccessToken(token)
-                            val userId = decoded.subject
-                            val deviceId = decoded.getClaim("did").asString()
-                            val familyIds = decoded.getClaim("fam").asList(String::class.java) ?: emptyList()
-                            val familyId = familyIds.firstOrNull()
+                        val session = sessionUtil.validateSession(token)
+                        if (session != null) {
+                            // Verify bucket access
+                            val hasAccess = try {
+                                dbQuery { BucketService.requireBucketAccess(bucketId, session.deviceId) }
+                                true
+                            } catch (_: ApiException) {
+                                false
+                            }
 
-                            if (familyId != null) {
-                                val latestSeq = syncService.getLatestSequence(familyId)
-                                connection = WebSocketManager.WsConnection(this, userId, deviceId, familyId)
-                                wsManager.addConnection(familyId, connection!!)
+                            if (hasAccess) {
+                                val latestSeq = syncService.getLatestSequence(bucketId)
+                                connection = WebSocketManager.WsConnection(this, session.deviceId, bucketId)
+                                wsManager.addConnection(bucketId, connection!!)
 
                                 send(
                                     Frame.Text(
                                         json.encodeToString(
                                             WsAuthOk.serializer(),
-                                            WsAuthOk(deviceId = deviceId, familyId = familyId, latestSequence = latestSeq)
+                                            WsAuthOk(
+                                                deviceId = session.deviceId,
+                                                bucketId = bucketId,
+                                                latestSequence = latestSeq,
+                                            )
                                         )
                                     )
                                 )
@@ -314,19 +256,19 @@ fun Route.syncRoutes(
                                     Frame.Text(
                                         json.encodeToString(
                                             WsAuthFailed.serializer(),
-                                            WsAuthFailed(error = "NO_FAMILY", message = "User not in any family")
+                                            WsAuthFailed(error = "NO_ACCESS", message = "No access to this bucket")
                                         )
                                     )
                                 )
-                                close(CloseReason(4001, "No family"))
+                                close(CloseReason(4001, "No access"))
                                 return@webSocket
                             }
-                        } catch (e: Exception) {
+                        } else {
                             send(
                                 Frame.Text(
                                     json.encodeToString(
                                         WsAuthFailed.serializer(),
-                                        WsAuthFailed(error = "TOKEN_INVALID", message = "Token verification failed")
+                                        WsAuthFailed(error = "TOKEN_INVALID", message = "Session token invalid or expired")
                                     )
                                 )
                             )
@@ -357,14 +299,14 @@ fun Route.syncRoutes(
                                 )
                             }
                         }
-                    } catch (e: Exception) {
+                    } catch (_: Exception) {
                         // Ignore malformed messages
                     }
                 }
             }
         } finally {
             if (connection != null) {
-                wsManager.removeConnection(connection!!.familyId, connection!!)
+                wsManager.removeConnection(bucketId, connection!!)
             }
         }
     }

@@ -26,7 +26,6 @@ dependencies {
     implementation("io.ktor:ktor-server-content-negotiation:$ktorVersion")
     implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
     implementation("io.ktor:ktor-server-auth:$ktorVersion")
-    implementation("io.ktor:ktor-server-auth-jwt:$ktorVersion")
     implementation("io.ktor:ktor-server-websockets:$ktorVersion")
     implementation("io.ktor:ktor-server-cors:$ktorVersion")
     implementation("io.ktor:ktor-server-status-pages:$ktorVersion")
@@ -44,15 +43,6 @@ dependencies {
 
     // kotlinx.serialization
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
-
-    // BCrypt
-    implementation("at.favre.lib:bcrypt:0.10.2")
-
-    // JWT (com.auth0)
-    implementation("com.auth0:java-jwt:4.4.0")
-
-    // TOTP
-    implementation("dev.turingcomplete:kotlin-onetimepassword:2.4.1")
 
     // Logging
     implementation("ch.qos.logback:logback-classic:$logbackVersion")

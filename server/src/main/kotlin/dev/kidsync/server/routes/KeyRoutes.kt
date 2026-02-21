@@ -1,7 +1,7 @@
 package dev.kidsync.server.routes
 
 import dev.kidsync.server.models.*
-import dev.kidsync.server.plugins.userPrincipal
+import dev.kidsync.server.plugins.devicePrincipal
 import dev.kidsync.server.services.ApiException
 import dev.kidsync.server.services.KeyService
 import io.ktor.http.*
@@ -12,43 +12,72 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 
 fun Route.keyRoutes(keyService: KeyService) {
-    authenticate("auth-jwt") {
+    authenticate("auth-session") {
         rateLimit(RateLimitName("general")) {
             route("/keys") {
                 // POST /keys/wrapped
                 post("/wrapped") {
-                    val principal = call.userPrincipal()
-                    val request = call.receive<UploadWrappedKeyRequest>()
+                    val principal = call.devicePrincipal()
+                    val request = call.receive<WrappedKeyRequest>()
 
-                    keyService.uploadWrappedKey(principal.userId, request)
+                    if (request.targetDevice.isBlank() || request.wrappedDek.isBlank()) {
+                        throw ApiException(400, "INVALID_REQUEST", "targetDevice and wrappedDek are required")
+                    }
+
+                    keyService.uploadWrappedKey(principal.deviceId, request)
                     call.respond(HttpStatusCode.Created)
                 }
 
-                // GET /keys/wrapped/{deviceId}
-                get("/wrapped/{deviceId}") {
-                    val principal = call.userPrincipal()
-                    val deviceId = call.parameters["deviceId"]
-                        ?: throw ApiException(400, "INVALID_REQUEST", "Missing deviceId")
-                    val keyEpoch = call.request.queryParameters["keyEpoch"]?.toIntOrNull()
+                // GET /keys/wrapped?epoch={n}
+                get("/wrapped") {
+                    val principal = call.devicePrincipal()
+                    val keyEpoch = call.request.queryParameters["epoch"]?.toIntOrNull()
 
-                    val response = keyService.getWrappedKey(principal.userId, deviceId, keyEpoch)
+                    val response = keyService.getWrappedKey(principal.deviceId, keyEpoch)
                     call.respond(HttpStatusCode.OK, response)
                 }
 
-                // POST /keys/recovery
-                post("/recovery") {
-                    val principal = call.userPrincipal()
-                    val request = call.receive<UploadRecoveryBlobRequest>()
+                // POST /keys/attestations
+                post("/attestations") {
+                    val principal = call.devicePrincipal()
+                    val request = call.receive<KeyAttestationRequest>()
 
-                    keyService.uploadRecoveryBlob(principal.userId, request)
+                    if (request.attestedDeviceId.isBlank() || request.attestedEncryptionKey.isBlank() || request.signature.isBlank()) {
+                        throw ApiException(400, "INVALID_REQUEST", "All fields are required")
+                    }
+
+                    keyService.uploadAttestation(principal.deviceId, request)
                     call.respond(HttpStatusCode.Created)
                 }
 
-                // GET /keys/recovery
-                get("/recovery") {
-                    val principal = call.userPrincipal()
+                // GET /keys/attestations/{deviceId}
+                get("/attestations/{deviceId}") {
+                    val deviceId = call.parameters["deviceId"]
+                        ?: throw ApiException(400, "INVALID_REQUEST", "Missing deviceId")
 
-                    val response = keyService.getRecoveryBlob(principal.userId)
+                    val attestations = keyService.getAttestations(deviceId)
+                    call.respond(HttpStatusCode.OK, attestations)
+                }
+            }
+
+            route("/recovery") {
+                // POST /recovery
+                post {
+                    val principal = call.devicePrincipal()
+                    val request = call.receive<RecoveryBlobRequest>()
+
+                    if (request.encryptedBlob.isBlank()) {
+                        throw ApiException(400, "INVALID_REQUEST", "encryptedBlob is required")
+                    }
+
+                    keyService.uploadRecoveryBlob(principal.deviceId, request)
+                    call.respond(HttpStatusCode.Created)
+                }
+
+                // GET /recovery
+                get {
+                    val principal = call.devicePrincipal()
+                    val response = keyService.getRecoveryBlob(principal.deviceId)
                     call.respond(HttpStatusCode.OK, response)
                 }
             }

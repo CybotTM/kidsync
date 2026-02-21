@@ -1,6 +1,5 @@
 package dev.kidsync.server.services
 
-import dev.kidsync.server.AppConfig
 import dev.kidsync.server.db.*
 import dev.kidsync.server.db.DatabaseFactory.dbQuery
 import dev.kidsync.server.models.*
@@ -8,63 +7,54 @@ import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import java.time.LocalDateTime
 import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 
-class KeyService(private val config: AppConfig) {
+class KeyService {
 
-    suspend fun uploadWrappedKey(userId: String, request: UploadWrappedKeyRequest) {
+    private val isoFormatter = DateTimeFormatter.ISO_INSTANT
+
+    // ---- Wrapped Keys ----
+
+    /**
+     * Upload a wrapped DEK for a target device.
+     * The caller must be a device (authenticated). No family/bucket check --
+     * the wrapping device is responsible for only wrapping for devices it trusts.
+     */
+    suspend fun uploadWrappedKey(callerDeviceId: String, request: WrappedKeyRequest) {
         dbQuery {
             // Verify target device exists
-            val targetDevice = Devices.selectAll().where { Devices.id eq request.targetDeviceId }
-                .firstOrNull()
+            Devices.selectAll().where { Devices.id eq request.targetDevice }.firstOrNull()
                 ?: throw ApiException(404, "NOT_FOUND", "Target device not found")
-
-            // Verify both users are in the same family
-            val callerFamilies = FamilyMembers.selectAll()
-                .where { FamilyMembers.userId eq userId }
-                .map { it[FamilyMembers.familyId] }
-                .toSet()
-
-            val targetUserFamilies = FamilyMembers.selectAll()
-                .where { FamilyMembers.userId eq targetDevice[Devices.userId] }
-                .map { it[FamilyMembers.familyId] }
-                .toSet()
-
-            if (callerFamilies.intersect(targetUserFamilies).isEmpty()) {
-                throw ApiException(403, "FORBIDDEN", "Not in the same family as the target device")
-            }
 
             // Upsert: replace existing wrapped key for this device + epoch
             WrappedKeys.deleteWhere {
-                (targetDeviceId eq request.targetDeviceId) and (keyEpoch eq request.keyEpoch)
+                (targetDevice eq request.targetDevice) and (keyEpoch eq request.keyEpoch)
             }
 
             WrappedKeys.insert {
-                it[targetDeviceId] = request.targetDeviceId
+                it[targetDevice] = request.targetDevice
                 it[wrappedDek] = request.wrappedDek
                 it[keyEpoch] = request.keyEpoch
-                it[wrappedByUserId] = userId
+                it[wrappedBy] = callerDeviceId
+                it[crossSignature] = request.crossSignature
                 it[createdAt] = LocalDateTime.now(ZoneOffset.UTC)
             }
         }
     }
 
-    suspend fun getWrappedKey(userId: String, deviceId: String, keyEpoch: Int?): WrappedKeyResponse {
+    /**
+     * Get a wrapped DEK for the authenticated device.
+     * If epoch is specified, get that specific epoch; otherwise get the latest.
+     */
+    suspend fun getWrappedKey(deviceId: String, keyEpoch: Int?): WrappedKeyResponse {
         val result = dbQuery {
-            // Only the device owner can get their wrapped key
-            val device = Devices.selectAll().where { Devices.id eq deviceId }.firstOrNull()
-                ?: throw ApiException(404, "NOT_FOUND", "Device not found")
-
-            if (device[Devices.userId] != userId) {
-                throw ApiException(403, "FORBIDDEN", "Can only retrieve your own device's wrapped key")
-            }
-
             val query = if (keyEpoch != null) {
                 WrappedKeys.selectAll().where {
-                    (WrappedKeys.targetDeviceId eq deviceId) and (WrappedKeys.keyEpoch eq keyEpoch)
+                    (WrappedKeys.targetDevice eq deviceId) and (WrappedKeys.keyEpoch eq keyEpoch)
                 }
             } else {
                 WrappedKeys.selectAll()
-                    .where { WrappedKeys.targetDeviceId eq deviceId }
+                    .where { WrappedKeys.targetDevice eq deviceId }
                     .orderBy(WrappedKeys.keyEpoch, SortOrder.DESC)
                     .limit(1)
             }
@@ -76,32 +66,97 @@ class KeyService(private val config: AppConfig) {
         return WrappedKeyResponse(
             wrappedDek = result[WrappedKeys.wrappedDek],
             keyEpoch = result[WrappedKeys.keyEpoch],
-            wrappedBy = result[WrappedKeys.wrappedByUserId],
+            wrappedBy = result[WrappedKeys.wrappedBy],
+            crossSignature = result[WrappedKeys.crossSignature],
         )
     }
 
-    suspend fun uploadRecoveryBlob(userId: String, request: UploadRecoveryBlobRequest) {
-        dbQuery {
-            // Upsert: replace existing recovery blob
-            RecoveryBlobs.deleteWhere { RecoveryBlobs.userId eq userId }
+    // ---- Key Attestations ----
 
-            RecoveryBlobs.insert {
-                it[RecoveryBlobs.userId] = userId
-                it[encryptedRecoveryBlob] = request.encryptedRecoveryBlob
+    /**
+     * Upload a key cross-signature (attestation).
+     * The signer device attests that the attested device owns the specified encryption key.
+     */
+    suspend fun uploadAttestation(signerDeviceId: String, request: KeyAttestationRequest) {
+        dbQuery {
+            // Verify attested device exists
+            Devices.selectAll().where { Devices.id eq request.attestedDeviceId }.firstOrNull()
+                ?: throw ApiException(404, "NOT_FOUND", "Attested device not found")
+
+            // Check if attestation already exists for this signer+attested pair
+            val existing = KeyAttestations.selectAll().where {
+                (KeyAttestations.signerDevice eq signerDeviceId) and
+                    (KeyAttestations.attestedDevice eq request.attestedDeviceId)
+            }.firstOrNull()
+
+            if (existing != null) {
+                throw ApiException(409, "CONFLICT", "Attestation already exists for this signer-attested pair")
+            }
+
+            KeyAttestations.insert {
+                it[signerDevice] = signerDeviceId
+                it[attestedDevice] = request.attestedDeviceId
+                it[attestedKey] = request.attestedEncryptionKey
+                it[signature] = request.signature
                 it[createdAt] = LocalDateTime.now(ZoneOffset.UTC)
             }
         }
     }
 
-    suspend fun getRecoveryBlob(userId: String): RecoveryBlobResponse {
+    /**
+     * Get all attestations for a given device (i.e., attestations where that device is the attested party).
+     */
+    suspend fun getAttestations(attestedDeviceId: String): List<KeyAttestationResponse> {
+        return dbQuery {
+            KeyAttestations.selectAll()
+                .where { KeyAttestations.attestedDevice eq attestedDeviceId }
+                .map { row ->
+                    KeyAttestationResponse(
+                        signerDeviceId = row[KeyAttestations.signerDevice],
+                        attestedDeviceId = row[KeyAttestations.attestedDevice],
+                        attestedKey = row[KeyAttestations.attestedKey],
+                        signature = row[KeyAttestations.signature],
+                        createdAt = row[KeyAttestations.createdAt]
+                            .atOffset(ZoneOffset.UTC)
+                            .format(isoFormatter),
+                    )
+                }
+        }
+    }
+
+    // ---- Recovery Blobs ----
+
+    /**
+     * Upload an encrypted recovery blob for the authenticated device.
+     */
+    suspend fun uploadRecoveryBlob(deviceId: String, request: RecoveryBlobRequest) {
+        dbQuery {
+            // Upsert: replace existing recovery blob
+            RecoveryBlobs.deleteWhere { RecoveryBlobs.deviceId eq deviceId }
+
+            RecoveryBlobs.insert {
+                it[RecoveryBlobs.deviceId] = deviceId
+                it[encryptedBlob] = request.encryptedBlob
+                it[createdAt] = LocalDateTime.now(ZoneOffset.UTC)
+            }
+        }
+    }
+
+    /**
+     * Download the encrypted recovery blob for the authenticated device.
+     */
+    suspend fun getRecoveryBlob(deviceId: String): RecoveryBlobResponse {
         val result = dbQuery {
-            RecoveryBlobs.selectAll().where { RecoveryBlobs.userId eq userId }
+            RecoveryBlobs.selectAll().where { RecoveryBlobs.deviceId eq deviceId }
                 .firstOrNull()
                 ?: throw ApiException(404, "NOT_FOUND", "No recovery blob found")
         }
 
         return RecoveryBlobResponse(
-            encryptedRecoveryBlob = result[RecoveryBlobs.encryptedRecoveryBlob],
+            encryptedBlob = result[RecoveryBlobs.encryptedBlob],
+            createdAt = result[RecoveryBlobs.createdAt]
+                .atOffset(ZoneOffset.UTC)
+                .format(isoFormatter),
         )
     }
 }

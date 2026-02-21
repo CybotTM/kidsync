@@ -7,7 +7,7 @@ import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Manages WebSocket connections grouped by family.
+ * Manages WebSocket connections grouped by bucket.
  */
 class WebSocketManager {
 
@@ -15,35 +15,34 @@ class WebSocketManager {
 
     data class WsConnection(
         val session: WebSocketSession,
-        val userId: String,
         val deviceId: String,
-        val familyId: String,
+        val bucketId: String,
     )
 
     private val connections = ConcurrentHashMap<String, MutableSet<WsConnection>>()
     private val json = Json { encodeDefaults = true }
 
-    fun addConnection(familyId: String, connection: WsConnection) {
-        connections.getOrPut(familyId) { ConcurrentHashMap.newKeySet() }.add(connection)
-        logger.info("WebSocket connected: device={} family={}", connection.deviceId, familyId)
+    fun addConnection(bucketId: String, connection: WsConnection) {
+        connections.getOrPut(bucketId) { ConcurrentHashMap.newKeySet() }.add(connection)
+        logger.info("WebSocket connected: device={} bucket={}", connection.deviceId, bucketId)
     }
 
-    fun removeConnection(familyId: String, connection: WsConnection) {
-        connections[familyId]?.remove(connection)
-        logger.info("WebSocket disconnected: device={} family={}", connection.deviceId, familyId)
+    fun removeConnection(bucketId: String, connection: WsConnection) {
+        connections[bucketId]?.remove(connection)
+        logger.info("WebSocket disconnected: device={} bucket={}", connection.deviceId, bucketId)
     }
 
     /**
-     * Notify all family devices (except the source) that new ops are available.
+     * Notify all bucket devices (except the source) that new ops are available.
      */
-    suspend fun notifyOpsAvailable(familyId: String, latestSequence: Long, sourceDeviceId: String) {
-        val familyConnections = connections[familyId] ?: return
+    suspend fun notifyOpsAvailable(bucketId: String, latestSequence: Long, sourceDeviceId: String) {
+        val bucketConnections = connections[bucketId] ?: return
         val message = json.encodeToString(
             WsOpsAvailable.serializer(),
             WsOpsAvailable(latestSequence = latestSequence, sourceDeviceId = sourceDeviceId),
         )
 
-        for (conn in familyConnections) {
+        for (conn in bucketConnections) {
             if (conn.deviceId != sourceDeviceId) {
                 try {
                     conn.session.send(Frame.Text(message))
@@ -55,16 +54,16 @@ class WebSocketManager {
     }
 
     /**
-     * Notify family about checkpoint availability.
+     * Notify bucket about checkpoint availability.
      */
-    suspend fun notifyCheckpointAvailable(familyId: String, startSequence: Long, endSequence: Long) {
-        val familyConnections = connections[familyId] ?: return
+    suspend fun notifyCheckpointAvailable(bucketId: String, startSequence: Long, endSequence: Long) {
+        val bucketConnections = connections[bucketId] ?: return
         val message = json.encodeToString(
             WsCheckpointAvailable.serializer(),
             WsCheckpointAvailable(startSequence = startSequence, endSequence = endSequence),
         )
 
-        for (conn in familyConnections) {
+        for (conn in bucketConnections) {
             try {
                 conn.session.send(Frame.Text(message))
             } catch (e: Exception) {
@@ -74,20 +73,41 @@ class WebSocketManager {
     }
 
     /**
-     * Notify family about snapshot availability.
+     * Notify bucket about snapshot availability.
      */
-    suspend fun notifySnapshotAvailable(familyId: String, atSequence: Long, snapshotId: String) {
-        val familyConnections = connections[familyId] ?: return
+    suspend fun notifySnapshotAvailable(bucketId: String, atSequence: Long, snapshotId: String) {
+        val bucketConnections = connections[bucketId] ?: return
         val message = json.encodeToString(
             WsSnapshotAvailable.serializer(),
             WsSnapshotAvailable(atSequence = atSequence, snapshotId = snapshotId),
         )
 
-        for (conn in familyConnections) {
+        for (conn in bucketConnections) {
             try {
                 conn.session.send(Frame.Text(message))
             } catch (e: Exception) {
                 logger.warn("Failed to send WS snapshot to device={}: {}", conn.deviceId, e.message)
+            }
+        }
+    }
+
+    /**
+     * Notify bucket about new device joining.
+     */
+    suspend fun notifyDeviceJoined(bucketId: String, newDeviceId: String) {
+        val bucketConnections = connections[bucketId] ?: return
+        val message = json.encodeToString(
+            WsDeviceJoined.serializer(),
+            WsDeviceJoined(deviceId = newDeviceId),
+        )
+
+        for (conn in bucketConnections) {
+            if (conn.deviceId != newDeviceId) {
+                try {
+                    conn.session.send(Frame.Text(message))
+                } catch (e: Exception) {
+                    logger.warn("Failed to send WS device-joined to device={}: {}", conn.deviceId, e.message)
+                }
             }
         }
     }
@@ -117,10 +137,16 @@ data class WsSnapshotAvailable(
 )
 
 @Serializable
+data class WsDeviceJoined(
+    val type: String = "device_joined",
+    val deviceId: String,
+)
+
+@Serializable
 data class WsAuthOk(
     val type: String = "auth_ok",
     val deviceId: String,
-    val familyId: String,
+    val bucketId: String,
     val latestSequence: Long,
 )
 

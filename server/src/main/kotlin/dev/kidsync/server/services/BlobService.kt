@@ -3,30 +3,29 @@ package dev.kidsync.server.services
 import dev.kidsync.server.AppConfig
 import dev.kidsync.server.db.Blobs
 import dev.kidsync.server.db.DatabaseFactory.dbQuery
-import dev.kidsync.server.models.UploadBlobResponse
-import dev.kidsync.server.util.HashUtil
+import dev.kidsync.server.models.BlobResponse
 import org.jetbrains.exposed.sql.*
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import java.io.File
 import java.security.MessageDigest
 import java.time.LocalDateTime
 import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import java.util.*
 
 class BlobService(private val config: AppConfig) {
 
+    private val isoFormatter = DateTimeFormatter.ISO_INSTANT
+
     /**
-     * Upload an encrypted blob. Returns the blob metadata.
+     * Upload an encrypted blob to a bucket. Returns blob metadata.
      */
     suspend fun uploadBlob(
-        userId: String,
-        familyId: String,
+        deviceId: String,
+        bucketId: String,
         fileBytes: ByteArray,
-    ): Result<UploadBlobResponse> {
+    ): BlobResponse {
         if (fileBytes.size > config.maxBlobSizeBytes) {
-            return Result.failure(
-                ApiException(413, "BLOB_TOO_LARGE", "File exceeds ${config.maxBlobSizeBytes} byte limit")
-            )
+            throw ApiException(413, "BLOB_TOO_LARGE", "File exceeds ${config.maxBlobSizeBytes} byte limit")
         }
 
         val blobId = UUID.randomUUID().toString()
@@ -40,65 +39,45 @@ class BlobService(private val config: AppConfig) {
         blobFile.writeBytes(fileBytes)
 
         dbQuery {
+            BucketService.requireBucketAccess(bucketId, deviceId)
+
             Blobs.insert {
                 it[id] = blobId
-                it[Blobs.familyId] = familyId
+                it[Blobs.bucketId] = bucketId
                 it[filePath] = blobFile.absolutePath
                 it[sizeBytes] = fileBytes.size.toLong()
                 it[sha256Hash] = sha256
-                it[uploadedBy] = userId
+                it[uploadedBy] = deviceId
                 it[uploadedAt] = now
             }
         }
 
-        return Result.success(
-            UploadBlobResponse(
-                blobId = blobId,
-                sizeBytes = fileBytes.size.toLong(),
-                sha256Hash = sha256,
-            )
+        return BlobResponse(
+            id = blobId,
+            sizeBytes = fileBytes.size.toLong(),
+            sha256Hash = sha256,
+            uploadedAt = now.atOffset(ZoneOffset.UTC).format(isoFormatter),
         )
     }
 
     /**
-     * Download a blob. Returns the file bytes or null if not found.
+     * Download a blob. Returns the file bytes and sha256 hash.
      */
-    suspend fun downloadBlob(blobId: String, userId: String, familyId: String): Result<Pair<ByteArray, String>> {
+    suspend fun downloadBlob(blobId: String, deviceId: String, bucketId: String): Pair<ByteArray, String> {
         return dbQuery {
+            BucketService.requireBucketAccess(bucketId, deviceId)
+
             val blob = Blobs.selectAll().where {
-                (Blobs.id eq blobId) and (Blobs.familyId eq familyId) and Blobs.deletedAt.isNull()
+                (Blobs.id eq blobId) and (Blobs.bucketId eq bucketId)
             }.firstOrNull()
-                ?: return@dbQuery Result.failure(ApiException(404, "NOT_FOUND", "Blob not found"))
+                ?: throw ApiException(404, "NOT_FOUND", "Blob not found")
 
             val file = File(blob[Blobs.filePath])
             if (!file.exists()) {
-                return@dbQuery Result.failure(ApiException(404, "NOT_FOUND", "Blob file not found on disk"))
+                throw ApiException(404, "NOT_FOUND", "Blob file not found on disk")
             }
 
-            val sha256 = blob[Blobs.sha256Hash]
-            Result.success(Pair(file.readBytes(), sha256))
-        }
-    }
-
-    /**
-     * Soft-delete a blob. Only the uploader can delete.
-     */
-    suspend fun deleteBlob(blobId: String, userId: String): Result<Unit> {
-        return dbQuery {
-            val blob = Blobs.selectAll().where {
-                (Blobs.id eq blobId) and Blobs.deletedAt.isNull()
-            }.firstOrNull()
-                ?: return@dbQuery Result.failure(ApiException(404, "NOT_FOUND", "Blob not found"))
-
-            if (blob[Blobs.uploadedBy] != userId) {
-                return@dbQuery Result.failure(ApiException(403, "FORBIDDEN", "Only the uploader can delete this blob"))
-            }
-
-            Blobs.update({ Blobs.id eq blobId }) {
-                it[deletedAt] = LocalDateTime.now(ZoneOffset.UTC)
-            }
-
-            Result.success(Unit)
+            Pair(file.readBytes(), blob[Blobs.sha256Hash])
         }
     }
 

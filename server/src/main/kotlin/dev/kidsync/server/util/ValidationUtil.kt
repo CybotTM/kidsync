@@ -2,15 +2,10 @@ package dev.kidsync.server.util
 
 object ValidationUtil {
 
-    private val EMAIL_REGEX = Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$")
     private val UUID_REGEX = Regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
     private val SHA256_HEX_REGEX = Regex("^[0-9a-f]{64}$")
-
-    fun isValidEmail(email: String): Boolean =
-        email.length <= 254 && EMAIL_REGEX.matches(email)
-
-    fun isStrongPassword(password: String): Boolean =
-        password.length >= 12 && password.length <= 128
+    private val BASE64_REGEX = Regex("^[A-Za-z0-9+/=]+$")
+    private val BASE64URL_REGEX = Regex("^[A-Za-z0-9_-]+={0,2}$")
 
     fun isValidUUID(value: String): Boolean =
         UUID_REGEX.matches(value)
@@ -18,7 +13,18 @@ object ValidationUtil {
     fun isValidSha256Hex(value: String): Boolean =
         SHA256_HEX_REGEX.matches(value)
 
-    val VALID_ENTITY_TYPES = setOf("CustodySchedule", "ScheduleOverride", "Expense", "ExpenseStatus", "InfoBank")
-    val VALID_OPERATIONS = setOf("CREATE", "UPDATE", "DELETE")
-    val VALID_TRANSITION_STATES = setOf("APPROVED", "DECLINED", "CANCELLED", "SUPERSEDED", "EXPIRED")
+    fun isValidBase64(value: String): Boolean =
+        value.isNotBlank() && BASE64_REGEX.matches(value)
+
+    fun isValidBase64Url(value: String): Boolean =
+        value.isNotBlank() && BASE64URL_REGEX.matches(value)
+
+    fun isValidPublicKey(value: String): Boolean =
+        value.isNotBlank() && value.length <= 1024
+
+    fun isValidPlatform(value: String): Boolean =
+        value == "FCM" || value == "APNS"
+
+    fun isNonBlankWithMaxLength(value: String, maxLength: Int): Boolean =
+        value.isNotBlank() && value.length <= maxLength
 }

@@ -5,7 +5,7 @@ import dev.kidsync.server.db.DatabaseFactory.dbQuery
 import dev.kidsync.server.plugins.*
 import dev.kidsync.server.routes.*
 import dev.kidsync.server.services.*
-import dev.kidsync.server.util.JwtUtil
+import dev.kidsync.server.util.SessionUtil
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.engine.*
@@ -15,6 +15,7 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import org.slf4j.LoggerFactory
 import org.slf4j.event.Level
+import kotlin.concurrent.fixedRateTimer
 
 fun main() {
     val config = AppConfig()
@@ -32,18 +33,22 @@ fun Application.module(config: AppConfig = AppConfig()) {
     DatabaseFactory.init(config)
 
     // Initialize utilities and services
-    val jwtUtil = JwtUtil(config)
-    val authService = AuthService(config, jwtUtil)
-    val familyService = FamilyService(config)
-    val keyService = KeyService(config)
+    val sessionUtil = SessionUtil(config)
+    val bucketService = BucketService(config.blobStoragePath, config.snapshotStoragePath)
+    val keyService = KeyService()
     val syncService = SyncService(config)
     val blobService = BlobService(config)
     val pushService = PushService()
     val wsManager = WebSocketManager()
 
+    // Periodic cleanup of expired sessions and challenges (every 5 minutes)
+    fixedRateTimer("session-cleanup", daemon = true, period = 5 * 60 * 1000L) {
+        sessionUtil.cleanup()
+    }
+
     // Install plugins
     configureSerialization()
-    configureAuth(config, jwtUtil)
+    configureAuth(sessionUtil)
     configureCORS()
     configureRateLimit()
     configureStatusPages()
@@ -63,13 +68,19 @@ fun Application.module(config: AppConfig = AppConfig()) {
                 false
             }
             val status = if (dbOk) HttpStatusCode.OK else HttpStatusCode.ServiceUnavailable
-            call.respond(status, mapOf("status" to if (dbOk) "ok" else "degraded", "db" to dbOk))
+            call.respond(status, mapOf(
+                "status" to if (dbOk) "ok" else "degraded",
+                "db" to dbOk.toString(),
+            ))
         }
 
-        authRoutes(authService)
-        familyRoutes(familyService)
+        // Public routes (no auth required)
         deviceRoutes()
-        syncRoutes(config, syncService, pushService, wsManager, jwtUtil)
+        authRoutes(config, sessionUtil)
+
+        // Authenticated routes
+        bucketRoutes(bucketService, wsManager)
+        syncRoutes(config, syncService, pushService, wsManager, sessionUtil)
         blobRoutes(blobService)
         pushRoutes(pushService)
         keyRoutes(keyService)
