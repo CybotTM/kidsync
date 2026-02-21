@@ -1,8 +1,8 @@
 # KidSync Encryption Specification
 
-**Version:** 1.0-draft
-**Date:** 2026-02-20
-**Status:** Draft (requires review before Gate P0 freeze)
+**Version:** 2.0-draft
+**Date:** 2026-02-21
+**Status:** Draft (zero-knowledge architecture)
 **Applies to:** All clients (Android, iOS) and the sync server
 **Related documents:** `wire-format.md`, `sync-protocol.md`, `openapi.yaml`
 
@@ -15,49 +15,38 @@
 3. [Crypto Profile](#3-crypto-profile)
 4. [Key Hierarchy](#4-key-hierarchy)
 5. [Key Formats and Encoding](#5-key-formats-and-encoding)
-6. [Device Key Pair Generation and Storage](#6-device-key-pair-generation-and-storage)
-7. [DEK Lifecycle](#7-dek-lifecycle)
-8. [Key Epochs](#8-key-epochs)
-9. [DEK Wrapping Protocol](#9-dek-wrapping-protocol)
-10. [Device Enrollment Flow](#10-device-enrollment-flow)
-11. [Device Revocation and DEK Rotation](#11-device-revocation-and-dek-rotation)
-12. [OpLog Encryption and Decryption](#12-oplog-encryption-and-decryption)
-13. [Blob Encryption](#13-blob-encryption)
-14. [Hash Chain Integrity](#14-hash-chain-integrity)
-15. [Snapshot Encryption and Signing](#15-snapshot-encryption-and-signing)
-16. [Recovery Key](#16-recovery-key)
-17. [Invite Link Security](#17-invite-link-security)
+6. [Device Keypair Generation and Storage](#6-device-keypair-generation-and-storage)
+7. [Challenge-Response Authentication](#7-challenge-response-authentication)
+8. [DEK Lifecycle](#8-dek-lifecycle)
+9. [Key Epochs](#9-key-epochs)
+10. [DEK Wrapping Protocol](#10-dek-wrapping-protocol)
+11. [Key Attestation and Cross-Signing](#11-key-attestation-and-cross-signing)
+12. [QR Code Pairing Cryptography](#12-qr-code-pairing-cryptography)
+13. [OpLog Encryption and Decryption](#13-oplog-encryption-and-decryption)
+14. [Blob Encryption](#14-blob-encryption)
+15. [Hash Chain Integrity](#15-hash-chain-integrity)
+16. [Snapshot Encryption and Signing](#16-snapshot-encryption-and-signing)
+17. [Recovery Key](#17-recovery-key)
 18. [Platform Implementation Notes](#18-platform-implementation-notes)
 19. [Security Considerations](#19-security-considerations)
 20. [Conformance Requirements](#20-conformance-requirements)
 21. [Appendix A: Notation and Constants](#appendix-a-notation-and-constants)
-22. [Appendix B: Key Format Diagrams](#appendix-b-key-format-diagrams)
-23. [Appendix C: Worked Example](#appendix-c-worked-example)
 
 ---
 
 ## 1. Design Principles
 
-1. **Zero-knowledge server.** The server is a "dumb relay." It never possesses plaintext
-   family data, DEKs, or device private keys. A compromised server yields only ciphertext
-   and metadata (timestamps, sequence numbers, device IDs).
+1. **Zero-knowledge server.** The server never possesses plaintext data, DEKs, or private keys. It does not know user identities, entity types, operation types, or any business data. A compromised server yields only ciphertext and minimal structural metadata (device IDs, bucket IDs, key epochs, timing).
 
-2. **Defense in depth.** Data is protected at multiple layers: TLS in transit, AES-256-GCM
-   for payload encryption, SQLCipher/encrypted CoreData at rest on-device, and
-   hardware-backed key storage (Android Keystore / iOS Secure Enclave).
+2. **Public key = identity.** No emails, passwords, or accounts. Each device is identified by its Ed25519 signing public key and authenticated via challenge-response.
 
-3. **Forward secrecy on revocation.** When a device is revoked, the family DEK is rotated.
-   Future data is encrypted with a new key the revoked device cannot obtain. Historical
-   data already downloaded by the revoked device is accepted as an inherent tradeoff --
-   see [Section 19.5](#195-revoked-device-retains-historical-data).
+3. **Defense in depth.** Data is protected at multiple layers: TLS in transit, AES-256-GCM for payload encryption, hardware-backed key storage on-device, and per-device hash chains for integrity.
 
-4. **Cross-platform determinism.** All cryptographic operations use the same algorithms,
-   parameters, and encoding across Android (Tink) and iOS (CryptoKit). Conformance test
-   vectors (Section 20) guarantee interoperability.
+4. **Forward secrecy on revocation.** When a device is revoked (client-side concept), remaining devices rotate the DEK. Future data is encrypted with a new key.
 
-5. **Simplicity over cleverness.** The protocol uses well-studied primitives (X25519,
-   AES-256-GCM, HKDF-SHA256, Ed25519) composed in straightforward ways. No custom
-   cryptographic constructions.
+5. **Cross-platform determinism.** All cryptographic operations use identical algorithms, parameters, and encoding across Android and iOS. Conformance test vectors guarantee interoperability.
+
+6. **Simplicity over cleverness.** Well-studied primitives (Ed25519, X25519, AES-256-GCM, HKDF-SHA256) composed in straightforward ways.
 
 ---
 
@@ -67,139 +56,132 @@
 
 | Adversary | Capability | Goal |
 |-----------|-----------|------|
-| **Compromised server** | Full access to server storage, database, network traffic between server and clients | Read family data, tamper with sync stream |
-| **Network attacker** | TLS interception (MITM), traffic analysis | Read or modify data in transit |
-| **Malicious co-parent** | Legitimate app access, one valid device | Access data after being removed, tamper with historical record |
-| **Stolen device** | Physical access to a locked/unlocked device | Extract keys, read family data |
-| **Rogue app on device** | Userspace process on same device | Extract keys from memory, intercept IPC |
+| **Compromised server** | Full database access, network traffic interception | Read data, tamper with sync, substitute keys |
+| **Network attacker** | TLS interception, traffic analysis | Read or modify data in transit |
+| **Malicious co-parent** | Legitimate app access, valid device | Access data after removal, tamper with history |
+| **Stolen device** | Physical access | Extract keys, read data |
 
 ### 2.2 Security Properties
 
 | Property | Guaranteed | Notes |
 |----------|-----------|-------|
 | **Confidentiality** | Yes | Server and network attacker cannot read plaintext |
-| **Integrity** | Yes | Hash chains detect tampering; AES-GCM authenticates ciphertext; Ed25519 signs snapshots |
+| **Integrity** | Yes | Hash chains, AES-GCM authentication, Ed25519 signatures |
+| **Authentication** | Yes | Ed25519 challenge-response, no password brute-force possible |
 | **Forward secrecy (post-revocation)** | Yes | DEK rotation after device revocation |
-| **Forward secrecy (per-message)** | No | All messages in an epoch share one DEK; per-message ratchet is out of scope for v1 |
-| **Repudiation** | Partial | Ops are attributable to a deviceId but not cryptographically signed individually (snapshots are signed) |
-| **Availability** | No | Server can deny service; this is inherent to a relay model |
+| **Key transparency** | Yes | Cross-signing detects server key substitution |
+| **Metadata minimization** | Yes | Entity types, operations, timestamps all encrypted |
+| **Availability** | No | Server can deny service (inherent to relay model) |
 
 ### 2.3 Assumptions
 
-- Device OS and hardware security modules (Keystore, Secure Enclave) are not compromised.
-- Users verify fingerprints during device enrollment (see Section 10.7).
+- Device OS and hardware security modules are not compromised.
+- Users verify key fingerprints during QR code pairing.
 - TLS 1.3 is enforced for all client-server communication.
-- The app does not run on rooted/jailbroken devices (best-effort detection, not a hard gate).
 
 ---
 
 ## 3. Crypto Profile
 
-All platforms MUST use the following unified cryptographic profile. No algorithm
-negotiation. Protocol version changes are required to change any algorithm.
+No algorithm negotiation. Protocol version changes are required to change any algorithm.
 
 | Function | Algorithm | Parameters |
 |----------|-----------|------------|
-| **Key Agreement** | X25519 (Curve25519 Diffie-Hellman) | 32-byte private key, 32-byte public key |
-| **Payload Encryption** | AES-256-GCM | 256-bit key, 96-bit (12-byte) nonce, 128-bit (16-byte) authentication tag |
+| **Signing / Auth** | Ed25519 (RFC 8032) | 32-byte seed, 32-byte public key, 64-byte signature |
+| **Key Agreement** | X25519 (RFC 7748) | 32-byte private key (derived from Ed25519 seed), 32-byte public key |
+| **Payload Encryption** | AES-256-GCM | 256-bit key, 96-bit nonce, 128-bit auth tag |
 | **Key Derivation** | HKDF-SHA256 (RFC 5869) | Variable-length IKM, application-specific salt and info |
-| **Hash** | SHA-256 | 256-bit (32-byte) output; used for hash chains, checksums, fingerprints |
-| **Signing** | Ed25519 (RFC 8032) | 32-byte private key, 32-byte public key, 64-byte signature; used for snapshots and device attestation |
+| **Hash** | SHA-256 | 256-bit output; hash chains, checksums, fingerprints |
 | **Compression** | gzip (RFC 1952) | Applied to plaintext before encryption |
-| **Encoding** | Base64 (RFC 4648, standard alphabet, with padding) | For all binary-to-text encoding in JSON fields |
+| **Encoding** | Base64 (RFC 4648, standard, with padding) | Binary-to-text in JSON fields |
 | **Recovery Mnemonic** | BIP39 (English wordlist) | 256 bits entropy = 24 words |
 
 ### 3.1 Platform Library Mapping
 
 | Platform | Library | Notes |
 |----------|---------|-------|
-| **Android** | Google Tink | X25519 via `HybridEncrypt`/`HybridDecrypt` or raw key exchange; AES-256-GCM via `Aead`; HKDF via `Hkdf`; Ed25519 via `PublicKeySign`/`PublicKeyVerify`. Private keys stored in Android Keystore (hardware-backed where available). |
-| **iOS** | Apple CryptoKit | X25519 via `Curve25519.KeyAgreement`; AES-256-GCM via `AES.GCM`; HKDF via `HKDF<SHA256>`; Ed25519 via `Curve25519.Signing`. Private keys stored in Secure Enclave where supported, Keychain otherwise. |
-| **Server** | None (no crypto) | Server never performs encryption/decryption. It stores and relays opaque blobs. |
+| **Android** | Google Tink + libsodium | Ed25519 via libsodium; X25519 derived via `crypto_sign_ed25519_sk_to_curve25519`; AES-256-GCM via Tink `Aead` or `javax.crypto` |
+| **iOS** | Apple CryptoKit | Ed25519 via `Curve25519.Signing`; X25519 via `Curve25519.KeyAgreement`; AES-GCM via `AES.GCM` |
+| **Server** | None (no crypto on payloads) | Server verifies Ed25519 signatures for challenge-response auth only |
 
 ### 3.2 Nonce Generation
 
-All nonces MUST be generated using a cryptographically secure random number generator
-(CSRNG):
-
-- Android: `java.security.SecureRandom`
-- iOS: `SecRandomCopyBytes` or CryptoKit defaults
-
-Nonces are 96 bits (12 bytes) for AES-256-GCM. Given the birthday bound for 96-bit
-nonces (~2^48 messages per key before collision risk becomes non-negligible), and the
-expected volume of a family co-parenting app (at most tens of thousands of operations per
-DEK epoch), nonce collision probability is astronomically low. Random nonces are safe.
+All AES-256-GCM nonces are 96 bits (12 bytes) from CSRNG. Birthday bound analysis: ~2^48 messages per key before collision risk. KidSync produces at most ~10^4 ops/year, far below the danger threshold.
 
 ---
 
 ## 4. Key Hierarchy
 
 ```
-                    ┌─────────────────────────┐
-                    │   Recovery Key           │
-                    │   (256-bit, BIP39)       │
-                    │   User holds offline     │
-                    └───────────┬─────────────┘
-                                │ encrypts recovery blob
-                                ▼
-                    ┌─────────────────────────┐
-                    │   Recovery Blob          │
-                    │   (stored on server,     │
-                    │    encrypted)            │
-                    │   Contains: DEK + keys   │
-                    └─────────────────────────┘
+                    +---------------------------+
+                    |   Recovery Key             |
+                    |   (256-bit, BIP39 24       |
+                    |   words + optional         |
+                    |   passphrase "25th word")  |
+                    |   User holds offline       |
+                    +-----------+---------------+
+                                | encrypts recovery blob
+                                v
+                    +---------------------------+
+                    |   Recovery Blob            |
+                    |   (on server, encrypted)   |
+                    |   Contains: seed,          |
+                    |   bucketIds, DEKs          |
+                    +---------------------------+
 
-┌──────────────────────────────────────────────────────────────────────┐
-│ FAMILY SCOPE                                                         │
-│                                                                      │
-│   ┌─────────────────────────┐                                        │
-│   │   Family DEK            │                                        │
-│   │   (AES-256, symmetric)  │◄──── One per family, versioned by      │
-│   │   256-bit random        │      key epoch (monotonic integer)     │
-│   └───────────┬─────────────┘                                        │
-│               │                                                      │
-│               │ encrypts                                             │
-│               ▼                                                      │
-│   ┌─────────────────────────┐   ┌──────────────────────────┐        │
-│   │   OpLog Payloads        │   │   Blob Keys              │        │
-│   │   (AES-256-GCM)        │   │   (per-blob AES-256 key  │        │
-│   │                         │   │    stored in OpLog entry) │        │
-│   └─────────────────────────┘   └──────────────────────────┘        │
-│                                                                      │
-└──────────────────────────────────────────────────────────────────────┘
++----------------------------------------------------------------------+
+| BUCKET SCOPE                                                          |
+|                                                                       |
+|   +---------------------------+                                       |
+|   |   Bucket DEK              |                                       |
+|   |   (AES-256, symmetric)    |<-- One per bucket, versioned by       |
+|   |   256-bit random          |    key epoch (monotonic integer)      |
+|   +----------+----------------+                                       |
+|              |                                                        |
+|              | encrypts                                               |
+|              v                                                        |
+|   +---------------------------+   +---------------------------+       |
+|   |   Op Payloads             |   |   Blob Keys               |       |
+|   |   (AES-256-GCM)           |   |   (per-blob AES-256,      |       |
+|   |   Contains ALL metadata   |   |    inside encrypted op)   |       |
+|   +---------------------------+   +---------------------------+       |
+|                                                                       |
++----------------------------------------------------------------------+
 
-┌──────────────────────────────────────────────────────────────────────┐
-│ DEVICE SCOPE (one per enrolled device)                               │
-│                                                                      │
-│   ┌─────────────────────────┐   ┌──────────────────────────┐        │
-│   │   X25519 Key Pair       │   │   Ed25519 Key Pair       │        │
-│   │   (key agreement)       │   │   (signing)              │        │
-│   │   Private: 32 bytes     │   │   Private: 32 bytes      │        │
-│   │   Public: 32 bytes      │   │   Public: 32 bytes       │        │
-│   └───────────┬─────────────┘   └──────────────────────────┘        │
-│               │                                                      │
-│               │ used to unwrap                                       │
-│               ▼                                                      │
-│   ┌─────────────────────────┐                                        │
-│   │   Wrapped DEK Blob      │◄──── One per (device, epoch) pair     │
-│   │   (stored on server)    │      Server stores, cannot decrypt    │
-│   │   Contains encrypted    │                                        │
-│   │   DEK bytes             │                                        │
-│   └─────────────────────────┘                                        │
-│                                                                      │
-└──────────────────────────────────────────────────────────────────────┘
++----------------------------------------------------------------------+
+| DEVICE SCOPE (one per device)                                         |
+|                                                                       |
+|   +---------------------------+                                       |
+|   |   32-byte Seed            |                                       |
+|   |   (stored once in         |                                       |
+|   |    hardware-backed store) |                                       |
+|   +-----+----------+---------+                                       |
+|         |          |                                                  |
+|     derive      derive (crypto_sign_ed25519_sk_to_curve25519)        |
+|         |          |                                                  |
+|         v          v                                                  |
+|   +-----------+ +-----------+                                        |
+|   | Ed25519   | | X25519    |                                        |
+|   | Key Pair  | | Key Pair  |                                        |
+|   | (signing) | | (encrypt) |                                        |
+|   +-----------+ +-----------+                                        |
+|         |          |                                                  |
+|         |    used to unwrap                                           |
+|         |          v                                                  |
+|         |   +-----------+                                            |
+|         |   | Wrapped   |<-- One per (device, epoch) pair            |
+|         |   | DEK Blob  |    Server stores, cannot decrypt           |
+|         |   +-----------+                                            |
+|         |                                                             |
+|     used for                                                         |
+|         v                                                            |
+|   +---------------------------+                                       |
+|   | Challenge-Response Auth   |                                       |
+|   | Key Attestations          |                                       |
+|   | Snapshot Signing          |                                       |
+|   +---------------------------+                                       |
++----------------------------------------------------------------------+
 ```
-
-### 4.1 Key Relationships Summary
-
-| Key | Type | Scope | Created By | Stored Where | Purpose |
-|-----|------|-------|-----------|-------------|---------|
-| Family DEK | AES-256 symmetric | Per family, per epoch | Creating parent's device | Wrapped on server, plaintext on-device only | Encrypt/decrypt all OpLog payloads |
-| X25519 Key Pair | Asymmetric (key agreement) | Per device | Device itself | Private: device hardware store. Public: server `devices` table | Derive wrapping keys for DEK exchange |
-| Ed25519 Key Pair | Asymmetric (signing) | Per device | Device itself | Private: device hardware store. Public: server `devices` table | Sign snapshots and attestations |
-| Wrapped DEK | AES-256-GCM ciphertext | Per (device, epoch) | Wrapping device | Server `wrapped_deks` table | Transport DEK to a device without server seeing it |
-| Per-Blob Key | AES-256 symmetric | Per blob | Uploading device | Inside OpLog entry (encrypted by DEK) | Encrypt individual binary blobs |
-| Recovery Key | 256-bit entropy | Per user | User's device at onboarding | User's physical custody (paper/PDF) | Decrypt recovery blob to restore account |
 
 ---
 
@@ -209,236 +191,201 @@ DEK epoch), nonce collision probability is astronomically low. Random nonces are
 
 | Key | Raw Size | Format |
 |-----|----------|--------|
-| X25519 private key | 32 bytes | Raw Curve25519 scalar (clamped per RFC 7748) |
-| X25519 public key | 32 bytes | Raw Curve25519 u-coordinate |
-| Ed25519 private key | 32 bytes | Raw Ed25519 seed |
-| Ed25519 public key | 32 bytes | Raw Ed25519 point (compressed) |
-| Family DEK | 32 bytes | Raw AES-256 key |
+| Device seed | 32 bytes | Raw random bytes |
+| Ed25519 private key | 64 bytes | Seed (32 bytes) + public key (32 bytes), per RFC 8032 |
+| Ed25519 public key | 32 bytes | Compressed point |
+| X25519 private key | 32 bytes | Derived from Ed25519 seed via `crypto_sign_ed25519_sk_to_curve25519` |
+| X25519 public key | 32 bytes | Curve25519 u-coordinate |
+| Bucket DEK | 32 bytes | Raw AES-256 key |
 | Per-Blob Key | 32 bytes | Raw AES-256 key |
 | AES-256-GCM nonce | 12 bytes | Random |
 | AES-256-GCM tag | 16 bytes | Appended to ciphertext |
+| Challenge nonce | 32 bytes | Random, server-generated |
 
-### 5.2 Wrapped DEK Envelope (JSON)
+### 5.2 X25519 Derivation from Ed25519 Seed
 
-The wrapped DEK blob stored on the server for each device follows this format:
+Both keypairs are derived from a single 32-byte seed:
 
-```json
-{
-  "version": 1,
-  "keyEpoch": 1,
-  "deviceId": "550e8400-e29b-41d4-a716-446655440000",
-  "wrappedBy": "660e8400-e29b-41d4-a716-446655440001",
-  "algorithm": "X25519-HKDF-AES256GCM",
-  "ephemeralPublicKey": "<base64, 32 bytes>",
-  "salt": "<base64, 32 bytes>",
-  "nonce": "<base64, 12 bytes>",
-  "ciphertext": "<base64, 32 bytes DEK + 16 bytes GCM tag>",
-  "createdAt": "2026-02-20T12:00:00Z"
-}
+```
+seed = CSRNG(32)
+
+// Ed25519 keypair
+ed25519_private = Ed25519_ExpandSeed(seed)    // 64 bytes
+ed25519_public  = Ed25519_PublicFromSeed(seed) // 32 bytes
+
+// X25519 keypair (derived, not independently generated)
+x25519_private = crypto_sign_ed25519_sk_to_curve25519(ed25519_private)
+x25519_public  = crypto_sign_ed25519_pk_to_curve25519(ed25519_public)
 ```
 
-Field descriptions:
-
-| Field | Description |
-|-------|-------------|
-| `version` | Envelope format version (currently `1`) |
-| `keyEpoch` | Which DEK version this wraps |
-| `deviceId` | UUID of the target device that can unwrap this |
-| `wrappedBy` | UUID of the device that performed the wrapping |
-| `algorithm` | Fixed string `"X25519-HKDF-AES256GCM"` for forward compatibility |
-| `ephemeralPublicKey` | Sender's ephemeral X25519 public key for this wrapping operation (see Section 9) |
-| `salt` | Random 32-byte salt for HKDF |
-| `nonce` | 12-byte random nonce for AES-256-GCM |
-| `ciphertext` | AES-256-GCM encrypted DEK (32 bytes plaintext + 16 bytes appended auth tag) |
-| `createdAt` | ISO 8601 UTC timestamp |
-
-### 5.3 Public Key Registration (on server)
-
-When a device registers, it uploads its public keys:
-
-```json
-{
-  "deviceId": "550e8400-e29b-41d4-a716-446655440000",
-  "deviceName": "Pixel 9 Pro",
-  "x25519PublicKey": "<base64, 32 bytes>",
-  "ed25519PublicKey": "<base64, 32 bytes>",
-  "registeredAt": "2026-02-20T12:00:00Z"
-}
-```
+This derivation is deterministic: the same seed always produces the same Ed25519 and X25519 keypairs. This means only one 32-byte value needs to be stored and backed up.
 
 ---
 
-## 6. Device Key Pair Generation and Storage
+## 6. Device Keypair Generation and Storage
 
 ### 6.1 Key Generation
 
-Each device generates two key pairs during initial setup:
+At first launch, the device:
 
-1. **X25519 key pair** -- for key agreement (DEK wrapping/unwrapping).
-2. **Ed25519 key pair** -- for signing snapshots and device attestation.
-
-Both key pairs MUST be generated using the platform CSRNG.
+1. Generates 32 bytes of entropy from CSRNG (the **seed**).
+2. Derives Ed25519 keypair from the seed.
+3. Derives X25519 keypair from the Ed25519 private key.
+4. Stores the seed in hardware-backed secure storage.
+5. Never stores derived keys separately (they are re-derived on demand).
 
 ### 6.2 Private Key Storage
 
-Private keys MUST be stored in hardware-backed secure storage:
-
 | Platform | Storage | Extraction Policy |
 |----------|---------|-------------------|
-| Android | Android Keystore (StrongBox if available, TEE otherwise) | Non-extractable. All crypto operations performed inside the security module. |
-| iOS | Secure Enclave (if available), otherwise Keychain with `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` | Non-extractable from Secure Enclave. |
+| Android | Android Keystore (StrongBox if available, TEE otherwise) via EncryptedSharedPreferences | Non-extractable from hardware |
+| iOS | Secure Enclave (if available), otherwise Keychain with `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` | Non-extractable from Secure Enclave |
 
-**Fallback behavior:** If hardware-backed storage is unavailable (e.g., emulator, old
-device without TEE), the client MUST:
-1. Generate keys in software (Tink / CryptoKit).
-2. Store encrypted in platform keychain/keystore (software-backed).
-3. Display a warning to the user that hardware-backed security is not available.
-4. Set a `hardwareBacked: false` flag on the device registration.
+**Fallback:** If hardware-backed storage is unavailable (emulator, old device):
+1. Store seed encrypted in software keychain.
+2. Display a warning to the user.
+3. Set `hardwareBacked: false` internally (this is NOT sent to the server).
 
-### 6.3 Key Pair Lifecycle
+### 6.3 Key Lifecycle
 
 ```
-┌─────────────┐     ┌──────────────┐     ┌───────────────┐
-│  Generated   │────►│  Registered  │────►│   Revoked     │
-│  (on device) │     │  (pub key on │     │  (device      │
-│              │     │   server)    │     │   removed)    │
-└─────────────┘     └──────────────┘     └───────────────┘
-                           │
-                           │ recovery flow
-                           ▼
-                    ┌──────────────┐
-                    │  Replaced    │
-                    │  (new pair   │
-                    │   generated) │
-                    └──────────────┘
++-------------+     +--------------+     +---------------+
+|  Generated  |---->|  Registered  |---->|   Revoked     |
+|  (seed on   |     |  (pub keys   |     |  (self-revoke |
+|   device)   |     |   on server) |     |   or recovery)|
++-------------+     +--------------+     +---------------+
+                           |
+                           | recovery flow
+                           v
+                    +--------------+
+                    |  Replaced    |
+                    |  (new seed,  |
+                    |   new keys)  |
+                    +--------------+
 ```
-
-On recovery (Section 16), the old key pair is discarded and a new one is generated. The
-recovery blob provides access to the DEK; the new device re-enrolls with its fresh keys.
 
 ---
 
-## 7. DEK Lifecycle
+## 7. Challenge-Response Authentication
 
-### 7.1 DEK Creation
+### 7.1 Challenge Message Construction
 
-The Family DEK is created by the first parent's device during family setup:
+The signed challenge message binds to multiple contexts to prevent replay:
 
-1. Generate 32 bytes (256 bits) from CSRNG.
-2. Set `keyEpoch = 1`.
-3. Store DEK locally in the device's encrypted database.
-4. Wrap DEK for the creating device itself (see Section 9).
+```
+msg = nonce (32 bytes, raw)
+   || signingKey (32 bytes, raw Ed25519 public key)
+   || serverOrigin (variable length, UTF-8 encoded, e.g., "https://api.kidsync.app")
+   || timestamp (variable length, UTF-8 encoded ISO 8601, e.g., "2026-02-21T14:30:00.000Z")
+```
+
+The `||` operator denotes byte concatenation with no delimiters.
+
+### 7.2 Signature
+
+```
+signature = Ed25519_Sign(ed25519_private_key, msg)
+// 64 bytes
+```
+
+### 7.3 Server Verification
+
+The server:
+1. Looks up the device by `signingKey` in the `devices` table.
+2. Retrieves the stored nonce by value. If not found or already consumed, rejects.
+3. Verifies the nonce has not expired (60s TTL).
+4. Consumes (deletes) the nonce atomically.
+5. Reconstructs `msg` using the submitted `signingKey`, `nonce`, the server's own origin, and the submitted `timestamp`.
+6. Verifies `Ed25519_Verify(signingKey, msg, signature)`.
+7. Verifies `abs(serverTime - clientTimestamp) < 60 seconds`.
+
+If all checks pass, the server issues an opaque session token.
+
+### 7.4 Anti-Replay Properties
+
+| Attack | Prevention |
+|--------|------------|
+| Replay same nonce | Nonce deleted on consumption |
+| Delayed replay | 60s nonce TTL |
+| Cross-device replay | signingKey bound in message |
+| Cross-server replay | serverOrigin bound in message |
+| Timestamp manipulation | Verified within 60s of server time |
+
+---
+
+## 8. DEK Lifecycle
+
+### 8.1 DEK Creation
+
+The first device to create a bucket generates the bucket DEK:
+
+1. `DEK = CSRNG(32)` (256-bit AES key)
+2. `keyEpoch = 1`
+3. Store DEK locally in encrypted database.
+4. Wrap DEK for own device (self-wrap, Section 10).
 5. Upload wrapped DEK blob to server.
 
-```mermaid
-sequenceDiagram
-    participant PA as Parent A Device
-    participant S as Server
-
-    PA->>PA: Generate DEK (32 random bytes)
-    PA->>PA: Set keyEpoch = 1
-    PA->>PA: Store DEK in local encrypted DB
-    PA->>PA: Wrap DEK for own device (self-wrap)
-    PA->>S: POST /families (create family)
-    PA->>S: PUT /families/{id}/wrapped-deks/{deviceId} (upload wrapped DEK)
-    S->>S: Store wrapped DEK blob (opaque)
-```
-
-### 7.2 DEK Storage (Client-Side)
-
-Clients maintain a key ring of all DEK epochs they have access to:
+### 8.2 DEK Storage (Client-Side)
 
 ```
-KeyRing = [
-  { epoch: 1, dek: <32 bytes>, createdAt: "2026-02-20T12:00:00Z" },
-  { epoch: 2, dek: <32 bytes>, createdAt: "2026-03-15T08:30:00Z" },
+KeyRing = {
+  bucketId: {
+    1: <32 bytes>,    // epoch 1
+    2: <32 bytes>,    // epoch 2
+    ...
+  },
   ...
-]
-```
-
-The key ring is stored in the device's encrypted local database (Room + SQLCipher on
-Android, encrypted CoreData on iOS).
-
-**The current epoch** is the highest epoch number in the key ring. All new operations
-are encrypted with the current epoch's DEK.
-
-### 7.3 DEK Destruction
-
-DEKs are never explicitly destroyed on the client because old epochs are needed to
-decrypt historical OpLog entries. The key ring grows monotonically.
-
-On the server, wrapped DEK blobs for revoked devices are deleted as part of device
-revocation (Section 11).
-
----
-
-## 8. Key Epochs
-
-### 8.1 Epoch Numbering
-
-- Epochs are monotonically increasing positive integers starting at `1`.
-- Each DEK version corresponds to exactly one epoch.
-- Epoch numbers are globally unique within a family -- there is never more than one DEK
-  for a given epoch.
-
-### 8.2 Epoch in OpLog
-
-Every `OpLogEntry` includes a `keyEpoch` field (unencrypted) indicating which DEK was
-used to encrypt its payload:
-
-```json
-{
-  "sequenceNo": 42,
-  "deviceId": "550e8400-e29b-41d4-a716-446655440000",
-  "timestamp": "2026-02-20T12:00:00Z",
-  "keyEpoch": 1,
-  "encryptedPayload": "<base64>",
-  "prevHash": "<base64, 32 bytes>"
 }
 ```
 
-### 8.3 Epoch Advancement Rules
+Stored in device's encrypted local database (Room + SQLCipher on Android, encrypted CoreData on iOS).
 
-The epoch advances (new DEK generated) only on:
+### 8.3 DEK Destruction
 
-1. **Device revocation** -- a device is removed from the family (Section 11).
-2. **Suspected compromise** -- a parent marks a device as compromised.
-3. **Scheduled rotation** -- (future, not in v1) periodic rotation policy.
-
-Epoch MUST NOT advance without generating a new DEK and re-wrapping for all trusted
-devices. There is no "empty" epoch.
-
-### 8.4 Decryption with Historical Epochs
-
-When decrypting an OpLog entry:
-
-1. Read `keyEpoch` from the entry.
-2. Look up the DEK for that epoch in the local key ring.
-3. If the epoch is not found (e.g., device enrolled after that epoch), attempt to
-   download historical wrapped DEK from the server. If not available, mark the entry
-   as undecryptable and continue -- do not halt sync.
-4. Decrypt using the found DEK.
+DEKs are never explicitly destroyed because old epochs are needed to decrypt historical ops. The key ring grows monotonically. On the server, wrapped DEK blobs for removed devices are cleaned up when the device self-revokes.
 
 ---
 
-## 9. DEK Wrapping Protocol
+## 9. Key Epochs
 
-This section defines how the Family DEK is encrypted ("wrapped") for delivery to a
-specific device without the server learning the DEK.
+### 9.1 Epoch Numbering
 
-### 9.1 Overview
+- Monotonically increasing positive integers starting at 1.
+- Each epoch corresponds to exactly one DEK.
+- Globally unique within a bucket.
 
-DEK wrapping uses an ephemeral X25519 key exchange to derive a one-time wrapping key,
-which then encrypts the DEK with AES-256-GCM. This is effectively a simplified ECIES
-(Elliptic Curve Integrated Encryption Scheme) construction.
+### 9.2 Epoch in Op Envelope
 
-### 9.2 Wrapping Procedure
+The `keyEpoch` field is one of the few pieces of information visible in the server-side op record, alongside `deviceId`, `encryptedPayload`, `prevHash`, and `currentHash`.
+
+### 9.3 Epoch Advancement Rules
+
+The epoch advances only on:
+1. **Device revocation** (client-side concept): remaining devices generate new DEK.
+2. **Suspected compromise**: a device marks another as compromised via encrypted op.
+
+### 9.4 Decryption with Historical Epochs
+
+1. Read `keyEpoch` from the op record.
+2. Look up DEK in local key ring.
+3. If not found, attempt to download historical wrapped DEK from server.
+4. If unavailable, mark op as `UNDECRYPTABLE` and continue sync.
+
+---
+
+## 10. DEK Wrapping Protocol
+
+### 10.1 Overview
+
+DEK wrapping uses ephemeral X25519 key exchange to derive a one-time wrapping key, which encrypts the DEK with AES-256-GCM.
+
+### 10.2 Wrapping Procedure
 
 **Inputs:**
-- `DEK`: 32-byte family DEK to wrap
+- `DEK`: 32-byte bucket DEK
 - `recipientPublicKey`: target device's X25519 public key (32 bytes)
-- `deviceId`: target device's UUID (string)
-- `keyEpoch`: the DEK epoch being wrapped (integer)
+- `deviceId`: target device's UUID
+- `keyEpoch`: the DEK epoch being wrapped
 
 **Steps:**
 
@@ -446,26 +393,22 @@ which then encrypts the DEK with AES-256-GCM. This is effectively a simplified E
 1. Generate ephemeral X25519 key pair:
    ephemeralPrivate, ephemeralPublic = X25519_KeyGen(CSRNG)
 
-2. Compute shared secret via ECDH:
+2. Compute shared secret:
    sharedSecret = X25519(ephemeralPrivate, recipientPublicKey)
-   // 32 bytes
 
 3. Generate random salt:
    salt = CSRNG(32)
-   // 32 bytes
 
-4. Derive wrapping key via HKDF:
+4. Derive wrapping key:
    wrappingKey = HKDF-SHA256(
      IKM  = sharedSecret,
      salt = salt,
      info = "kidsync-dek-wrap-v1" || deviceId,
      L    = 32
    )
-   // 32 bytes (AES-256 key)
 
 5. Generate random nonce:
    nonce = CSRNG(12)
-   // 12 bytes (96 bits)
 
 6. Encrypt DEK:
    ciphertext || tag = AES-256-GCM-Encrypt(
@@ -474,19 +417,17 @@ which then encrypts the DEK with AES-256-GCM. This is effectively a simplified E
      plaintext = DEK,
      AAD       = "epoch=" || str(keyEpoch) || ",device=" || deviceId
    )
-   // ciphertext: 32 bytes, tag: 16 bytes
 
 7. Securely erase: ephemeralPrivate, sharedSecret, wrappingKey
-   // MUST be zeroed from memory immediately after use
 
-8. Construct wrapped DEK envelope (Section 5.2) with:
+8. Construct wrapped DEK envelope with:
    ephemeralPublicKey, salt, nonce, ciphertext || tag
 ```
 
-### 9.3 Unwrapping Procedure
+### 10.3 Unwrapping Procedure
 
 **Inputs:**
-- Wrapped DEK envelope (Section 5.2)
+- Wrapped DEK envelope
 - `recipientPrivateKey`: this device's X25519 private key
 
 **Steps:**
@@ -512,7 +453,6 @@ which then encrypts the DEK with AES-256-GCM. This is effectively a simplified E
      ciphertext = ciphertext,
      AAD        = "epoch=" || str(keyEpoch) || ",device=" || deviceId
    )
-   // If authentication fails, reject the envelope (tampered or wrong key)
 
 5. Verify DEK length == 32 bytes
 
@@ -521,338 +461,189 @@ which then encrypts the DEK with AES-256-GCM. This is effectively a simplified E
 7. Store DEK in local key ring under the given keyEpoch
 ```
 
-### 9.4 Security Properties
+### 10.4 Wrapped DEK Envelope Format
 
-- **Ephemeral keys**: A new ephemeral X25519 key pair is generated for each wrapping
-  operation. This ensures that compromising one wrapping event does not compromise others.
-- **AAD binding**: The epoch and device ID are bound as additional authenticated data,
-  preventing a wrapped blob from being replayed to a different device or for a different
-  epoch.
-- **HKDF domain separation**: The `info` parameter includes a version string
-  (`kidsync-dek-wrap-v1`) and device ID, preventing cross-protocol and cross-device
-  key reuse.
-
-```mermaid
-flowchart LR
-    subgraph Sender["Wrapping Device"]
-        EKG["Generate Ephemeral\nX25519 Key Pair"]
-        ECDH["X25519 ECDH\n(ephemeral + recipient pub)"]
-        HKDF["HKDF-SHA256\n(shared secret + salt + info)"]
-        ENC["AES-256-GCM Encrypt\n(wrapping key + DEK)"]
-    end
-
-    subgraph Recipient["Target Device"]
-        ECDH2["X25519 ECDH\n(own private + ephemeral pub)"]
-        HKDF2["HKDF-SHA256\n(shared secret + salt + info)"]
-        DEC["AES-256-GCM Decrypt\n(wrapping key + ciphertext)"]
-    end
-
-    EKG --> ECDH --> HKDF --> ENC
-    ENC -->|"Wrapped DEK\n(via server)"| ECDH2 --> HKDF2 --> DEC
-    DEC -->|"Plaintext DEK"| KR["Store in\nKey Ring"]
-```
-
----
-
-## 10. Device Enrollment Flow
-
-Device enrollment is the process by which a new device (belonging to a new or existing
-family member) obtains the family DEK.
-
-### 10.1 Enrollment Overview
-
-```mermaid
-sequenceDiagram
-    participant PA as Parent A Device
-    participant S as Server
-    participant PB as Parent B Device
-
-    Note over PA: Already has DEK, is family admin
-
-    PA->>S: POST /families/{id}/invite
-    S->>PA: { inviteToken, expiresAt }
-    PA->>PB: Share invite link (out-of-band: QR, SMS, email)
-
-    Note over PB: Install app, create account
-
-    PB->>PB: Generate X25519 + Ed25519 key pairs
-    PB->>S: POST /families/{id}/join { inviteToken, x25519PublicKey, ed25519PublicKey }
-    S->>S: Validate invite token, register device, add member
-    S->>PA: Push notification: "New member pending DEK"
-
-    PA->>S: GET /families/{id}/members (sees new device with public key)
-    PA->>PA: Wrap DEK for PB's device (Section 9.2)
-    PA->>S: PUT /families/{id}/wrapped-deks/{PB.deviceId}
-
-    PB->>S: GET /families/{id}/wrapped-deks/{PB.deviceId}
-    PB->>PB: Unwrap DEK (Section 9.3)
-    PB->>PB: Store DEK in local key ring
-
-    Note over PA,PB: Fingerprint verification (Section 10.7)
-    PA->>PA: Display fingerprint
-    PB->>PB: Display fingerprint
-    Note over PA,PB: Users compare fingerprints out-of-band
-```
-
-### 10.2 Invite Link Format
-
-The invite link is a deep link / universal link containing:
-
-```
-kidsync://join?familyId={UUID}&token={inviteToken}&pk={base64url(parentA_x25519PublicKey)}
-```
-
-| Parameter | Description |
-|-----------|-------------|
-| `familyId` | UUID of the family to join |
-| `token` | Server-generated invite token (64 random bytes, base64url-encoded) |
-| `pk` | Inviting device's X25519 public key (base64url, no padding) |
-
-The public key in the invite link allows the joining device to display fingerprint
-verification immediately, before the server round-trip completes.
-
-### 10.3 Invite Token Properties
-
-- 64 bytes of CSRNG entropy, base64url-encoded (86 characters).
-- Expires after 48 hours.
-- Single-use: consumed on successful join.
-- Rate-limited: maximum 5 active invites per family.
-- Server stores: `SHA256(inviteToken)` only (never the raw token).
-
-### 10.4 Join Request
-
-Parent B's device sends:
-
-```
-POST /families/{familyId}/join
+```json
 {
-  "inviteToken": "<base64url, 86 chars>",
-  "x25519PublicKey": "<base64, 32 bytes>",
-  "ed25519PublicKey": "<base64, 32 bytes>",
-  "deviceName": "iPhone 17 Pro"
+  "version": 1,
+  "keyEpoch": 1,
+  "targetDevice": "550e8400-e29b-41d4-a716-446655440000",
+  "wrappedBy": "660e8400-e29b-41d4-a716-446655440001",
+  "algorithm": "X25519-HKDF-AES256GCM",
+  "ephemeralPublicKey": "<base64, 32 bytes>",
+  "salt": "<base64, 32 bytes>",
+  "nonce": "<base64, 12 bytes>",
+  "ciphertext": "<base64, 32 bytes DEK + 16 bytes GCM tag>",
+  "createdAt": "2026-02-21T12:00:00Z"
 }
 ```
 
-Server actions:
-1. Verify `SHA256(inviteToken)` matches stored hash.
-2. Verify invite has not expired or been consumed.
-3. Mark invite as consumed.
-4. Create `family_member` record.
-5. Create `device` record with public keys.
-6. Notify existing family devices via push.
+---
 
-### 10.5 DEK Delivery
+## 11. Key Attestation and Cross-Signing
 
-Parent A's device:
-1. Receives push notification about new member.
-2. Fetches new member's public key from server.
-3. Wraps current DEK (current epoch) for the new device (Section 9.2).
-4. Uploads wrapped DEK to server.
+### 11.1 Attestation Signature
 
-If multiple DEK epochs exist (from previous rotations), Parent A wraps ALL historical
-DEKs for the new device, so the new device can decrypt the full OpLog history.
-
-### 10.6 Multi-Device Enrollment (Same User)
-
-A user adding a second device to their own account follows the same flow, except:
-- The existing device generates a device-add token (not a family invite).
-- No new `family_member` is created; only a new `device` record.
-- DEK wrapping proceeds identically.
-
-### 10.7 Fingerprint Verification
-
-After enrollment, both devices display a verification fingerprint:
+A key attestation is an Ed25519 signature by one device over another device's identity and encryption key:
 
 ```
-fingerprint = HexEncode(SHA256(PublicKeyA || PublicKeyB))[:16]
+attestation_message = attestedDeviceId (UTF-8, 36 bytes)
+                   || attestedEncryptionKey (raw X25519 public key, 32 bytes)
+
+signature = Ed25519_Sign(signer_ed25519_private, attestation_message)
 ```
 
-Where:
-- `PublicKeyA` and `PublicKeyB` are the X25519 public keys of both devices.
-- Keys are concatenated in lexicographic order (lower byte value first) to ensure both
-  devices compute the same hash regardless of who initiated.
-- The first 16 hex characters (8 bytes) are displayed, formatted as:
-  `A1B2 C3D4 E5F6 7890`
+### 11.2 Attestation Verification
 
-The app displays this fingerprint prominently and instructs both parents to confirm the
-match via a separate communication channel (phone call, in person, etc.).
+To verify an attestation:
 
-**Security note:** Fingerprint verification is CRITICAL to prevent a MITM attack where
-the server substitutes public keys. If fingerprints do not match, the user MUST reject
-the enrollment and re-initiate.
+```
+attestation_message = attestedDeviceId || attestedEncryptionKey
+valid = Ed25519_Verify(signer_signing_key, attestation_message, signature)
+```
 
-The enrollment is marked as "unverified" until both users confirm the fingerprint in
-their app. Unverified enrollments function normally but display a persistent warning.
+The verifier must know the signer's Ed25519 public key through a trusted channel (e.g., the QR code fingerprint during pairing).
+
+### 11.3 Attestation Format (Server-Stored)
+
+```json
+{
+  "signerDevice": "device-A-uuid",
+  "attestedDevice": "device-B-uuid",
+  "attestedKey": "<base64, X25519 public key being attested>",
+  "signature": "<base64, Ed25519 signature, 64 bytes>",
+  "createdAt": "2026-02-21T12:00:00Z"
+}
+```
+
+### 11.4 Cross-Signing Flow
+
+1. **During pairing:** Device A's signing key fingerprint is in the QR code.
+2. **After join:** Device A fetches Device B's encryption key, verifies it was the device that just joined, signs attestation, uploads.
+3. **Device B verifies:** Fetches attestation, verifies signature using fingerprint from QR code.
+4. **Device B reciprocates:** Signs Device A's encryption key, uploads attestation.
+5. **Key change:** If a device's encryption key changes (recovery), existing attestations become invalid. Other devices detect unattested keys and require re-verification.
 
 ---
 
-## 11. Device Revocation and DEK Rotation
+## 12. QR Code Pairing Cryptography
 
-### 11.1 Revocation Flow
+### 12.1 QR Code Contents
 
-```mermaid
-sequenceDiagram
-    participant Admin as Admin Parent Device
-    participant S as Server
-    participant Other as Other Devices
-    participant Revoked as Revoked Device
-
-    Admin->>S: DELETE /devices/{revokedDeviceId}
-    S->>S: Set revoked_at timestamp
-    S->>S: Invalidate all auth tokens for device
-    S->>S: Delete wrapped DEK blobs for revoked device
-
-    S->>Revoked: 401 Unauthorized (on next API call)
-    S->>Other: Push: "device revoked, key rotation needed"
-
-    Admin->>Admin: Generate new DEK (epoch N+1)
-    Admin->>Admin: Wrap new DEK for ALL remaining trusted devices
-
-    loop For each trusted device
-        Admin->>S: PUT /families/{id}/wrapped-deks/{deviceId} (epoch N+1)
-    end
-
-    Admin->>S: POST /sync/ops (KeyRotation op, unencrypted metadata)
-
-    Other->>S: GET /sync/ops (receives KeyRotation op)
-    Other->>S: GET /families/{id}/wrapped-deks/{deviceId} (epoch N+1)
-    Other->>Other: Unwrap new DEK, add to key ring
-    Other->>Other: Set current epoch = N+1
+```json
+{
+  "v": 1,
+  "s": "https://api.kidsync.app",
+  "b": "bucket-uuid",
+  "t": "invite-token-plaintext",
+  "f": "SHA256-fingerprint-of-signing-key"
+}
 ```
 
-### 11.2 DEK Rotation Steps (Detail)
-
-Performed by the admin parent's device:
+### 12.2 Key Fingerprint Computation
 
 ```
-1. Generate new DEK:
-   newDEK = CSRNG(32)
-   newEpoch = currentEpoch + 1
-
-2. Fetch list of all non-revoked devices:
-   GET /families/{id}/members -> filter active devices
-
-3. For each active device (including self):
-   wrappedBlob = WrapDEK(newDEK, device.x25519PublicKey, device.id, newEpoch)
-   PUT /families/{id}/wrapped-deks/{device.id}  (body = wrappedBlob)
-
-4. Create KeyRotation OpLog entry:
-   {
-     "entityType": "KeyRotation",
-     "operation": "CREATE",
-     "keyEpoch": newEpoch,
-     "encryptedPayload": null,
-     "metadata": {
-       "type": "keyRotation",
-       "previousEpoch": currentEpoch,
-       "revokedDeviceId": "<UUID of revoked device>",
-       "reason": "device_revocation"
-     }
-   }
-   // Note: KeyRotation ops have unencrypted metadata so all
-   // devices can read them even before obtaining the new DEK
-
-5. Upload KeyRotation op:
-   POST /sync/ops
-
-6. Update local key ring:
-   keyRing.add({ epoch: newEpoch, dek: newDEK })
-   currentEpoch = newEpoch
+fingerprint = HexEncode(SHA256(ed25519_signing_public_key))[:32]
 ```
 
-### 11.3 Client Handling of KeyRotation Op
+The first 32 hex characters (16 bytes) of the SHA-256 hash of the raw 32-byte Ed25519 public key. Displayed as: `A1B2C3D4 E5F67890 12345678 9ABCDEF0`.
 
-When a non-admin device receives a `KeyRotation` op in the sync stream:
+### 12.3 What Is NOT in the QR Code
 
-1. Read `keyEpoch` from the op metadata.
-2. Download wrapped DEK for the new epoch:
-   `GET /families/{id}/wrapped-deks/{ownDeviceId}?epoch={newEpoch}`
-3. Unwrap using own private key (Section 9.3).
-4. Add new DEK to local key ring.
-5. Set current epoch to the new epoch.
-6. Continue processing subsequent ops (which will be encrypted with the new epoch).
+The DEK is **never** in the QR code. The QR code provides:
+- Server URL (where to connect)
+- Bucket ID (which namespace to join)
+- Invite token (one-time access grant)
+- Signing key fingerprint (trust anchor for cross-signing)
 
-### 11.4 Race Condition: Ops During Rotation
+The DEK is exchanged via wrapped key exchange (Section 10) after both devices have authenticated and the joiner has been granted bucket access.
 
-Between the moment a device is revoked and other devices receive the KeyRotation op,
-some devices may still submit ops encrypted with the old epoch. This is acceptable:
+### 12.4 Security Reasoning
 
-- Old-epoch ops are still decryptable by all devices that have the old DEK.
-- Once a device processes the KeyRotation op, it switches to the new epoch for all
-  future ops.
-- The server does NOT reject old-epoch ops during the transition window.
-
-### 11.5 What the Revoked Device Retains
-
-A revoked device retains:
-- All historical OpLog entries already downloaded and decrypted.
-- All DEK epochs it had access to before revocation.
-- Local database with all family data synced up to the revocation point.
-
-This is by design: in a co-parenting context, both parents have a legitimate interest
-in retaining records of past coordination. The revocation prevents future access, not
-historical access.
+If the QR image is captured by an attacker:
+1. The attacker gets the invite token and can join the bucket.
+2. But the attacker generates their own keypair, which has a different fingerprint.
+3. When Device A cross-signs, it signs the attacker's key -- but Device A will see an unexpected device fingerprint (not what it showed the co-parent).
+4. The user should notice an unfamiliar device in the bucket device list.
+5. Additionally, the attacker cannot forge attestations with the correct fingerprint.
 
 ---
 
-## 12. OpLog Encryption and Decryption
+## 13. OpLog Encryption and Decryption
 
-### 12.1 Encryption Pipeline
-
-```
-┌──────────┐    ┌───────────┐    ┌──────────┐    ┌───────────┐    ┌──────────┐
-│ Business │    │   JSON    │    │  gzip    │    │ AES-256-  │    │  Base64  │
-│  Object  │───►│ Serialize │───►│ Compress │───►│ GCM       │───►│  Encode  │
-│          │    │           │    │          │    │ Encrypt   │    │          │
-└──────────┘    └───────────┘    └──────────┘    └───────────┘    └──────────┘
-                                                       ▲
-                                                       │
-                                           ┌───────────┴───────────┐
-                                           │ DEK[currentEpoch]     │
-                                           │ Nonce: random 12 bytes│
-                                           │ AAD: see Section 12.3 │
-                                           └───────────────────────┘
-```
-
-#### 12.1.1 Plaintext vs Encrypted Field Boundary
-
-The following table defines which OpLogEntry fields are **plaintext** (visible to the
-server as the envelope) versus **encrypted** (inside the `encryptedPayload` ciphertext,
-visible only to clients with the DEK):
-
-| Category | Fields | Server Visibility |
-|----------|--------|-------------------|
-| **Plaintext envelope** | `globalSequence`, `deviceId`, `deviceSequence`, `entityType`, `entityId`, `operation`, `devicePrevHash`, `currentHash`, `keyEpoch`, `clientTimestamp`, `serverTimestamp`, `protocolVersion`, `transitionTo` | Yes -- server stores and may use for routing, validation, and state tracking |
-| **Encrypted payload** | All `OperationPayload` fields (`payloadType`, `entityId`, `timestamp`, `operationType`, and all type-specific fields like `pattern`, `amountCents`, `description`, etc.) | No -- opaque ciphertext to the server |
-
-**Rationale:** The envelope fields `entityType`, `entityId`, and `operation` are
-visible to the server to enable ScheduleOverride state-machine validation without
-decryption. The `entityId` in the envelope duplicates the one inside the encrypted
-payload for this purpose. All sensitive business data (amounts, descriptions,
-custody patterns, names) is inside the encrypted payload.
-
-**Detailed steps:**
+### 13.1 Encryption Pipeline
 
 ```
-1. Serialize operation payload to JSON (canonical, no whitespace):
-   jsonBytes = canonicalJsonSerialize(operationPayload)
++-----------+    +-----------+    +----------+    +-----------+    +----------+
+| Decrypted |    |   JSON    |    |  gzip    |    | AES-256-  |    |  Base64  |
+| Payload   |--->| Serialize |--->| Compress |--->| GCM       |--->|  Encode  |
+| (all meta |    | (canon.)  |    |          |    | Encrypt   |    |          |
+|  + data)  |    |           |    |          |    |           |    |          |
++-----------+    +-----------+    +----------+    +-----------+    +----------+
+                                                       ^
+                                                       |
+                                           +-----------+-----------+
+                                           | DEK[currentEpoch]     |
+                                           | Nonce: random 12 bytes|
+                                           | AAD: bucketId+deviceId|
+                                           +-----------------------+
+```
 
-2. Compress:
+### 13.2 What Goes Inside the Encrypted Payload
+
+ALL metadata and business data:
+
+```json
+{
+  "deviceSequence": 47,
+  "entityType": "CustodySchedule",
+  "entityId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "operation": "CREATE",
+  "clientTimestamp": "2026-02-21T14:30:00.000Z",
+  "protocolVersion": 2,
+  "data": {
+    "scheduleId": "a1b2c3d4-...",
+    "childId": "child-1",
+    "anchorDate": "2026-03-17",
+    "cycleLengthDays": 14,
+    "pattern": ["parent-a", "parent-a", ...],
+    "effectiveFrom": "2026-03-17T00:00:00Z",
+    "timeZone": "Europe/Berlin"
+  }
+}
+```
+
+### 13.3 What the Server Sees Per Op
+
+| Field | Visible? | Purpose |
+|-------|----------|---------|
+| globalSequence | Yes | Server-assigned ordering |
+| deviceId | Yes | Hash chain per device |
+| keyEpoch | Yes | DEK version lookup |
+| encryptedPayload | No | Opaque ciphertext |
+| prevHash | Yes | Hash chain integrity |
+| currentHash | Yes | Hash chain integrity |
+| serverTimestamp | Yes | Server's receive time |
+
+### 13.4 Detailed Encryption Steps
+
+```
+1. Construct DecryptedPayload with all metadata + data fields
+
+2. Serialize to canonical JSON:
+   jsonBytes = canonicalJsonSerialize(decryptedPayload)
+   // Sorted keys, no whitespace, omit nulls
+
+3. Compress:
    compressed = gzip(jsonBytes)
 
-3. Generate nonce:
+4. Generate nonce:
    nonce = CSRNG(12)
-   // 96-bit random nonce, generated per encryption operation.
-   // See Section 12.5 for nonce management details.
 
-4. Construct AAD (Additional Authenticated Data):
-   // AAD is NOT encrypted but IS authenticated.
-   // It binds the ciphertext to its context, preventing replay.
-   // AAD MUST only include fields known BEFORE encryption.
-   AAD = UTF-8(familyId + "|" + deviceId + "|" + str(deviceSequence) + "|" + str(keyEpoch))
-   // See Section 12.3 for the full AAD construction specification.
+5. Construct AAD:
+   AAD = UTF-8(bucketId + "|" + deviceId)
 
-5. Encrypt:
+6. Encrypt:
    ciphertext || tag = AES-256-GCM-Encrypt(
      key       = DEK[currentEpoch],
      nonce     = nonce,
@@ -860,793 +651,385 @@ custody patterns, names) is inside the encrypted payload.
      AAD       = AAD
    )
 
-6. Encode for transport:
+7. Encode:
    encryptedPayload = Base64Encode(nonce || ciphertext || tag)
-   // The first 12 bytes of the decoded encryptedPayload are ALWAYS the nonce.
-   // This makes the encryptedPayload self-describing for decryption.
 
-7. Construct OpLogEntry:
+8. Construct OpInput:
    {
-     "deviceId": "<this device's UUID>",
-     "deviceSequence": <monotonic counter>,
+     "deviceId": "<UUID>",
      "keyEpoch": currentEpoch,
-     "encryptedPayload": "<base64 string from step 6>",
-     "devicePrevHash": "<hex, 64 chars, see Section 14>",
-     "currentHash": "<hex, 64 chars, see Section 14>"
+     "encryptedPayload": "<base64>",
+     "prevHash": "<hex, 64 chars>",
+     "currentHash": "<hex, 64 chars>"
    }
 ```
 
-### 12.2 Decryption Pipeline
+### 13.5 Decryption Steps
 
 ```
-┌──────────┐    ┌───────────┐    ┌──────────┐    ┌───────────┐    ┌──────────┐
-│  Base64  │    │ AES-256-  │    │  gzip    │    │   JSON    │    │ Business │
-│  Decode  │───►│ GCM       │───►│ Decomp.  │───►│ Deserial. │───►│  Object  │
-│          │    │ Decrypt   │    │          │    │           │    │          │
-└──────────┘    └───────────┘    └──────────┘    └───────────┘    └──────────┘
-```
+1. Base64 decode encryptedPayload
 
-**Detailed steps:**
-
-```
-1. Base64 decode encryptedPayload to get raw bytes
-
-2. Split raw bytes:
-   nonce      = rawBytes[0..12]     // first 12 bytes
-   ciphertext = rawBytes[12..N-16]  // middle
-   tag        = rawBytes[N-16..N]   // last 16 bytes
-   // Note: most AES-GCM implementations handle ciphertext+tag as one unit
+2. Split:
+   nonce      = rawBytes[0..12]
+   ciphertag  = rawBytes[12..]
 
 3. Look up DEK:
-   dek = keyRing.get(opLogEntry.keyEpoch)
-   if dek == null:
-     // Attempt to fetch wrapped DEK for this epoch from server
-     // If still unavailable, mark entry as undecryptable, continue sync
-     return UNDECRYPTABLE
+   dek = keyRing.get(keyEpoch)
+   if null: request wrapped DEK from server
 
 4. Reconstruct AAD:
-   AAD = opLogEntry.deviceId
+   AAD = UTF-8(bucketId + "|" + deviceId)
 
 5. Decrypt:
-   compressed = AES-256-GCM-Decrypt(
-     key        = dek,
-     nonce      = nonce,
-     ciphertext = ciphertext || tag,
-     AAD        = AAD
-   )
-   if decryption fails (auth tag mismatch):
-     // CRITICAL: Do not silently skip. Log error, alert user.
-     return INTEGRITY_ERROR
+   compressed = AES-256-GCM-Decrypt(dek, nonce, ciphertag, AAD)
 
 6. Decompress:
    jsonBytes = gunzip(compressed)
 
 7. Deserialize:
-   operationPayload = jsonDeserialize(jsonBytes)
+   decryptedPayload = jsonDeserialize(jsonBytes)
 ```
 
-### 12.3 AAD Construction Rules
+### 13.6 AAD Construction
 
-The AAD field ensures that an encrypted payload cannot be transplanted from one context
-to another. The AAD for OpLog encryption is the `deviceId` (UUID string, lowercase,
-hyphenated, UTF-8 encoded).
+The AAD binds the ciphertext to its context:
 
-**Why deviceId only (not globalSequence):**
-The `globalSequence` is assigned by the server after the client uploads the encrypted op.
-Including it in the AAD would require either:
-- A two-phase upload (get sequence first, then encrypt), adding latency and complexity.
-- Post-hoc re-encryption, which is wasteful.
+```
+AAD = UTF-8(bucketId + "|" + deviceId)
+```
 
-Instead, the hash chain (Section 14) provides ordering integrity, and the combination of
-`deviceId` AAD + hash chain + server-assigned sequence + TLS provides sufficient binding.
-
-### 12.4 Handling Unknown keyEpoch
-
-If a client encounters an op with a `keyEpoch` it does not have:
-
-1. Request the wrapped DEK for that epoch from the server.
-2. If the server has it (historical epoch, device was enrolled after rotation):
-   unwrap and add to key ring.
-3. If the server does not have it (device was not enrolled during that epoch):
-   mark the op as `UNDECRYPTABLE` in local storage. Display a UI indicator.
-   Do not block sync for remaining ops.
+- `bucketId` prevents cross-bucket replay
+- `deviceId` prevents cross-device replay
+- `globalSequence` is NOT in AAD (assigned after encryption)
+- `keyEpoch` is authenticated via AES-GCM and AAD binding in the wrapped DEK
 
 ---
 
-## 13. Blob Encryption
+## 14. Blob Encryption
 
-Binary blobs (receipt photos, documents) are encrypted separately from the OpLog to
-avoid bloating the sync stream.
+### 14.1 Per-Blob Key
 
-### 13.1 Per-Blob Key
-
-Each blob is encrypted with its own unique AES-256 key:
+Each blob uses a unique AES-256 key, NOT derived from the DEK:
 
 ```
 blobKey = CSRNG(32)
 ```
 
-This per-blob key is NOT derived from the family DEK. It is independently generated.
-The per-blob key is stored inside the OpLog entry that references the blob, which is
-itself encrypted by the family DEK. This provides an extra layer of indirection.
+The per-blob key is stored inside the OpLog entry that references the blob, encrypted by the DEK.
 
-### 13.2 Blob Encryption Procedure
+### 14.2 Blob Encryption Procedure
 
 ```
-1. Generate per-blob key:
-   blobKey = CSRNG(32)
+1. blobKey = CSRNG(32)
    blobNonce = CSRNG(12)
 
-2. Encrypt blob content:
-   encryptedBlob = AES-256-GCM-Encrypt(
-     key       = blobKey,
-     nonce     = blobNonce,
-     plaintext = rawBlobBytes,
-     AAD       = blobId    // UUID of the blob, prevents cross-blob replay
-   )
+2. encryptedBlob = AES-256-GCM-Encrypt(blobKey, blobNonce, rawBlobBytes, AAD=blobId)
 
-3. Upload encrypted blob:
-   POST /blobs
-   Content-Type: application/octet-stream
-   X-Blob-Id: {blobId}
+3. Upload: POST /buckets/{id}/blobs
    Body: blobNonce || encryptedBlob || tag
 
-4. Include blob reference in OpLog payload (before OpLog encryption):
+4. Include in OpLog payload (before encryption):
    {
-     "type": "expense.create",
      "data": {
-       "amount": 45.00,
        "receiptBlobId": "<blobId>",
        "receiptBlobKey": "<base64(blobKey)>",
        "receiptBlobNonce": "<base64(blobNonce)>"
      }
    }
-   // This entire payload is then encrypted with the family DEK (Section 12)
-```
-
-### 13.3 Blob Decryption Procedure
-
-```
-1. Decrypt the OpLog entry to obtain the operation payload (Section 12.2)
-
-2. Extract blobId, blobKey, blobNonce from the payload
-
-3. Download encrypted blob:
-   GET /blobs/{blobId}
-
-4. Decrypt:
-   rawBlobBytes = AES-256-GCM-Decrypt(
-     key        = blobKey,
-     nonce      = blobNonce,
-     ciphertext = downloadedBytes,
-     AAD        = blobId
-   )
-```
-
-### 13.4 Blob Security Properties
-
-```
-┌────────────────────────────────────────────────────────┐
-│ Server sees:                                           │
-│   - Encrypted blob (opaque bytes)                      │
-│   - Blob ID (UUID)                                     │
-│   - File size                                          │
-│   - Upload timestamp                                   │
-│                                                        │
-│ Server does NOT see:                                   │
-│   - Blob content                                       │
-│   - Blob key (inside encrypted OpLog entry)            │
-│   - File type, name, or metadata                       │
-│   - Which OpLog entry references this blob             │
-└────────────────────────────────────────────────────────┘
-```
-
-**Why per-blob keys?** If a blob key leaks (e.g., through a future vulnerability in
-OpLog decryption), it compromises only that one blob, not all blobs. It also allows
-future features like selective blob sharing without exposing the family DEK.
-
----
-
-## 14. Hash Chain Integrity
-
-### 14.1 Per-Device Hash Chain
-
-Each device maintains its own hash chain over the ops it produces:
-
-```
-devicePrevHash(op_n) = SHA256(devicePrevHash(op_n-1) || encryptedPayloadBytes(op_n))
-```
-
-For a device's first op:
-```
-devicePrevHash(op_1) = SHA256(bytes("0000000000000000000000000000000000000000000000000000000000000000") || encryptedPayloadBytes(op_1))
-// 64 hex zeros (representing 32 zero bytes) as the "genesis" previous hash
-```
-
-The `encryptedPayloadBytes` is the raw bytes of the `encryptedPayload` field (after
-Base64 decoding), ensuring the hash covers the ciphertext (not plaintext). This means
-the server can verify hash chain integrity without decrypting.
-
-### 14.2 Hash Chain in OpLogEntry
-
-```json
-{
-  "sequenceNo": 42,
-  "deviceId": "550e8400-...",
-  "keyEpoch": 1,
-  "encryptedPayload": "<base64>",
-  "prevHash": "<base64, 32 bytes>"
-}
-```
-
-The `prevHash` field is this device's hash of the previous op from this same device.
-This creates a per-device chain, not a global chain.
-
-### 14.3 Server Checkpoint Hash
-
-The server periodically (every 100 ops) publishes a checkpoint:
-
-```
-checkpointHash = SHA256(
-  encryptedPayloadBytes(op_startSeq) ||
-  encryptedPayloadBytes(op_startSeq+1) ||
-  ... ||
-  encryptedPayloadBytes(op_endSeq)
-)
-```
-
-Clients can replay the ops in the checkpoint range and verify the hash matches,
-detecting server-side tampering.
-
-### 14.4 Tamper Detection
-
-| Tampering Type | Detection Method |
-|---------------|-----------------|
-| Op payload modified | Per-device hash chain breaks; AES-GCM authentication fails |
-| Op deleted from stream | Per-device hash chain breaks (missing link) |
-| Op reordered | Server sequence numbers are monotonic; per-device chain breaks |
-| Op replayed (duplicate) | Duplicate sequence number; per-device chain shows branching |
-| Server modifies checkpoint | Client-computed checkpoint hash does not match server's |
-
-### 14.5 Hash Chain Break Recovery
-
-If a client detects a hash chain break:
-
-1. Mark affected ops as `INTEGRITY_WARNING` in local DB.
-2. Display a user-facing warning: "Data integrity issue detected."
-3. Continue syncing subsequent ops (do not halt).
-4. Log the discrepancy for potential audit/export.
-5. Allow user to request a full re-sync from the latest snapshot.
-
----
-
-## 15. Snapshot Encryption and Signing
-
-### 15.1 Snapshot Purpose
-
-Snapshots provide a baseline state for bootstrapping new devices. Instead of replaying
-the entire OpLog from the beginning, a new device downloads the latest snapshot and
-replays only ops created after the snapshot.
-
-### 15.2 Snapshot Creation
-
-Approximately every 500 ops, a client creates a snapshot:
-
-```
-1. Serialize complete family state to JSON:
-   stateJson = canonicalJsonSerialize(familyState)
-
-2. Compress:
-   compressed = gzip(stateJson)
-
-3. Encrypt with current DEK:
-   nonce = CSRNG(12)
-   encrypted = AES-256-GCM-Encrypt(
-     key       = DEK[currentEpoch],
-     nonce     = nonce,
-     plaintext = compressed,
-     AAD       = "snapshot:" || str(sequenceNo) || ":" || str(keyEpoch)
-   )
-
-4. Sign:
-   signaturePayload = SHA256(nonce || encrypted || tag)
-   signature = Ed25519-Sign(deviceEd25519PrivateKey, signaturePayload)
-
-5. Construct snapshot envelope:
-   {
-     "version": 1,
-     "sequenceNo": 4500,
-     "keyEpoch": 2,
-     "creatingDeviceId": "<UUID>",
-     "ed25519PublicKey": "<base64>",
-     "encryptedState": "<base64(nonce || encrypted || tag)>",
-     "signature": "<base64, 64 bytes>",
-     "createdAt": "2026-06-15T10:30:00Z"
-   }
-
-6. Upload:
-   POST /sync/snapshot
-```
-
-### 15.3 Snapshot Verification and Restoration
-
-```
-1. Download snapshot:
-   GET /sync/snapshot/latest
-
-2. Verify signature:
-   signaturePayload = SHA256(encryptedStateBytes)
-   valid = Ed25519-Verify(
-     publicKey = snapshot.ed25519PublicKey,
-     message   = signaturePayload,
-     signature = snapshot.signature
-   )
-   if !valid: REJECT snapshot, fall back to full replay
-
-3. Verify the ed25519PublicKey belongs to a trusted device:
-   Look up creatingDeviceId in the family member list
-   Confirm the public key matches the registered key for that device
-
-4. Decrypt:
-   Split encryptedState into nonce (12 bytes) and ciphertext+tag
-   compressed = AES-256-GCM-Decrypt(
-     key   = DEK[snapshot.keyEpoch],
-     nonce = nonce,
-     ...
-     AAD   = "snapshot:" || str(snapshot.sequenceNo) || ":" || str(snapshot.keyEpoch)
-   )
-
-5. Decompress and deserialize:
-   familyState = jsonDeserialize(gunzip(compressed))
-
-6. Apply to local database
-
-7. Continue syncing ops from sequenceNo + 1
 ```
 
 ---
 
-## 16. Recovery Key
+## 15. Hash Chain Integrity
 
-### 16.1 Recovery Key Generation
-
-During onboarding, after the family DEK is created:
+### 15.1 Per-Device Hash Chain
 
 ```
-1. Generate 256 bits of entropy:
-   entropy = CSRNG(32)
-
-2. Encode as BIP39 mnemonic:
-   words = BIP39-Encode(entropy)
-   // 24 English words, e.g.: "abandon ability able about above absent ..."
-
-3. Display to user with instructions to write down / print
-   // App provides a "Print Recovery Key" option that generates a PDF
-
-4. Require user acknowledgment:
-   // User must re-enter specific words (e.g., words 3, 7, 15, 22) to confirm
+currentHash = SHA256(bytes(prevHash) || encryptedPayloadBytes)
 ```
 
-### 16.2 Recovery Blob
+For the first op: `prevHash = "0000...0000"` (64 hex zeros).
 
-The recovery blob contains everything needed to restore access on a new device:
+The hash chain uses encrypted payload bytes (ciphertext), allowing the server to verify integrity without decrypting.
 
-```
-Recovery Blob Contents:
-{
-  "version": 1,
-  "familyId": "<UUID>",
-  "userId": "<UUID>",
-  "keyRing": [
-    { "epoch": 1, "dek": "<base64, 32 bytes>" },
-    { "epoch": 2, "dek": "<base64, 32 bytes>" }
-  ],
-  "ed25519PrivateKey": "<base64, 32 bytes>",
-  "createdAt": "2026-02-20T12:00:00Z"
-}
-```
+### 15.2 Server Checkpoint Hash
 
-**Note:** The X25519 private key is NOT included in the recovery blob. After recovery,
-the new device generates a fresh X25519 key pair and re-enrolls. The Ed25519 private key
-IS included so the new device can prove continuity (sign with the same identity key).
-
-### 16.3 Recovery Blob Encryption
+Every 100 ops:
 
 ```
-1. Derive recovery encryption key from BIP39 entropy:
-   recoveryKey = HKDF-SHA256(
-     IKM  = BIP39-Decode(words),    // 32 bytes of entropy
-     salt = "kidsync-recovery-v1",
-     info = userId,
-     L    = 32
-   )
+checkpointHash = SHA256(encPayloadBytes[start] || ... || encPayloadBytes[end])
+```
 
-2. Serialize recovery blob to JSON:
-   blobJson = canonicalJsonSerialize(recoveryBlob)
+### 15.3 Tamper Detection
 
+| Attack | Detection |
+|--------|-----------|
+| Payload modified | Hash chain break + AES-GCM auth failure |
+| Op deleted | Hash chain break (missing link) |
+| Op reordered | Monotonic sequence violation + hash chain break |
+| Op replayed | Duplicate sequence + hash chain branch |
+| Checkpoint tampered | Client-computed hash mismatch |
+
+---
+
+## 16. Snapshot Encryption and Signing
+
+### 16.1 Creation
+
+```
+1. Serialize complete bucket state to canonical JSON
+2. Compress with gzip
 3. Encrypt:
    nonce = CSRNG(12)
    encrypted = AES-256-GCM-Encrypt(
-     key       = recoveryKey,
-     nonce     = nonce,
-     plaintext = blobJson,
-     AAD       = "recovery:" || userId
+     DEK[currentEpoch], nonce, compressed,
+     AAD = "snapshot:" || str(sequenceNo) || ":" || str(keyEpoch)
    )
-
-4. Upload to server:
-   PUT /users/{userId}/recovery-blob
-   Body: Base64(nonce || encrypted || tag)
+4. Sign:
+   signaturePayload = SHA256(nonce || encrypted || tag)
+   signature = Ed25519_Sign(devicePrivateKey, signaturePayload)
+5. Upload with metadata + signature
 ```
 
-### 16.4 Recovery Flow
+### 16.2 Verification
 
-```mermaid
-sequenceDiagram
-    participant U as User (new device)
-    participant S as Server
-
-    U->>U: Enter 24-word recovery mnemonic
-    U->>U: Decode BIP39 -> 256-bit entropy
-    U->>U: Derive recoveryKey via HKDF
-
-    U->>S: POST /auth/login (email + password)
-    S->>U: Auth token
-
-    U->>S: GET /users/{userId}/recovery-blob
-    S->>U: Encrypted recovery blob
-
-    U->>U: Decrypt recovery blob with recoveryKey
-    U->>U: Extract keyRing (all DEK epochs)
-    U->>U: Extract ed25519PrivateKey
-
-    U->>U: Generate NEW X25519 key pair
-    U->>U: Generate NEW Ed25519 key pair (optional, see note)
-
-    U->>S: POST /devices (register new device with new public keys)
-    S->>S: Create new device record
-
-    Note over U,S: Existing admin device wraps DEKs for new device
-
-    U->>U: Store keyRing in local encrypted DB
-    U->>U: Begin sync from latest snapshot
 ```
-
-**Ed25519 key continuity:** The recovery blob includes the old Ed25519 private key for
-signature verification continuity. After recovery, the user MAY generate a new Ed25519
-key pair and register it. Old snapshots signed with the old key remain verifiable because
-the old public key is retained in the device history on the server.
-
-### 16.5 Recovery Blob Update
-
-The recovery blob MUST be re-encrypted and re-uploaded whenever:
-- A new DEK epoch is created (key rotation).
-- The user changes their recovery key (re-generation flow).
-
-The client performs this update automatically after DEK rotation, using the same recovery
-key (BIP39 entropy) that was established during onboarding.
-
-### 16.6 Security Properties of Recovery Key
-
-| Property | Detail |
-|----------|--------|
-| Entropy | 256 bits (BIP39 24-word mnemonic) |
-| Brute-force resistance | 2^256 operations to guess (computationally infeasible) |
-| Server exposure | Server stores only the encrypted blob; never sees the recovery key |
-| Single point of failure | Yes -- if the user loses the mnemonic AND all devices, account data is unrecoverable. This is by design for a zero-knowledge system. |
-| Phishing risk | Medium -- a social engineering attack could trick a user into entering their mnemonic on a fake site. Mitigation: app warns users to NEVER enter mnemonic outside the app. |
+1. Verify Ed25519 signature against creating device's known signing key
+2. Decrypt with DEK[snapshot.keyEpoch]
+3. Decompress and deserialize
+4. Load state into local database
+```
 
 ---
 
-## 17. Invite Link Security
+## 17. Recovery Key
 
-### 17.1 Threat: Invite Link Interception
+### 17.1 Generation
 
-If an attacker intercepts the invite link, they could:
-1. Join the family before the intended recipient.
-2. Receive wrapped DEKs and access family data.
+```
+1. entropy = CSRNG(32)   // 256 bits
+2. words = BIP39-Encode(entropy)   // 24 English words
+3. Display to user, require acknowledgment
+```
 
-### 17.2 Mitigations
+### 17.2 Optional BIP39 Passphrase (25th Word)
 
-| Mitigation | Description |
-|-----------|-------------|
-| **Single-use tokens** | Invite token is consumed on first use. A second attempt fails. |
-| **48-hour expiry** | Limits the attack window. |
-| **Fingerprint verification** | Even if an attacker joins, the fingerprint will not match what the inviting parent expects. The inviting parent should reject unverified enrollments. |
-| **Admin approval** | The inviting parent must actively wrap the DEK for the new device. If they don't recognize the joining device, they can revoke it before wrapping. |
-| **Rate limiting** | Maximum 5 active invites per family; maximum 10 join attempts per IP per hour. |
+For security-conscious users, the app supports an optional BIP39 passphrase:
 
-### 17.3 Invite Link Transport Recommendations
+- **Without passphrase:** Standard 24-word recovery (default, simpler UX).
+- **With passphrase:** 24 words + user-chosen passphrase. Both are needed.
+- The passphrase is NOT stored anywhere (not on device, not on server).
+- A stolen mnemonic alone is useless without the passphrase.
+- Presented as opt-in during onboarding.
 
-The app should recommend secure transport channels for invite links:
-1. In-person QR code scan (highest security).
-2. Direct SMS/iMessage (end-to-end encrypted on some platforms).
-3. Email (lowest security, but acceptable with fingerprint verification).
+### 17.3 Recovery Key Derivation
+
+```
+recoveryKey = HKDF-SHA256(
+  IKM  = BIP39-Decode(words) || UTF-8(passphrase),
+  salt = "kidsync-recovery-v2",
+  info = "recovery-key",
+  L    = 32
+)
+```
+
+If no passphrase, `passphrase` is the empty string.
+
+### 17.4 Recovery Blob Contents
+
+```json
+{
+  "version": 2,
+  "seed": "<base64, 32 bytes>",
+  "bucketIds": ["uuid1", "uuid2"],
+  "deks": {
+    "uuid1": { "1": "<base64, DEK epoch 1>", "2": "<base64, DEK epoch 2>" },
+    "uuid2": { "1": "<base64, DEK epoch 1>" }
+  }
+}
+```
+
+The blob contains the device seed (from which Ed25519 and X25519 keys are derived), bucket IDs, and all DEK epochs.
+
+### 17.5 Recovery Blob Encryption
+
+```
+1. Derive recoveryKey (Section 17.3)
+2. Serialize recovery blob to JSON
+3. nonce = CSRNG(12)
+4. encrypted = AES-256-GCM-Encrypt(recoveryKey, nonce, blobJson, AAD="recovery")
+5. Upload: POST /recovery
+   Body: { encryptedBlob: Base64(nonce || encrypted || tag) }
+```
+
+### 17.6 Recovery Flow
+
+```
+1. User enters 24 words + optional passphrase on new device
+2. Derive recoveryKey
+3. New device generates new seed + keypairs
+4. New device registers with server (POST /register)
+5. New device authenticates (challenge-response)
+6. New device downloads encrypted recovery blob (GET /recovery)
+   Note: recovery blob is associated with a signing key;
+   user provides old signing key fingerprint to locate it
+7. Decrypt recovery blob with recoveryKey
+8. Extract old seed, bucketIds, DEKs
+9. Can now decrypt all historical ops
+10. Re-wrap DEKs for new device's keys (self-wrap)
+11. Upload new wrapped DEKs
+12. Update recovery blob with new seed + new bucket access
+```
 
 ---
 
 ## 18. Platform Implementation Notes
 
-### 18.1 Android (Tink)
+### 18.1 Android
 
 ```kotlin
-// Key generation (conceptual, see Tink documentation for exact API)
-val x25519KeyPair = X25519.generateKeyPair()
-val ed25519KeyPair = Ed25519.generateKeyPair()
+// Seed generation and storage
+val seed = SecureRandom().generateSeed(32)
+// Store in EncryptedSharedPreferences backed by Android Keystore
 
-// DEK wrapping: use Tink's HKDF and AES-GCM primitives
-// Note: Tink's HybridEncrypt uses HPKE internally; for this protocol,
-// use raw X25519 + HKDF + AES-GCM to match the spec exactly.
+// Ed25519 from seed (using libsodium via Lazysodium)
+val ed25519KeyPair = lazySodium.cryptoSignSeedKeypair(seed)
 
-// Key storage: Android Keystore
-// For X25519: Tink supports Keystore-backed key management
-// For raw DEK bytes: store in Room DB encrypted by SQLCipher
-// SQLCipher passphrase: derived from Android Keystore AES key
+// X25519 derived from Ed25519
+val x25519Private = lazySodium.convertSecretKeyEd25519ToCurve25519(ed25519KeyPair.secretKey)
+val x25519Public = lazySodium.convertPublicKeyEd25519ToCurve25519(ed25519KeyPair.publicKey)
 
-// AES-256-GCM:
-val aead = AesGcmKeyManager.aes256Gcm()
-// Or use raw AES-GCM with javax.crypto for precise nonce/AAD control
+// Challenge-response signing
+val msg = nonce + signingKey + serverOrigin.toByteArray() + timestamp.toByteArray()
+val signature = lazySodium.cryptoSignDetached(msg, ed25519KeyPair.secretKey)
+
+// AES-256-GCM via javax.crypto
+val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(dek, "AES"), GCMParameterSpec(128, nonce))
+cipher.updateAAD(aad)
+val ciphertext = cipher.doFinal(compressed)
 ```
 
-**Important Tink considerations:**
-- Tink's `HybridEncrypt` API uses its own ECIES variant. For cross-platform compatibility,
-  use Tink's lower-level APIs (or `javax.crypto` / `java.security`) to perform raw X25519
-  ECDH, HKDF, and AES-GCM as specified in this document.
-- Verify that Tink's X25519 output matches CryptoKit's `Curve25519.KeyAgreement` output
-  using conformance test vectors.
-
-### 18.2 iOS (CryptoKit)
+### 18.2 iOS
 
 ```swift
-// Key generation
-let x25519Private = Curve25519.KeyAgreement.PrivateKey()
-let x25519Public = x25519Private.publicKey
+// Seed generation
+var seed = Data(count: 32)
+_ = seed.withUnsafeMutableBytes { SecRandomCopyBytes(kSecRandomDefault, 32, $0.baseAddress!) }
 
-let ed25519Private = Curve25519.Signing.PrivateKey()
+// Ed25519 from seed
+let ed25519Private = try Curve25519.Signing.PrivateKey(rawRepresentation: seed)
 let ed25519Public = ed25519Private.publicKey
 
-// X25519 ECDH
-let sharedSecret = try x25519Private.sharedSecretFromKeyAgreement(
-    with: recipientPublicKey
-)
+// X25519 from Ed25519 seed
+let x25519Private = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: seed)
+let x25519Public = x25519Private.publicKey
 
-// HKDF
-let wrappingKey = sharedSecret.hkdfDerivedSymmetricKey(
-    using: SHA256.self,
-    salt: salt,
-    sharedInfo: "kidsync-dek-wrap-v1".data(using: .utf8)! + deviceIdData,
-    outputByteCount: 32
-)
+// Challenge-response signing
+let msg = nonce + signingKey.rawRepresentation + serverOrigin.data(using: .utf8)! + timestamp.data(using: .utf8)!
+let signature = try ed25519Private.signature(for: msg)
 
 // AES-256-GCM
-let sealedBox = try AES.GCM.seal(
-    dekData,
-    using: wrappingKey,
-    nonce: AES.GCM.Nonce(data: nonceBytes),
-    authenticating: aadData
-)
-
-// Ed25519 signing
-let signature = try ed25519Private.signature(for: dataToSign)
+let sealedBox = try AES.GCM.seal(compressed, using: SymmetricKey(data: dek), nonce: AES.GCM.Nonce(data: nonce), authenticating: aad)
 ```
 
-### 18.3 Server (No Crypto)
+### 18.3 Server
+
+The server performs:
+- Ed25519 signature verification during challenge-response authentication
+- Hash chain verification on ciphertext (SHA-256 only)
+- Checkpoint hash computation
 
 The server MUST NOT:
-- Decrypt any `encryptedPayload`.
-- Unwrap any wrapped DEK blob.
-- Access any private key.
-- Perform any cryptographic operation on family data.
-
-The server MAY:
-- Verify hash chains on ciphertext (without decrypting).
-- Compute checkpoint hashes over ciphertext.
-- Validate envelope structure (JSON schema, field presence, Base64 validity).
-- Enforce rate limits and access control.
+- Decrypt any `encryptedPayload`
+- Unwrap any DEK
+- Access any private key
+- Inspect payload contents
 
 ---
 
 ## 19. Security Considerations
 
-### 19.1 Nonce Reuse
+### 19.1 Server Key Substitution
 
-**Risk:** Reusing a nonce with the same AES-256-GCM key catastrophically breaks
-confidentiality and authenticity (allows plaintext XOR recovery and forgery).
+**Risk:** Compromised server replaces a device's encryption key with its own.
+**Mitigation:** Cross-signing (Section 11). Device B's key is attested by Device A, whose fingerprint was verified via QR code. The server cannot forge Device A's Ed25519 signature.
 
-**Mitigation:**
-- All nonces are 96-bit random (CSRNG).
-- Birthday bound analysis: with 2^48 messages per key, collision probability reaches
-  ~50%. KidSync families produce at most ~10,000 ops per year. Even over 100 years with
-  1,000 families, total ops = 10^9 < 2^30, far below the danger threshold.
-- Nonetheless, DEK rotation (on device revocation) resets the nonce space.
+### 19.2 Nonce Reuse in AES-256-GCM
 
-### 19.2 Key Compromise
+**Risk:** Catastrophic confidentiality and authenticity loss.
+**Mitigation:** Random 96-bit nonces from CSRNG. Birthday bound: 2^48 messages per key. KidSync: ~10^4 ops/year << 2^48.
 
-**Scenario:** An attacker obtains a device's X25519 private key.
+### 19.3 Key Compromise
 
-**Impact:**
-- Can unwrap all wrapped DEK blobs sent to that device.
-- Can decrypt all OpLog entries encrypted with those DEK epochs.
+**Impact:** Can unwrap all wrapped DEK blobs, decrypt all ops for those epochs.
+**Mitigation:** Hardware-backed storage, device revocation triggers DEK rotation.
 
-**Mitigation:**
-- Hardware-backed key storage makes extraction difficult.
-- Revoke the compromised device immediately, triggering DEK rotation.
-- New DEK epoch protects all future data.
-- Historical data encrypted with compromised epoch remains exposed (accepted tradeoff).
+### 19.4 Recovery Key Compromise
 
-### 19.3 Server Compromise
+**Impact:** Full access to all historical data across all buckets.
+**Mitigation:** Optional BIP39 passphrase (25th word) makes stolen mnemonic useless without passphrase. Secure physical storage of mnemonic.
 
-**Scenario:** Attacker gains full access to server database and storage.
+### 19.5 Metadata Exposure (Minimized)
 
-**Impact:**
-- Can read all metadata: device IDs, timestamps, sequence numbers, family structure.
-- Can read wrapped DEK blobs (but cannot unwrap without device private keys).
-- Can read encrypted payloads (but cannot decrypt without DEKs).
-- Can perform traffic analysis (timing, frequency, payload sizes).
-- Can deny service, delete data, or inject ops (detected by hash chains).
+| Visible to Server | Not Visible (now encrypted) |
+|-------------------|----------------------------|
+| Device IDs, bucket IDs | Entity types, entity IDs |
+| Key epochs | Operation types |
+| Encrypted payload sizes | Client timestamps |
+| Server timestamps | Device sequence numbers |
+| Access patterns | Override state transitions |
+| IP addresses | All business data content |
 
-**Mitigation:**
-- E2E encryption means data confidentiality is preserved.
-- Hash chains and snapshot signatures detect tampering.
-- Metadata exposure is an accepted tradeoff; see Section 19.7.
+### 19.6 Quantum Resistance
 
-### 19.4 Man-in-the-Middle During Enrollment
-
-**Scenario:** Attacker intercepts the invite link and substitutes their own public key.
-
-**Impact:**
-- Attacker receives wrapped DEK instead of the intended recipient.
-- Full access to family data.
-
-**Mitigation:**
-- **Fingerprint verification (Section 10.7)** is the primary defense. Both parents must
-  confirm the fingerprint matches via an out-of-band channel.
-- Unverified enrollments display a persistent warning banner.
-
-### 19.5 Revoked Device Retains Historical Data
-
-**Accepted risk:** A revoked device (e.g., belonging to a parent who lost custody) retains
-all data it downloaded before revocation.
-
-**Rationale:**
-- In co-parenting contexts, both parents typically have a legal right to historical
-  coordination records.
-- Preventing this would require re-encrypting all historical data with a new key and
-  ensuring the revoked device cannot access cached data, which is impractical in a
-  local-first architecture.
-- Future data is protected by DEK rotation.
-
-### 19.6 Recovery Key Compromise
-
-**Scenario:** An attacker obtains the user's 24-word recovery mnemonic.
-
-**Impact:**
-- Can download and decrypt the recovery blob from the server.
-- Obtains all DEK epochs -- can decrypt full OpLog history.
-- Obtains the Ed25519 private key -- can forge snapshot signatures.
-
-**Mitigation:**
-- Users are instructed to store the mnemonic securely (printed paper in a safe, not in
-  digital notes or cloud storage).
-- The app displays a warning: "Anyone with these 24 words can read all your family data."
-- Future enhancement (v0.3+): threshold recovery (2-of-3 Shamir shares) to eliminate
-  single-point-of-failure.
-- If compromise is suspected: revoke all devices, rotate DEK, generate new recovery key.
-
-### 19.7 Metadata Exposure
-
-Even with E2E encryption, the server necessarily sees:
-
-| Metadata | Visible to Server |
-|----------|------------------|
-| Family ID, structure, member count | Yes |
-| Device IDs and public keys | Yes |
-| Timestamps (op creation, sync) | Yes |
-| Sequence numbers | Yes |
-| Payload sizes (before encryption) | Yes (roughly, due to compression) |
-| Op frequency / sync patterns | Yes |
-| Blob sizes | Yes |
-| IP addresses | Yes |
-
-**Mitigation:**
-- Self-hosting option eliminates third-party server trust.
-- Future enhancement: onion routing or mixnet for IP privacy (out of scope for v1).
-
-### 19.8 Denial of Service
-
-**Risk:** The server can selectively withhold ops, wrapped DEKs, or push notifications.
-
-**Impact:** Devices may have stale or incomplete data.
-
-**Mitigation:**
-- Hash chains and checkpoint verification detect missing ops.
-- Self-hosting eliminates server trust dependency.
-- Client displays sync status and age of last successful sync.
-
-### 19.9 Compression Oracle (CRIME/BREACH)
-
-**Risk:** Combining compression with encryption can leak plaintext information if the
-attacker can inject chosen text and observe ciphertext size changes.
-
-**Assessment:** Low risk for KidSync because:
-- The attacker cannot inject arbitrary text into OpLog payloads (only authenticated
-  devices can create ops).
-- Payload sizes vary naturally and are not exposed in real-time to attackers.
-- Nonetheless, compression is applied BEFORE encryption (not to the ciphertext), which
-  is the standard safe ordering.
-
-### 19.10 Quantum Resistance
-
-The cryptographic primitives in this spec (X25519, AES-256-GCM, Ed25519) are not
-quantum-resistant. A future cryptographically relevant quantum computer could:
-- Break X25519 (Shor's algorithm) -- compromising key agreement.
-- AES-256 remains secure against Grover's algorithm (effectively 128-bit security).
-
-**Future mitigation:** When post-quantum key agreement standards (e.g., ML-KEM, as
-standardized in FIPS 203) are widely available in Tink and CryptoKit, a new protocol
-version can adopt a hybrid key exchange (X25519 + ML-KEM). This is out of scope for
-protocol version 1.
+Ed25519 and X25519 are not quantum-resistant. Future protocol version can adopt hybrid key exchange (X25519 + ML-KEM). AES-256 remains secure against Grover's algorithm (128-bit effective security).
 
 ---
 
 ## 20. Conformance Requirements
 
-All client implementations MUST pass the conformance test vectors defined in
-`tests/conformance/`. This section specifies what the test vectors cover.
-
 ### 20.1 Test Vector Categories
 
-| Category | Description |
-|----------|-------------|
-| **TV-WRAP-01** | DEK wrapping with known keys: given sender private key, recipient public key, DEK, salt, nonce, deviceId, epoch -- verify ciphertext matches expected output |
-| **TV-WRAP-02** | DEK unwrapping: given wrapped envelope and recipient private key -- verify recovered DEK matches expected value |
-| **TV-OPLOG-01** | OpLog encryption: given DEK, nonce, payload JSON, deviceId -- verify encryptedPayload matches expected Base64 output |
-| **TV-OPLOG-02** | OpLog decryption: given encryptedPayload, DEK, keyEpoch, deviceId -- verify decrypted JSON matches expected payload |
-| **TV-HASH-01** | Hash chain computation: given sequence of encryptedPayload values -- verify prevHash chain matches expected values |
-| **TV-HASH-02** | Server checkpoint hash: given ops in a range -- verify checkpoint hash |
-| **TV-RECOVERY-01** | Recovery blob encryption: given BIP39 words, userId, recovery blob JSON -- verify encrypted output |
-| **TV-RECOVERY-02** | Recovery blob decryption: given encrypted blob, BIP39 words, userId -- verify decrypted contents |
-| **TV-FINGERPRINT-01** | Fingerprint computation: given two X25519 public keys -- verify hex fingerprint string |
-| **TV-BLOB-01** | Blob encryption: given blob key, nonce, blob content, blobId -- verify encrypted output |
-| **TV-SNAPSHOT-01** | Snapshot signing: given Ed25519 key pair, encrypted snapshot bytes -- verify signature |
-| **TV-HKDF-01** | HKDF-SHA256 with known inputs -- verify derived key matches expected output |
+| ID | Description |
+|----|-------------|
+| **TV-SEED-01** | Ed25519 + X25519 derivation from seed: given seed, verify both keypairs |
+| **TV-AUTH-01** | Challenge message construction and signing: given seed, nonce, origin, timestamp, verify signature |
+| **TV-ATTEST-01** | Key attestation: given signer seed, attested device ID + key, verify signature |
+| **TV-WRAP-01** | DEK wrapping with known inputs: verify ciphertext |
+| **TV-WRAP-02** | DEK unwrapping: verify recovered DEK |
+| **TV-OPLOG-01** | OpLog encryption: given DEK, nonce, DecryptedPayload, verify encryptedPayload |
+| **TV-OPLOG-02** | OpLog decryption: given encryptedPayload, DEK, verify DecryptedPayload |
+| **TV-HASH-01** | Hash chain: given sequence of encryptedPayloads, verify chain |
+| **TV-HASH-02** | Checkpoint hash: given ops in range, verify hash |
+| **TV-RECOVERY-01** | Recovery blob encryption with optional passphrase |
+| **TV-RECOVERY-02** | Recovery blob decryption |
+| **TV-FINGERPRINT-01** | Key fingerprint: given Ed25519 public key, verify hex fingerprint |
+| **TV-BLOB-01** | Blob encryption and decryption |
+| **TV-SNAPSHOT-01** | Snapshot signing and verification |
+| **TV-HKDF-01** | HKDF-SHA256 with known inputs |
+| **TV-CANONICAL-01** | Canonical JSON serialization (sorted keys, compact) |
 
 ### 20.2 Test Vector Format
 
-Each test vector is a JSON file:
-
 ```json
 {
-  "id": "TV-WRAP-01",
-  "description": "DEK wrapping with deterministic inputs",
+  "id": "TV-AUTH-01",
+  "description": "Challenge-response signing with deterministic inputs",
   "inputs": {
-    "senderPrivateKey": "<hex>",
-    "recipientPublicKey": "<hex>",
-    "dek": "<hex>",
-    "salt": "<hex>",
-    "nonce": "<hex>",
-    "deviceId": "550e8400-e29b-41d4-a716-446655440000",
-    "keyEpoch": 1
+    "seed": "<hex, 32 bytes>",
+    "nonce": "<hex, 32 bytes>",
+    "serverOrigin": "https://api.kidsync.app",
+    "timestamp": "2026-02-21T14:30:00.000Z"
   },
   "expected": {
-    "ephemeralPublicKey": "<hex>",
-    "sharedSecret": "<hex>",
-    "wrappingKey": "<hex>",
-    "ciphertext": "<hex>"
+    "signingPublicKey": "<hex, 32 bytes>",
+    "encryptionPublicKey": "<hex, 32 bytes>",
+    "challengeMessage": "<hex>",
+    "signature": "<hex, 64 bytes>"
   }
 }
 ```
-
-**Hex encoding** is used in test vectors for human readability. Implementations convert
-to/from their native byte representations.
-
-### 20.3 Cross-Platform Verification
-
-Before Gate P0 (Protocol Freeze), the following MUST be verified:
-
-1. Android (Tink) and iOS (CryptoKit) produce identical output for all test vectors.
-2. Android can unwrap DEKs wrapped by iOS and vice versa.
-3. Android can decrypt OpLog entries encrypted by iOS and vice versa.
-4. Hash chains computed by Android match those computed by iOS for the same inputs.
 
 ---
 
@@ -1656,272 +1039,44 @@ Before Gate P0 (Protocol Freeze), the following MUST be verified:
 
 | Symbol | Meaning |
 |--------|---------|
-| `||` | Byte concatenation |
-| `CSRNG(n)` | n bytes from a cryptographically secure random number generator |
-| `X25519(private, public)` | X25519 Diffie-Hellman function (RFC 7748) |
-| `HKDF-SHA256(IKM, salt, info, L)` | HKDF extract-and-expand with SHA-256 (RFC 5869) |
-| `AES-256-GCM-Encrypt(key, nonce, plaintext, AAD)` | AES-256-GCM authenticated encryption |
-| `AES-256-GCM-Decrypt(key, nonce, ciphertext, AAD)` | AES-256-GCM authenticated decryption |
-| `Ed25519-Sign(privateKey, message)` | Ed25519 signature (RFC 8032) |
-| `Ed25519-Verify(publicKey, message, signature)` | Ed25519 verification |
+| `\|\|` | Byte concatenation |
+| `CSRNG(n)` | n bytes from cryptographically secure RNG |
+| `X25519(private, public)` | X25519 Diffie-Hellman (RFC 7748) |
+| `HKDF-SHA256(IKM, salt, info, L)` | HKDF extract-and-expand (RFC 5869) |
+| `AES-256-GCM-Encrypt(key, nonce, plaintext, AAD)` | Authenticated encryption |
+| `AES-256-GCM-Decrypt(key, nonce, ciphertext, AAD)` | Authenticated decryption |
+| `Ed25519_Sign(privateKey, message)` | Ed25519 signature (RFC 8032) |
+| `Ed25519_Verify(publicKey, message, signature)` | Ed25519 verification |
 | `SHA256(data)` | SHA-256 hash |
-| `Base64(data)` | Base64 encoding (RFC 4648, standard alphabet, with padding) |
+| `Base64(data)` | Base64 encoding (RFC 4648, standard, with padding) |
 | `Base64url(data)` | Base64url encoding (RFC 4648, URL-safe, no padding) |
 | `HexEncode(data)` | Hexadecimal encoding (lowercase) |
-| `str(n)` | Decimal string representation of integer n |
 
 ### A.2 Constants
 
 | Constant | Value | Usage |
 |----------|-------|-------|
-| `HKDF_SALT_DEK_WRAP` | `"kidsync-dek-wrap-v1"` | Salt prefix for DEK wrapping HKDF info parameter |
-| `HKDF_SALT_RECOVERY` | `"kidsync-recovery-v1"` | Salt for recovery key derivation |
-| `GENESIS_PREV_HASH` | 64 hex zeros (`"0000...0000"`, representing 32 zero bytes) | Previous hash for first op in a device's chain |
-| `INITIAL_KEY_EPOCH` | `1` | First DEK epoch number |
-| `WRAPPED_DEK_VERSION` | `1` | Current wrapped DEK envelope version |
-| `RECOVERY_BLOB_VERSION` | `1` | Current recovery blob version |
-| `SNAPSHOT_VERSION` | `1` | Current snapshot envelope version |
-| `ALGORITHM_ID` | `"X25519-HKDF-AES256GCM"` | Algorithm identifier in wrapped DEK envelope |
-| `INVITE_TOKEN_BYTES` | `64` | Length of invite token entropy |
-| `INVITE_EXPIRY_HOURS` | `48` | Invite token validity period |
-| `FINGERPRINT_DISPLAY_BYTES` | `8` | Number of bytes (16 hex chars) shown in fingerprint |
+| `HKDF_INFO_DEK_WRAP` | `"kidsync-dek-wrap-v1"` | HKDF info for DEK wrapping |
+| `HKDF_SALT_RECOVERY` | `"kidsync-recovery-v2"` | HKDF salt for recovery key derivation |
+| `GENESIS_PREV_HASH` | 64 hex zeros | Previous hash for first op in chain |
+| `INITIAL_KEY_EPOCH` | `1` | First DEK epoch |
+| `CHALLENGE_NONCE_BYTES` | `32` | Challenge nonce size |
+| `CHALLENGE_TTL_SECONDS` | `60` | Challenge nonce validity |
+| `TIMESTAMP_DRIFT_SECONDS` | `60` | Max client-server clock difference |
+| `INVITE_TOKEN_BYTES` | `32` | Invite token entropy |
+| `INVITE_EXPIRY_HOURS` | `24` | Invite token validity |
+| `FINGERPRINT_HEX_CHARS` | `32` | Key fingerprint display length (16 bytes) |
 | `SNAPSHOT_INTERVAL_OPS` | `500` | Approximate ops between snapshots |
-| `CHECKPOINT_INTERVAL_OPS` | `100` | Ops between server checkpoint hashes |
-| `MAX_BLOB_SIZE_BYTES` | `10485760` | Maximum blob upload size (10 MiB) |
-
----
-
-## Appendix B: Key Format Diagrams
-
-### B.1 Wrapped DEK Blob (Wire Format)
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│ Wrapped DEK Envelope (JSON)                                         │
-├─────────────────────────────────────────────────────────────────────┤
-│ version: 1                          (uint8, envelope format)        │
-│ keyEpoch: 1                         (uint32, DEK version)           │
-│ deviceId: UUID                      (string, target device)         │
-│ wrappedBy: UUID                     (string, wrapping device)       │
-│ algorithm: "X25519-HKDF-AES256GCM"  (string, fixed)                │
-│ ┌─────────────────────────────────────────────────────────────────┐ │
-│ │ ephemeralPublicKey: Base64(32 bytes)                             │ │
-│ │ ┌───────────────────────────────────────────────┐               │ │
-│ │ │ X25519 u-coordinate (Curve25519 point)        │               │ │
-│ │ └───────────────────────────────────────────────┘               │ │
-│ └─────────────────────────────────────────────────────────────────┘ │
-│ ┌─────────────────────────────────────────────────────────────────┐ │
-│ │ salt: Base64(32 bytes)                                          │ │
-│ │ ┌───────────────────────────────────────────────┐               │ │
-│ │ │ Random salt for HKDF                          │               │ │
-│ │ └───────────────────────────────────────────────┘               │ │
-│ └─────────────────────────────────────────────────────────────────┘ │
-│ ┌─────────────────────────────────────────────────────────────────┐ │
-│ │ nonce: Base64(12 bytes)                                         │ │
-│ │ ┌───────────────────────────────────────────────┐               │ │
-│ │ │ AES-256-GCM nonce (96 bits)                   │               │ │
-│ │ └───────────────────────────────────────────────┘               │ │
-│ └─────────────────────────────────────────────────────────────────┘ │
-│ ┌─────────────────────────────────────────────────────────────────┐ │
-│ │ ciphertext: Base64(48 bytes)                                    │ │
-│ │ ┌───────────────────────────────────────────────┐               │ │
-│ │ │ Encrypted DEK (32 bytes) || GCM Tag (16 bytes)│               │ │
-│ │ └───────────────────────────────────────────────┘               │ │
-│ └─────────────────────────────────────────────────────────────────┘ │
-│ createdAt: ISO 8601 UTC                                             │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-### B.2 Encrypted OpLog Payload (Wire Format)
-
-```
-encryptedPayload (Base64-decoded):
-┌──────────┬──────────────────────────┬──────────┐
-│  Nonce   │      Ciphertext          │   Tag    │
-│ 12 bytes │    variable length       │ 16 bytes │
-│          │  (gzip-compressed JSON)  │          │
-└──────────┴──────────────────────────┴──────────┘
-             ◄── encrypted with ──►
-             DEK[keyEpoch], AAD=deviceId
-```
-
-### B.3 Encrypted Blob (Wire Format)
-
-```
-Blob payload (raw bytes):
-┌──────────┬──────────────────────────┬──────────┐
-│  Nonce   │      Ciphertext          │   Tag    │
-│ 12 bytes │    variable length       │ 16 bytes │
-│          │  (raw blob content)      │          │
-└──────────┴──────────────────────────┴──────────┘
-             ◄── encrypted with ──►
-             blobKey, AAD=blobId
-```
-
-### B.4 Recovery Blob (Wire Format)
-
-```
-Recovery blob (Base64-decoded):
-┌──────────┬──────────────────────────┬──────────┐
-│  Nonce   │      Ciphertext          │   Tag    │
-│ 12 bytes │    variable length       │ 16 bytes │
-│          │  (JSON with keyRing +    │          │
-│          │   Ed25519 private key)   │          │
-└──────────┴──────────────────────────┴──────────┘
-             ◄── encrypted with ──►
-             HKDF(BIP39 entropy), AAD="recovery:"+userId
-```
-
----
-
-## Appendix C: Worked Example
-
-This appendix walks through a complete enrollment and first operation exchange between
-two parents.
-
-### C.1 Setup
-
-```
-Parent A: Alice (creates family)
-Parent B: Bob (joins via invite)
-
-All values below are illustrative. Real implementations use CSRNG.
-Hex values are shown for readability.
-```
-
-### C.2 Alice Creates Family
-
-```
-1. Alice's device generates key pairs:
-   X25519 private (Alice):  a1a1...a1a1 (32 bytes)
-   X25519 public  (Alice):  b2b2...b2b2 (32 bytes)
-   Ed25519 private (Alice): c3c3...c3c3 (32 bytes)
-   Ed25519 public  (Alice): d4d4...d4d4 (32 bytes)
-
-2. Alice creates family:
-   POST /families { name: "Smith-Jones Family" }
-   -> familyId: "fam-1111-..."
-
-3. Alice generates DEK:
-   DEK: e5e5...e5e5 (32 bytes)
-   keyEpoch: 1
-
-4. Alice wraps DEK for herself (self-wrap):
-   - Generate ephemeral key pair
-   - ECDH with own public key
-   - HKDF derive wrapping key
-   - AES-256-GCM encrypt DEK
-   - Upload wrapped blob to server
-```
-
-### C.3 Alice Invites Bob
-
-```
-5. Alice creates invite:
-   POST /families/fam-1111-.../invite
-   -> inviteToken: "tok-..."
-
-6. Alice shares invite link:
-   kidsync://join?familyId=fam-1111-...&token=tok-...&pk=<base64url(b2b2...b2b2)>
-```
-
-### C.4 Bob Joins
-
-```
-7. Bob's device generates key pairs:
-   X25519 private (Bob):  f6f6...f6f6 (32 bytes)
-   X25519 public  (Bob):  a7a7...a7a7 (32 bytes)
-
-8. Bob joins:
-   POST /families/fam-1111-.../join {
-     inviteToken: "tok-...",
-     x25519PublicKey: "<base64(a7a7...a7a7)>",
-     ed25519PublicKey: "...",
-     deviceName: "Bob's Pixel"
-   }
-
-9. Alice's device is notified, wraps DEK for Bob:
-   - ephemeralPrivate: 0808...0808 (32 bytes, freshly generated)
-   - ephemeralPublic:  0909...0909 (32 bytes, derived)
-   - sharedSecret = X25519(0808..., a7a7...a7a7) -> 1a1a...1a1a
-   - salt: 2b2b...2b2b (32 bytes, random)
-   - wrappingKey = HKDF-SHA256(1a1a..., 2b2b..., "kidsync-dek-wrap-v1" || bobDeviceId)
-                 -> 3c3c...3c3c
-   - nonce: 4d4d...4d4d4d4d (12 bytes, random)
-   - ciphertext||tag = AES-256-GCM(3c3c..., 4d4d..., DEK=e5e5..., AAD="epoch=1,device=bob-dev-id")
-   - Alice uploads wrapped blob for Bob
-
-10. Bob downloads wrapped blob, unwraps:
-    - sharedSecret = X25519(f6f6..., 0909...) -> 1a1a...1a1a (same shared secret!)
-    - wrappingKey = HKDF-SHA256(1a1a..., 2b2b..., "kidsync-dek-wrap-v1" || bobDeviceId)
-                  -> 3c3c...3c3c (same wrapping key!)
-    - DEK = AES-256-GCM-Decrypt(3c3c..., 4d4d..., ciphertext||tag, AAD)
-          -> e5e5...e5e5 (recovered DEK!)
-```
-
-### C.5 Fingerprint Verification
-
-```
-11. Both devices compute fingerprint:
-    - Keys sorted lexicographically: a7a7... < b2b2...
-    - fingerprint = HexEncode(SHA256(a7a7...a7a7 || b2b2...b2b2))[:16]
-    - Display: "A7B2 C3D4 E5F6 7890" (example)
-    - Alice and Bob compare via phone call -> match confirmed
-```
-
-### C.6 First Encrypted Operation
-
-```
-12. Alice creates an expense:
-    payload = {
-      "type": "expense.create",
-      "data": {
-        "id": "exp-1111-...",
-        "childId": "child-2222-...",
-        "amount": 45.00,
-        "category": "MEDICAL",
-        "description": "Pediatrician co-pay"
-      }
-    }
-
-13. Encrypt:
-    jsonBytes = canonicalSerialize(payload) -> 157 bytes
-    compressed = gzip(jsonBytes) -> 134 bytes
-    nonce = CSRNG(12) -> 5e5e...5e5e5e5e
-    AAD = aliceDeviceId
-    ciphertext||tag = AES-256-GCM(DEK=e5e5..., nonce=5e5e..., compressed, AAD)
-    encryptedPayload = Base64(5e5e... || ciphertext || tag)
-
-14. Hash chain:
-    prevHash = SHA256(0x00{32} || Base64Decode(encryptedPayload))
-    // This is Alice's first op, so previous hash is genesis (32 zero bytes)
-
-15. Upload:
-    POST /sync/ops {
-      deviceId: "alice-dev-id",
-      keyEpoch: 1,
-      encryptedPayload: "<base64>",
-      prevHash: "<base64>"
-    }
-    Server assigns sequenceNo: 1
-
-16. Bob syncs:
-    GET /sync/ops?since=0
-    -> receives Alice's op with sequenceNo=1
-    -> decrypts using DEK[epoch=1]
-    -> decompresses
-    -> deserializes
-    -> applies to local DB: expense created
-```
+| `CHECKPOINT_INTERVAL_OPS` | `100` | Ops between checkpoints |
+| `MAX_BLOB_SIZE_BYTES` | `10485760` | Maximum blob size (10 MiB) |
+| `MAX_PAYLOAD_SIZE_BYTES` | `65536` | Maximum encrypted payload (64 KiB) |
+| `ALGORITHM_ID` | `"X25519-HKDF-AES256GCM"` | Algorithm identifier in wrapped DEK |
 
 ---
 
 ## Revision History
 
-| Version | Date | Author | Changes |
-|---------|------|--------|---------|
-| 1.0-draft | 2026-02-20 | Security Engineering | Initial specification |
-
----
-
-**End of Encryption Specification**
+| Version | Date | Changes |
+|---------|------|---------|
+| 1.0-draft | 2026-02-20 | Initial specification (email/password auth) |
+| 2.0-draft | 2026-02-21 | Zero-knowledge rewrite: Ed25519 auth, X25519 derivation from seed, challenge-response, key attestations, QR pairing, all metadata encrypted, optional BIP39 passphrase |

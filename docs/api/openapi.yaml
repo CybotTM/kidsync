@@ -1,74 +1,89 @@
 openapi: 3.1.0
 info:
-  title: Co-Parenting Sync Server API
+  title: KidSync Sync Server API
   description: |
-    REST API contract for the co-parenting app sync server (Kotlin/Ktor).
+    REST API contract for the KidSync zero-knowledge sync server (Kotlin/Ktor).
 
     The server is a **dumb relay** for end-to-end encrypted data. It assigns
-    monotonic sequence numbers, stores encrypted blobs, and relays operations
-    between family member devices. The server never sees plaintext family data.
+    monotonic sequence numbers, stores encrypted blobs, verifies hash chain
+    integrity, and relays operations between devices. The server never sees
+    plaintext data, user identities, entity types, or any business content.
 
     ## Authentication
-    All endpoints except `/auth/register`, `/auth/login`, and `/auth/refresh`
-    require a valid JWT Bearer token in the `Authorization` header.
+    Endpoints are divided into three categories:
+    - **Public** (`/register`, `/auth/challenge`, `/auth/verify`, `/health`):
+      No authentication required.
+    - **Authenticated**: Require a valid opaque session token in the
+      `Authorization: Bearer` header.
+    - **Bucket-scoped**: Authenticated AND the device must have active access
+      to the specified bucket (live check against `bucket_access` table).
+
+    The session token is an opaque server-signed token (NOT a JWT). It contains
+    only `{ deviceId, signingKey, exp }`. No user ID, no bucket IDs, no email.
+
+    ## Identity Model
+    There are no accounts, usernames, emails, or passwords. Each device is
+    identified by its Ed25519 signing public key and authenticated via
+    challenge-response.
 
     ## Rate Limiting
     All endpoints return rate-limiting headers:
     - `X-RateLimit-Limit` -- maximum requests per window
     - `X-RateLimit-Remaining` -- remaining requests in current window
     - `X-RateLimit-Reset` -- UTC epoch seconds when the window resets
-
-    ## Protocol Versioning
-    Clients must send `X-Protocol-Version: 1` on every request. The server
-    rejects requests with an unsupported protocol version with `PROTOCOL_MISMATCH`.
-  version: 1.0.0
+  version: 2.0.0
   license:
     name: AGPL-3.0-or-later
     identifier: AGPL-3.0-or-later
   contact:
-    name: Co-Parenting Project
+    name: KidSync Project
 
 servers:
-  - url: https://api.example.com/v1
-    description: Managed instance (EU)
-  - url: http://localhost:8080/v1
+  - url: https://api.kidsync.app
+    description: Production (EU)
+  - url: http://localhost:8080
     description: Local development / self-hosted
 
 tags:
+  - name: Registration
+    description: Device registration (public key only, no accounts)
   - name: Auth
-    description: Registration, login, TOTP setup, and token refresh
-  - name: Families
-    description: Family creation, invitations, and membership
-  - name: Devices
-    description: Device registration and revocation
+    description: Ed25519 challenge-response authentication
+  - name: Buckets
+    description: Anonymous bucket lifecycle and access management
   - name: Sync
-    description: Operation log sync, snapshots, and checkpoints
+    description: Encrypted operation log sync, checkpoints
   - name: Blobs
-    description: Encrypted blob storage (receipts, attachments)
+    description: Encrypted blob storage (receipts, attachments), bucket-scoped
+  - name: Snapshots
+    description: Encrypted state snapshots for new-device bootstrapping
+  - name: Keys
+    description: Wrapped DEK distribution and key attestations
+  - name: Recovery
+    description: Encrypted recovery blob storage
   - name: Push
     description: Push notification token registration
-  - name: Keys
-    description: Wrapped DEK distribution and recovery blobs
+  - name: Health
+    description: Server health check
 
 security:
-  - bearerAuth: []
+  - sessionAuth: []
 
 paths:
-  # ---------------------------------------------------------------------------
-  # Auth
-  # ---------------------------------------------------------------------------
-  /auth/register:
+  # =========================================================================
+  # Registration
+  # =========================================================================
+  /register:
     post:
-      operationId: register
-      tags: [Auth]
-      summary: Register a new account
+      operationId: registerDevice
+      tags: [Registration]
+      summary: Register a new device
       description: |
-        Creates a new user account with email and password. Returns a user ID,
-        an initial device ID, a short-lived JWT, and a refresh token.
+        Registers a new device by presenting its Ed25519 signing public key
+        and X25519 encryption public key. No email, no password, no name.
 
-        The password is hashed with bcrypt server-side. The server enforces a
-        minimum strength policy and checks the password against the
-        HaveIBeenPwned k-anonymity API.
+        The server stores only the public keys and assigns a device UUID.
+        The signing key must be unique (not already registered).
       security: []
       requestBody:
         required: true
@@ -78,7 +93,7 @@ paths:
               $ref: "#/components/schemas/RegisterRequest"
       responses:
         "201":
-          description: Account created successfully
+          description: Device registered
           headers:
             X-RateLimit-Limit:
               $ref: "#/components/headers/X-RateLimit-Limit"
@@ -93,30 +108,43 @@ paths:
         "400":
           $ref: "#/components/responses/InvalidRequest"
         "409":
-          $ref: "#/components/responses/Conflict"
+          description: Signing key already registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: SIGNING_KEY_EXISTS
+                message: "This signing key is already registered"
         "429":
           $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
 
-  /auth/login:
+  # =========================================================================
+  # Auth
+  # =========================================================================
+  /auth/challenge:
     post:
-      operationId: login
+      operationId: authChallenge
       tags: [Auth]
-      summary: Log in to an existing account
+      summary: Request an authentication challenge nonce
       description: |
-        Authenticates with email and password. If TOTP is enabled on the
-        account, the `totpCode` field is required.
+        Generates a 32-byte random nonce for the specified signing key.
+        The nonce is stored server-side with a 60-second TTL and is
+        one-time-use (consumed on successful verification).
+
+        The device must be registered (signing key must exist).
       security: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/LoginRequest"
+              $ref: "#/components/schemas/ChallengeRequest"
       responses:
         "200":
-          description: Login successful
+          description: Challenge nonce generated
           headers:
             X-RateLimit-Limit:
               $ref: "#/components/headers/X-RateLimit-Limit"
@@ -127,103 +155,49 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/LoginResponse"
-        "400":
-          $ref: "#/components/responses/InvalidRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "429":
-          $ref: "#/components/responses/RateLimited"
-        "500":
-          $ref: "#/components/responses/InternalError"
-
-  /auth/totp/setup:
-    post:
-      operationId: totpSetup
-      tags: [Auth]
-      summary: Initialize TOTP two-factor authentication
-      description: |
-        Generates a new TOTP secret for the authenticated user and returns
-        the secret along with an `otpauth://` URI suitable for QR code
-        generation. The TOTP is not enforced until verified via
-        `POST /auth/totp/verify`.
-      responses:
-        "200":
-          description: TOTP secret generated
-          headers:
-            X-RateLimit-Limit:
-              $ref: "#/components/headers/X-RateLimit-Limit"
-            X-RateLimit-Remaining:
-              $ref: "#/components/headers/X-RateLimit-Remaining"
-            X-RateLimit-Reset:
-              $ref: "#/components/headers/X-RateLimit-Reset"
+                $ref: "#/components/schemas/ChallengeResponse"
+        "404":
+          description: Signing key not found
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/TotpSetupResponse"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: UNKNOWN_SIGNING_KEY
+                message: "The signing key is not registered"
         "429":
           $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
 
-  /auth/totp/verify:
+  /auth/verify:
     post:
-      operationId: totpVerify
+      operationId: authVerify
       tags: [Auth]
-      summary: Verify and activate TOTP
+      summary: Verify signed challenge and obtain session token
       description: |
-        Verifies a TOTP code against the secret generated by
-        `POST /auth/totp/setup`. On success, TOTP is permanently enabled
-        for the account and will be required on all subsequent logins.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/TotpVerifyRequest"
-      responses:
-        "200":
-          description: TOTP verified and activated
-          headers:
-            X-RateLimit-Limit:
-              $ref: "#/components/headers/X-RateLimit-Limit"
-            X-RateLimit-Remaining:
-              $ref: "#/components/headers/X-RateLimit-Remaining"
-            X-RateLimit-Reset:
-              $ref: "#/components/headers/X-RateLimit-Reset"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/TotpVerifyResponse"
-        "400":
-          $ref: "#/components/responses/InvalidRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "429":
-          $ref: "#/components/responses/RateLimited"
-        "500":
-          $ref: "#/components/responses/InternalError"
+        Verifies the Ed25519 signature over the challenge message:
+        `msg = nonce || signingKey || serverOrigin || timestamp`
 
-  /auth/refresh:
-    post:
-      operationId: refreshToken
-      tags: [Auth]
-      summary: Refresh an expired JWT
-      description: |
-        Exchanges a valid refresh token for a new short-lived JWT and a
-        new refresh token. The old refresh token is invalidated (rotation).
+        The server:
+        1. Checks the nonce exists and is unused
+        2. Checks the nonce has not expired (60s TTL)
+        3. Consumes (deletes) the nonce atomically
+        4. Reconstructs the challenge message
+        5. Verifies the Ed25519 signature
+        6. Verifies the client timestamp is within 60s of server time
+
+        On success, returns an opaque session token (not JWT).
       security: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/RefreshRequest"
+              $ref: "#/components/schemas/VerifyRequest"
       responses:
         "200":
-          description: Tokens refreshed
+          description: Authentication successful
           headers:
             X-RateLimit-Limit:
               $ref: "#/components/headers/X-RateLimit-Limit"
@@ -234,34 +208,59 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/RefreshResponse"
+                $ref: "#/components/schemas/VerifyResponse"
+        "400":
+          description: |
+            Nonce expired, nonce consumed, or timestamp drift too large
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                nonceExpired:
+                  value:
+                    error: NONCE_EXPIRED
+                    message: "The challenge nonce has expired (60s TTL)"
+                nonceConsumed:
+                  value:
+                    error: NONCE_CONSUMED
+                    message: "The nonce has already been used"
+                timestampDrift:
+                  value:
+                    error: TIMESTAMP_DRIFT
+                    message: "Client timestamp differs from server by more than 60s"
         "401":
-          $ref: "#/components/responses/Unauthorized"
+          description: Signature verification failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: INVALID_SIGNATURE
+                message: "Ed25519 signature verification failed"
         "429":
           $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
 
-  # ---------------------------------------------------------------------------
-  # Families
-  # ---------------------------------------------------------------------------
-  /families:
+  # =========================================================================
+  # Buckets
+  # =========================================================================
+  /buckets:
     post:
-      operationId: createFamily
-      tags: [Families]
-      summary: Create a new family
+      operationId: createBucket
+      tags: [Buckets]
+      summary: Create an anonymous bucket
       description: |
-        Creates a new family and adds the authenticated user as the first
-        member with the `PARENT` role.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreateFamilyRequest"
+        Creates a new anonymous storage bucket. The creating device's ID is
+        recorded for deletion authorization. The device is automatically
+        granted access.
+
+        The server does not know what the bucket represents (family,
+        organization, personal workspace).
       responses:
         "201":
-          description: Family created
+          description: Bucket created
           headers:
             X-RateLimit-Limit:
               $ref: "#/components/headers/X-RateLimit-Limit"
@@ -272,9 +271,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/CreateFamilyResponse"
-        "400":
-          $ref: "#/components/responses/InvalidRequest"
+                $ref: "#/components/schemas/CreateBucketResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "429":
@@ -282,27 +279,60 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
-  /families/{familyId}/invite:
-    post:
-      operationId: createInvite
-      tags: [Families]
-      summary: Generate an invite token
+  /buckets/{bucketId}:
+    delete:
+      operationId: deleteBucket
+      tags: [Buckets]
+      summary: Delete a bucket (creator only)
       description: |
-        Generates a single-use invite token for the family. The token
-        expires after 48 hours. Only existing family members with the
-        `PARENT` role can create invitations.
+        Permanently deletes a bucket and all associated data (ops, blobs,
+        snapshots, checkpoints, access records, wrapped keys). Only the
+        device that created the bucket can delete it.
       parameters:
-        - $ref: "#/components/parameters/familyId"
+        - $ref: "#/components/parameters/bucketId"
+      responses:
+        "204":
+          description: Bucket deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Only the bucket creator can delete it
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: NOT_BUCKET_CREATOR
+                message: "Only the bucket creator can delete it"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /buckets/{bucketId}/invite:
+    post:
+      operationId: registerInviteToken
+      tags: [Buckets]
+      summary: Register an invite token hash
+      description: |
+        Stores the SHA-256 hash of a client-generated invite token. The
+        server never sees the plaintext token. The hash expires after 24
+        hours and is single-use.
+
+        Rate limit: maximum 5 active invite tokens per bucket.
+      parameters:
+        - $ref: "#/components/parameters/bucketId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InviteRequest"
       responses:
         "201":
-          description: Invite token generated
-          headers:
-            X-RateLimit-Limit:
-              $ref: "#/components/headers/X-RateLimit-Limit"
-            X-RateLimit-Remaining:
-              $ref: "#/components/headers/X-RateLimit-Remaining"
-            X-RateLimit-Reset:
-              $ref: "#/components/headers/X-RateLimit-Reset"
+          description: Invite token hash stored
           content:
             application/json:
               schema:
@@ -310,7 +340,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/Forbidden"
+          $ref: "#/components/responses/BucketAccessDenied"
         "404":
           $ref: "#/components/responses/NotFound"
         "429":
@@ -318,318 +348,141 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
-  /families/{familyId}/join:
+  /buckets/{bucketId}/join:
     post:
-      operationId: joinFamily
-      tags: [Families]
-      summary: Join a family using an invite token
+      operationId: joinBucket
+      tags: [Buckets]
+      summary: Redeem an invite token and join a bucket
       description: |
-        Accepts an invite token and joins the authenticated user to the
-        family. The client must provide its device public key so that
-        existing members can wrap the family DEK for the new device.
-
-        Returns the family ID and the current member list (with public
-        keys) so the joining device can request wrapped DEKs.
+        Verifies that SHA-256(inviteToken) matches a stored invite hash.
+        On success, grants the authenticated device access to the bucket
+        and marks the invite as used.
       parameters:
-        - $ref: "#/components/parameters/familyId"
+        - $ref: "#/components/parameters/bucketId"
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/JoinFamilyRequest"
+              $ref: "#/components/schemas/JoinRequest"
       responses:
         "200":
-          description: Successfully joined the family
-          headers:
-            X-RateLimit-Limit:
-              $ref: "#/components/headers/X-RateLimit-Limit"
-            X-RateLimit-Remaining:
-              $ref: "#/components/headers/X-RateLimit-Remaining"
-            X-RateLimit-Reset:
-              $ref: "#/components/headers/X-RateLimit-Reset"
+          description: Successfully joined the bucket
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/JoinFamilyResponse"
+                $ref: "#/components/schemas/JoinResponse"
         "400":
-          $ref: "#/components/responses/InvalidRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "429":
-          $ref: "#/components/responses/RateLimited"
-        "500":
-          $ref: "#/components/responses/InternalError"
-
-  /families/{familyId}/members:
-    get:
-      operationId: listMembers
-      tags: [Families]
-      summary: List family members
-      description: |
-        Returns all members of the family including their display names,
-        roles, public keys, and registered devices. Only accessible to
-        current family members.
-      parameters:
-        - $ref: "#/components/parameters/familyId"
-      responses:
-        "200":
-          description: Member list
-          headers:
-            X-RateLimit-Limit:
-              $ref: "#/components/headers/X-RateLimit-Limit"
-            X-RateLimit-Remaining:
-              $ref: "#/components/headers/X-RateLimit-Remaining"
-            X-RateLimit-Reset:
-              $ref: "#/components/headers/X-RateLimit-Reset"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/MembersResponse"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "429":
-          $ref: "#/components/responses/RateLimited"
-        "500":
-          $ref: "#/components/responses/InternalError"
-
-  # ---------------------------------------------------------------------------
-  # Devices
-  # ---------------------------------------------------------------------------
-  /devices:
-    post:
-      operationId: registerDevice
-      tags: [Devices]
-      summary: Register a new device
-      description: |
-        Registers a new device for the authenticated user. The client must
-        provide the device's X25519 public key so other family members can
-        wrap the family DEK for this device.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/RegisterDeviceRequest"
-      responses:
-        "201":
-          description: Device registered
-          headers:
-            X-RateLimit-Limit:
-              $ref: "#/components/headers/X-RateLimit-Limit"
-            X-RateLimit-Remaining:
-              $ref: "#/components/headers/X-RateLimit-Remaining"
-            X-RateLimit-Reset:
-              $ref: "#/components/headers/X-RateLimit-Reset"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/RegisterDeviceResponse"
-        "400":
-          $ref: "#/components/responses/InvalidRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "429":
-          $ref: "#/components/responses/RateLimited"
-        "500":
-          $ref: "#/components/responses/InternalError"
-
-    get:
-      operationId: listDevices
-      tags: [Devices]
-      summary: List the authenticated user's devices
-      description: |
-        Returns all devices registered to the authenticated user, including
-        revoked devices (with their `revokedAt` timestamp).
-      responses:
-        "200":
-          description: Device list
-          headers:
-            X-RateLimit-Limit:
-              $ref: "#/components/headers/X-RateLimit-Limit"
-            X-RateLimit-Remaining:
-              $ref: "#/components/headers/X-RateLimit-Remaining"
-            X-RateLimit-Reset:
-              $ref: "#/components/headers/X-RateLimit-Reset"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/DeviceListResponse"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "429":
-          $ref: "#/components/responses/RateLimited"
-        "500":
-          $ref: "#/components/responses/InternalError"
-
-  /devices/{deviceId}:
-    delete:
-      operationId: revokeDevice
-      tags: [Devices]
-      summary: Revoke a device
-      description: |
-        Marks the device as revoked. The device's API tokens are
-        invalidated immediately. This triggers a DEK rotation event --
-        existing family members must re-wrap the new DEK for all remaining
-        trusted devices.
-
-        Only the device owner or a family admin can revoke a device.
-      parameters:
-        - $ref: "#/components/parameters/deviceId"
-      responses:
-        "204":
-          description: Device revoked
-          headers:
-            X-RateLimit-Limit:
-              $ref: "#/components/headers/X-RateLimit-Limit"
-            X-RateLimit-Remaining:
-              $ref: "#/components/headers/X-RateLimit-Remaining"
-            X-RateLimit-Reset:
-              $ref: "#/components/headers/X-RateLimit-Reset"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "429":
-          $ref: "#/components/responses/RateLimited"
-        "500":
-          $ref: "#/components/responses/InternalError"
-
-  # ---------------------------------------------------------------------------
-  # Sync
-  # ---------------------------------------------------------------------------
-  /sync/handshake:
-    post:
-      operationId: syncHandshake
-      tags: [Sync]
-      summary: Protocol handshake and state synchronization
-      description: |
-        Initiates a sync session by negotiating protocol version compatibility
-        and returning the current server state. Must be the first request in a
-        sync session. The server validates the device is active and the protocol
-        version is supported.
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - familyId
-                - deviceId
-                - protocolVersion
-                - lastGlobalSequence
-              properties:
-                familyId:
-                  type: string
-                  format: uuid
-                  description: The family to sync with
-                deviceId:
-                  type: string
-                  format: uuid
-                  description: The device initiating the handshake
-                protocolVersion:
-                  type: integer
-                  format: int32
-                  minimum: 1
-                  description: Protocol version the client implements
-                lastGlobalSequence:
-                  type: integer
-                  format: int64
-                  minimum: 0
-                  description: |
-                    The highest global sequence number the client has seen.
-                    Use 0 if this is a fresh device with no prior sync.
-      responses:
-        "200":
-          description: Handshake successful
-          headers:
-            X-RateLimit-Limit:
-              $ref: "#/components/headers/X-RateLimit-Limit"
-            X-RateLimit-Remaining:
-              $ref: "#/components/headers/X-RateLimit-Remaining"
-            X-RateLimit-Reset:
-              $ref: "#/components/headers/X-RateLimit-Reset"
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                  - serverVersion
-                  - currentGlobalSequence
-                  - pendingOpsCount
-                  - keyEpoch
-                properties:
-                  serverVersion:
-                    type: integer
-                    format: int32
-                    description: The negotiated protocol version (highest mutually supported)
-                  currentGlobalSequence:
-                    type: integer
-                    format: int64
-                    description: The highest global sequence number for this family
-                  pendingOpsCount:
-                    type: integer
-                    format: int64
-                    description: |
-                      Number of ops the client has not yet seen
-                      (currentGlobalSequence - lastGlobalSequence).
-                  keyEpoch:
-                    type: integer
-                    format: int32
-                    description: The current DEK key epoch for this family
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "426":
-          description: Client protocol version is not supported
+          description: Invite token invalid, expired, or already used
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-              example:
-                error: PROTOCOL_MISMATCH
-                message: "Client protocol version 0 is below minimum supported version 1"
-                details:
-                  minProtocolVersion: 1
-                  maxProtocolVersion: 1
+              examples:
+                inviteInvalid:
+                  value:
+                    error: INVITE_INVALID
+                    message: "Invite token hash does not match any stored hash"
+                inviteExpired:
+                  value:
+                    error: INVITE_EXPIRED
+                    message: "Invite token has expired"
+                inviteConsumed:
+                  value:
+                    error: INVITE_CONSUMED
+                    message: "Invite token has already been used"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
 
-  /sync/ops:
+  /buckets/{bucketId}/devices:
+    get:
+      operationId: listBucketDevices
+      tags: [Buckets]
+      summary: List devices with access to the bucket
+      description: |
+        Returns all devices that currently have access to the bucket,
+        including their signing and encryption public keys. Only accessible
+        to devices with bucket access.
+      parameters:
+        - $ref: "#/components/parameters/bucketId"
+      responses:
+        "200":
+          description: Device list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BucketDevicesResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/BucketAccessDenied"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /buckets/{bucketId}/devices/me:
+    delete:
+      operationId: selfRevoke
+      tags: [Buckets]
+      summary: Self-revoke (leave bucket)
+      description: |
+        Removes the authenticated device from the bucket. A device can
+        only remove **itself** -- there is no endpoint for removing another
+        device. The server enforces `authenticatedDeviceId == requestor`.
+
+        Admin revocation (removing another device) is a client-side concept
+        implemented via signed ops inside the encrypted payload.
+      parameters:
+        - $ref: "#/components/parameters/bucketId"
+      responses:
+        "204":
+          description: Device removed from bucket
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/BucketAccessDenied"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # =========================================================================
+  # Sync (Operations)
+  # =========================================================================
+  /buckets/{bucketId}/ops:
     post:
       operationId: uploadOps
       tags: [Sync]
       summary: Upload encrypted operations
       description: |
-        Uploads one or more encrypted operations to the server. The server
-        assigns a monotonic global sequence number and a server timestamp
-        to each operation.
+        Uploads one or more encrypted operations. The server assigns
+        monotonic global sequence numbers and server timestamps.
 
-        The server validates:
-        - The `deviceId` belongs to the authenticated user
-        - The `devicePrevHash` is consistent with the device's hash chain
-        - The `keyEpoch` references a known epoch
+        Server-side validation (no business logic):
+        1. `deviceId` matches the authenticated device
+        2. Device has active bucket access
+        3. Hash chain continuity (prevHash matches last currentHash)
+        4. Hash correctness (recomputed currentHash matches)
+        5. Key epoch is known
+        6. Payload does not exceed 64 KiB
+        7. Batch does not exceed 100 ops
 
-        Operations are atomic: either all ops in the batch succeed, or
-        none are persisted.
+        The server does NOT validate: entity types, operation types,
+        state transitions, device sequence, client timestamps, or any
+        content inside encryptedPayload.
+      parameters:
+        - $ref: "#/components/parameters/bucketId"
       requestBody:
         required: true
         content:
@@ -638,22 +491,13 @@ paths:
               $ref: "#/components/schemas/UploadOpsRequest"
       responses:
         "201":
-          description: All operations accepted and sequenced
-          headers:
-            X-RateLimit-Limit:
-              $ref: "#/components/headers/X-RateLimit-Limit"
-            X-RateLimit-Remaining:
-              $ref: "#/components/headers/X-RateLimit-Remaining"
-            X-RateLimit-Reset:
-              $ref: "#/components/headers/X-RateLimit-Reset"
+          description: All operations accepted
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/UploadOpsResponse"
         "207":
-          description: |
-            Partial success -- some ops accepted, some rejected.
-            The `rejected` array contains details for each failed op.
+          description: Partial success (some ops rejected)
           content:
             application/json:
               schema:
@@ -663,9 +507,16 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/Forbidden"
+          $ref: "#/components/responses/BucketAccessDenied"
         "409":
-          $ref: "#/components/responses/Conflict"
+          description: Hash chain break
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: HASH_CHAIN_BREAK
+                message: "Expected prevHash 'abc123...' but got 'def456...'"
         "429":
           $ref: "#/components/responses/RateLimited"
         "500":
@@ -676,34 +527,28 @@ paths:
       tags: [Sync]
       summary: Pull operations since a sequence number
       description: |
-        Returns operations with global sequence numbers strictly greater
-        than the `since` parameter. Results are ordered by global sequence
-        (ascending). Use `limit` to paginate; when `hasMore` is `true`,
+        Returns operations with `globalSequence > since`, ordered
+        ascending. Use `limit` to paginate; when `hasMore` is `true`,
         issue another request with `since` set to the last received
         sequence number.
 
-        Only returns ops belonging to families the authenticated user is
-        a member of.
+        Each returned op contains only: globalSequence, deviceId,
+        keyEpoch, encryptedPayload, prevHash, currentHash,
+        serverTimestamp. No entity types, no client timestamps.
       parameters:
+        - $ref: "#/components/parameters/bucketId"
         - name: since
           in: query
           required: true
-          description: |
-            Return operations with a global sequence strictly greater than
-            this value. Use `0` to pull from the beginning.
+          description: Return ops with globalSequence strictly greater than this value. Use 0 for the beginning.
           schema:
             type: integer
             format: int64
             minimum: 0
-            examples:
-              - 0
-              - 42
         - name: limit
           in: query
           required: false
-          description: |
-            Maximum number of operations to return. Defaults to 100.
-            Maximum allowed value is 1000.
+          description: Maximum ops to return. Default 100, max 1000.
           schema:
             type: integer
             format: int32
@@ -713,13 +558,6 @@ paths:
       responses:
         "200":
           description: Operations retrieved
-          headers:
-            X-RateLimit-Limit:
-              $ref: "#/components/headers/X-RateLimit-Limit"
-            X-RateLimit-Remaining:
-              $ref: "#/components/headers/X-RateLimit-Remaining"
-            X-RateLimit-Reset:
-              $ref: "#/components/headers/X-RateLimit-Reset"
           content:
             application/json:
               schema:
@@ -728,275 +566,85 @@ paths:
           $ref: "#/components/responses/InvalidRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/BucketAccessDenied"
         "429":
           $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
 
-  /sync/snapshot:
-    post:
-      operationId: uploadSnapshot
-      tags: [Sync]
-      summary: Upload an encrypted state snapshot
-      description: |
-        Uploads an encrypted snapshot of the complete family state at a
-        given sequence number. Snapshots are used for bootstrapping new
-        devices so they do not need to replay the entire operation log.
-
-        The snapshot is uploaded as a multipart form with the encrypted
-        binary payload and metadata.
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              required:
-                - metadata
-                - snapshot
-              properties:
-                metadata:
-                  type: string
-                  contentMediaType: application/json
-                  description: |
-                    JSON-encoded snapshot metadata including the sequence
-                    number at which the snapshot was taken and the device
-                    ID that created it.
-                snapshot:
-                  type: string
-                  format: binary
-                  description: Encrypted snapshot binary payload
-      responses:
-        "201":
-          description: Snapshot uploaded
-          headers:
-            X-RateLimit-Limit:
-              $ref: "#/components/headers/X-RateLimit-Limit"
-            X-RateLimit-Remaining:
-              $ref: "#/components/headers/X-RateLimit-Remaining"
-            X-RateLimit-Reset:
-              $ref: "#/components/headers/X-RateLimit-Reset"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/UploadSnapshotResponse"
-        "400":
-          $ref: "#/components/responses/InvalidRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "429":
-          $ref: "#/components/responses/RateLimited"
-        "500":
-          $ref: "#/components/responses/InternalError"
-
-  /sync/snapshot/latest:
-    get:
-      operationId: getLatestSnapshot
-      tags: [Sync]
-      summary: Get the latest snapshot metadata
-      description: |
-        Returns metadata for the most recent snapshot, including a
-        time-limited download URL for the encrypted snapshot payload.
-        The client should pull ops since the snapshot's sequence number
-        to catch up to the current state.
-      responses:
-        "200":
-          description: Latest snapshot metadata
-          headers:
-            X-RateLimit-Limit:
-              $ref: "#/components/headers/X-RateLimit-Limit"
-            X-RateLimit-Remaining:
-              $ref: "#/components/headers/X-RateLimit-Remaining"
-            X-RateLimit-Reset:
-              $ref: "#/components/headers/X-RateLimit-Reset"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/LatestSnapshotResponse"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "429":
-          $ref: "#/components/responses/RateLimited"
-        "500":
-          $ref: "#/components/responses/InternalError"
-
-  /sync/checkpoint:
+  /buckets/{bucketId}/checkpoint:
     get:
       operationId: getCheckpoint
       tags: [Sync]
       summary: Get the latest server checkpoint
       description: |
         Returns the latest server-computed checkpoint hash. The checkpoint
-        covers a range of operations (`startSequence` to `endSequence`)
-        and is computed as `SHA-256(concat(all_ops[start..end]))`.
+        covers a range of operations (every 100 ops) computed as
+        `SHA-256(concat(encryptedPayload[start..end]))`.
 
-        Clients can independently compute the same hash over the same
-        range to verify data integrity and detect tampering.
-
-        Checkpoints are published approximately every 100 operations.
+        Clients verify by independently computing the same hash over their
+        local copy of the ops in the range.
+      parameters:
+        - $ref: "#/components/parameters/bucketId"
       responses:
         "200":
           description: Checkpoint data
-          headers:
-            X-RateLimit-Limit:
-              $ref: "#/components/headers/X-RateLimit-Limit"
-            X-RateLimit-Remaining:
-              $ref: "#/components/headers/X-RateLimit-Remaining"
-            X-RateLimit-Reset:
-              $ref: "#/components/headers/X-RateLimit-Reset"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/CheckpointResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/BucketAccessDenied"
         "404":
-          $ref: "#/components/responses/NotFound"
+          description: No checkpoint available yet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: NO_CHECKPOINT
+                message: "No checkpoint available (fewer than 100 ops)"
         "429":
           $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
 
-  /sync/ws:
-    get:
-      operationId: syncWebSocket
-      tags: [Sync]
-      summary: Real-time sync WebSocket
-      description: |
-        WebSocket endpoint for real-time push notifications when new
-        operations are available.
-
-        **Connection**: Upgrade to WebSocket with the JWT token provided
-        as a query parameter (`?token=<jwt>`) or via the
-        `Authorization` header during the HTTP upgrade handshake.
-
-        **Server-to-client messages** (JSON):
-        - `{"type": "ops_available", "latestSequence": 123}` -- new ops
-          are available; the client should issue `GET /sync/ops`.
-        - `{"type": "key_rotation", "keyEpoch": 5}` -- a DEK rotation
-          occurred; the client should fetch the new wrapped key.
-        - `{"type": "ping"}` -- keep-alive ping (every 30 seconds).
-
-        **Client-to-server messages** (JSON):
-        - `{"type": "pong"}` -- response to server ping.
-        - `{"type": "subscribe", "familyId": "<uuid>"}` -- subscribe to
-          a family's events (must be a member).
-
-        The server closes the connection with code `4001` if the token
-        expires and the client does not reconnect with a fresh token.
-      x-websocket:
-        subprotocol: coparenting-sync-v1
-        serverMessages:
-          - type: ops_available
-            description: New operations are available for pull
-            payload:
-              type: object
-              required: [type, latestSequence]
-              properties:
-                type:
-                  type: string
-                  const: ops_available
-                latestSequence:
-                  type: integer
-                  format: int64
-          - type: key_rotation
-            description: A DEK rotation event occurred
-            payload:
-              type: object
-              required: [type, keyEpoch]
-              properties:
-                type:
-                  type: string
-                  const: key_rotation
-                keyEpoch:
-                  type: integer
-                  format: int32
-          - type: ping
-            description: Keep-alive ping sent every 30 seconds
-            payload:
-              type: object
-              required: [type]
-              properties:
-                type:
-                  type: string
-                  const: ping
-        clientMessages:
-          - type: pong
-            description: Response to server ping
-            payload:
-              type: object
-              required: [type]
-              properties:
-                type:
-                  type: string
-                  const: pong
-          - type: subscribe
-            description: Subscribe to a family's real-time events
-            payload:
-              type: object
-              required: [type, familyId]
-              properties:
-                type:
-                  type: string
-                  const: subscribe
-                familyId:
-                  type: string
-                  format: uuid
-      parameters:
-        - name: token
-          in: query
-          required: false
-          description: |
-            JWT token for authentication. Alternative to the
-            `Authorization` header during the WebSocket upgrade.
-          schema:
-            type: string
-      responses:
-        "101":
-          description: Switching to WebSocket protocol
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-
-  # ---------------------------------------------------------------------------
-  # Blobs
-  # ---------------------------------------------------------------------------
-  /blobs:
+  # =========================================================================
+  # Blobs (bucket-scoped)
+  # =========================================================================
+  /buckets/{bucketId}/blobs:
     post:
       operationId: uploadBlob
       tags: [Blobs]
       summary: Upload an encrypted blob
       description: |
-        Uploads an encrypted binary blob (e.g., receipt photo). The blob
-        is stored as-is; the server never decrypts it. Maximum size is
-        10 MB.
-
-        The server computes and returns the SHA-256 hash of the uploaded
-        bytes for client-side integrity verification.
+        Uploads an encrypted binary blob scoped to a bucket. Maximum size
+        10 MiB. The server stores encrypted bytes and cannot determine
+        content type or purpose.
+      parameters:
+        - $ref: "#/components/parameters/bucketId"
       requestBody:
         required: true
         content:
           multipart/form-data:
             schema:
               type: object
-              required:
-                - file
+              required: [file, sha256]
               properties:
                 file:
                   type: string
                   format: binary
-                  description: Encrypted blob payload (max 10 MB)
+                  description: Encrypted blob payload (max 10 MiB)
+                sha256:
+                  type: string
+                  pattern: "^[0-9a-f]{64}$"
+                  description: SHA-256 hex digest of the encrypted bytes
       responses:
         "201":
           description: Blob uploaded
-          headers:
-            X-RateLimit-Limit:
-              $ref: "#/components/headers/X-RateLimit-Limit"
-            X-RateLimit-Remaining:
-              $ref: "#/components/headers/X-RateLimit-Remaining"
-            X-RateLimit-Reset:
-              $ref: "#/components/headers/X-RateLimit-Reset"
           content:
             application/json:
               schema:
@@ -1005,26 +653,34 @@ paths:
           $ref: "#/components/responses/InvalidRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/BucketAccessDenied"
         "413":
-          description: Blob exceeds 10 MB size limit
+          description: Blob exceeds 10 MiB size limit
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: PAYLOAD_TOO_LARGE
+                message: "Blob exceeds 10 MiB limit"
+                details:
+                  maxBytes: 10485760
         "429":
           $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
 
-  /blobs/{blobId}:
+  /buckets/{bucketId}/blobs/{blobId}:
     get:
       operationId: downloadBlob
       tags: [Blobs]
       summary: Download an encrypted blob
       description: |
-        Downloads the encrypted blob binary. Only accessible to members
-        of the family that owns the blob.
+        Downloads the encrypted blob binary. Only accessible to devices
+        with access to the bucket that owns the blob.
       parameters:
+        - $ref: "#/components/parameters/bucketId"
         - $ref: "#/components/parameters/blobId"
       responses:
         "200":
@@ -1038,13 +694,7 @@ paths:
             X-Blob-SHA256:
               schema:
                 type: string
-              description: Hex-encoded SHA-256 hash of the blob
-            X-RateLimit-Limit:
-              $ref: "#/components/headers/X-RateLimit-Limit"
-            X-RateLimit-Remaining:
-              $ref: "#/components/headers/X-RateLimit-Remaining"
-            X-RateLimit-Reset:
-              $ref: "#/components/headers/X-RateLimit-Reset"
+              description: Hex-encoded SHA-256 of the blob
           content:
             application/octet-stream:
               schema:
@@ -1053,7 +703,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/Forbidden"
+          $ref: "#/components/responses/BucketAccessDenied"
         "404":
           $ref: "#/components/responses/NotFound"
         "429":
@@ -1061,92 +711,124 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
-    delete:
-      operationId: deleteBlob
-      tags: [Blobs]
-      summary: Soft-delete a blob
-      description: |
-        Marks the blob as deleted. The blob is not immediately removed
-        from storage but will be garbage-collected after the retention
-        period. Only the blob's uploader or a family admin can delete it.
-      parameters:
-        - $ref: "#/components/parameters/blobId"
-      responses:
-        "204":
-          description: Blob marked as deleted
-          headers:
-            X-RateLimit-Limit:
-              $ref: "#/components/headers/X-RateLimit-Limit"
-            X-RateLimit-Remaining:
-              $ref: "#/components/headers/X-RateLimit-Remaining"
-            X-RateLimit-Reset:
-              $ref: "#/components/headers/X-RateLimit-Reset"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "429":
-          $ref: "#/components/responses/RateLimited"
-        "500":
-          $ref: "#/components/responses/InternalError"
-
-  # ---------------------------------------------------------------------------
-  # Push
-  # ---------------------------------------------------------------------------
-  /push/register:
+  # =========================================================================
+  # Snapshots
+  # =========================================================================
+  /buckets/{bucketId}/snapshots:
     post:
-      operationId: registerPushToken
-      tags: [Push]
-      summary: Register a push notification token
+      operationId: uploadSnapshot
+      tags: [Snapshots]
+      summary: Upload an encrypted state snapshot
       description: |
-        Registers or updates the push notification token for the
-        authenticated device. The server sends generic "data available"
-        signals when new ops arrive for the device's family; it never
-        includes decrypted content in push payloads.
+        Uploads an encrypted snapshot of the complete bucket state at a
+        given sequence number. Used for bootstrapping new devices.
 
-        If a token already exists for this device, it is replaced.
+        The snapshot includes an Ed25519 signature from the creating device.
+      parameters:
+        - $ref: "#/components/parameters/bucketId"
       requestBody:
         required: true
         content:
-          application/json:
+          multipart/form-data:
             schema:
-              $ref: "#/components/schemas/RegisterPushRequest"
+              type: object
+              required: [metadata, snapshot]
+              properties:
+                metadata:
+                  type: string
+                  contentMediaType: application/json
+                  description: |
+                    JSON-encoded snapshot metadata:
+                    ```json
+                    {
+                      "atSequence": 1043,
+                      "keyEpoch": 1,
+                      "sha256": "hex-hash-of-snapshot-bytes",
+                      "signature": "base64-ed25519-signature"
+                    }
+                    ```
+                snapshot:
+                  type: string
+                  format: binary
+                  description: Encrypted snapshot binary (max 50 MiB)
       responses:
-        "204":
-          description: Push token registered
-          headers:
-            X-RateLimit-Limit:
-              $ref: "#/components/headers/X-RateLimit-Limit"
-            X-RateLimit-Remaining:
-              $ref: "#/components/headers/X-RateLimit-Remaining"
-            X-RateLimit-Reset:
-              $ref: "#/components/headers/X-RateLimit-Reset"
+        "201":
+          description: Snapshot uploaded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadSnapshotResponse"
         "400":
           $ref: "#/components/responses/InvalidRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/BucketAccessDenied"
+        "413":
+          description: Snapshot exceeds 50 MiB limit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: SNAPSHOT_TOO_LARGE
+                message: "Snapshot exceeds 50 MiB limit"
         "429":
           $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
 
-  # ---------------------------------------------------------------------------
-  # Wrapped Keys
-  # ---------------------------------------------------------------------------
+  /buckets/{bucketId}/snapshots/latest:
+    get:
+      operationId: getLatestSnapshot
+      tags: [Snapshots]
+      summary: Get the latest snapshot metadata
+      description: |
+        Returns metadata for the most recent snapshot, including the
+        sequence number it was taken at. The client downloads the snapshot
+        binary separately.
+      parameters:
+        - $ref: "#/components/parameters/bucketId"
+      responses:
+        "200":
+          description: Latest snapshot metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LatestSnapshotResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/BucketAccessDenied"
+        "404":
+          description: No snapshot available
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: NO_SNAPSHOT
+                message: "No snapshot available for this bucket"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # =========================================================================
+  # Keys (Wrapped DEK + Attestations)
+  # =========================================================================
   /keys/wrapped:
     post:
       operationId: uploadWrappedKey
       tags: [Keys]
       summary: Upload a wrapped DEK for a target device
       description: |
-        Uploads a family DEK that has been wrapped (encrypted) with the
-        target device's X25519 public key. This is used during device
-        enrollment and key rotation.
+        Uploads a bucket DEK that has been wrapped (encrypted) with the
+        target device's X25519 public key. Used during device enrollment
+        and key rotation.
 
-        Only family members can upload wrapped keys, and only for devices
-        belonging to other members of the same family.
+        The authenticated device must have access to at least one bucket
+        in common with the target device.
       requestBody:
         required: true
         content:
@@ -1156,46 +838,34 @@ paths:
       responses:
         "201":
           description: Wrapped key stored
-          headers:
-            X-RateLimit-Limit:
-              $ref: "#/components/headers/X-RateLimit-Limit"
-            X-RateLimit-Remaining:
-              $ref: "#/components/headers/X-RateLimit-Remaining"
-            X-RateLimit-Reset:
-              $ref: "#/components/headers/X-RateLimit-Reset"
         "400":
           $ref: "#/components/responses/InvalidRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
         "404":
-          $ref: "#/components/responses/NotFound"
+          description: Target device not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "429":
           $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
 
-  /keys/wrapped/{deviceId}:
     get:
       operationId: getWrappedKey
       tags: [Keys]
-      summary: Get the wrapped DEK for a device
+      summary: Get wrapped DEK for the authenticated device
       description: |
-        Retrieves the wrapped DEK for the specified device. Only the
-        device owner can retrieve their own wrapped key.
-
-        If multiple key epochs exist, the latest epoch's wrapped key is
-        returned. Older epochs can be retrieved by specifying the
-        `keyEpoch` query parameter.
+        Retrieves the wrapped DEK for the authenticated device at the
+        specified key epoch. If no epoch is specified, the latest is
+        returned.
       parameters:
-        - $ref: "#/components/parameters/deviceId"
-        - name: keyEpoch
+        - name: epoch
           in: query
           required: false
-          description: |
-            Specific key epoch to retrieve. If omitted, the latest
-            epoch is returned.
+          description: Specific key epoch. If omitted, returns the latest.
           schema:
             type: integer
             format: int32
@@ -1203,21 +873,79 @@ paths:
       responses:
         "200":
           description: Wrapped DEK
-          headers:
-            X-RateLimit-Limit:
-              $ref: "#/components/headers/X-RateLimit-Limit"
-            X-RateLimit-Remaining:
-              $ref: "#/components/headers/X-RateLimit-Remaining"
-            X-RateLimit-Reset:
-              $ref: "#/components/headers/X-RateLimit-Reset"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/WrappedKeyResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: No wrapped key found for this device/epoch
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /keys/attestations:
+    post:
+      operationId: uploadKeyAttestation
+      tags: [Keys]
+      summary: Upload a key cross-signature (attestation)
+      description: |
+        Uploads an Ed25519 signature by the authenticated device over
+        another device's identity and encryption key. This provides
+        key transparency by creating a verifiable chain of trust rooted
+        in the QR code exchange.
+
+        Signature message: `attestedDeviceId (UTF-8) || attestedEncryptionKey (raw 32 bytes)`
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UploadAttestationRequest"
+      responses:
+        "201":
+          description: Attestation stored
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /keys/attestations/{deviceId}:
+    get:
+      operationId: getKeyAttestations
+      tags: [Keys]
+      summary: Get attestations for a device
+      description: |
+        Returns all key attestations (cross-signatures) for the specified
+        device. Each attestation proves that a signer has verified the
+        device's encryption key via an out-of-band channel.
+      parameters:
+        - name: deviceId
+          in: path
+          required: true
+          description: UUID of the device to get attestations for
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Attestations list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttestationsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
         "429":
@@ -1225,34 +953,30 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
-  /keys/recovery:
+  # =========================================================================
+  # Recovery
+  # =========================================================================
+  /recovery:
     post:
       operationId: uploadRecoveryBlob
-      tags: [Keys]
+      tags: [Recovery]
       summary: Upload an encrypted recovery blob
       description: |
-        Stores an encrypted recovery blob for the authenticated user.
-        The blob contains the family DEK encrypted with the user's
-        recovery key (BIP39 mnemonic-derived). This allows account
-        recovery on a new device.
+        Stores an encrypted recovery blob for the authenticated device.
+        The blob contains the device seed and bucket DEKs, encrypted with
+        the user's recovery key (BIP39 mnemonic-derived + optional
+        passphrase).
 
-        Replaces any existing recovery blob for the user.
+        Replaces any existing recovery blob for this device.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/UploadRecoveryBlobRequest"
+              $ref: "#/components/schemas/UploadRecoveryRequest"
       responses:
         "201":
           description: Recovery blob stored
-          headers:
-            X-RateLimit-Limit:
-              $ref: "#/components/headers/X-RateLimit-Limit"
-            X-RateLimit-Remaining:
-              $ref: "#/components/headers/X-RateLimit-Remaining"
-            X-RateLimit-Reset:
-              $ref: "#/components/headers/X-RateLimit-Reset"
         "400":
           $ref: "#/components/responses/InvalidRequest"
         "401":
@@ -1264,22 +988,15 @@ paths:
 
     get:
       operationId: getRecoveryBlob
-      tags: [Keys]
-      summary: Get the encrypted recovery blob
+      tags: [Recovery]
+      summary: Download encrypted recovery blob
       description: |
-        Retrieves the encrypted recovery blob for the authenticated user.
-        The client decrypts this blob locally using the recovery key
-        (BIP39 mnemonic) to extract the family DEK.
+        Retrieves the encrypted recovery blob for the authenticated device.
+        The client decrypts locally using the recovery key derived from
+        the BIP39 mnemonic (+ optional passphrase).
       responses:
         "200":
           description: Recovery blob
-          headers:
-            X-RateLimit-Limit:
-              $ref: "#/components/headers/X-RateLimit-Limit"
-            X-RateLimit-Remaining:
-              $ref: "#/components/headers/X-RateLimit-Remaining"
-            X-RateLimit-Reset:
-              $ref: "#/components/headers/X-RateLimit-Reset"
           content:
             application/json:
               schema:
@@ -1287,11 +1004,70 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
-          $ref: "#/components/responses/NotFound"
+          description: No recovery blob found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "429":
           $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
+
+  # =========================================================================
+  # Push
+  # =========================================================================
+  /push/token:
+    post:
+      operationId: registerPushToken
+      tags: [Push]
+      summary: Register a push notification token
+      description: |
+        Registers or updates the push notification token for the
+        authenticated device. Push notifications contain only opaque
+        signals (`{"type":"sync","bucket":"bucket-id"}`) with no
+        content, entity types, or user information.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PushTokenRequest"
+      responses:
+        "204":
+          description: Push token registered
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # =========================================================================
+  # Health
+  # =========================================================================
+  /health:
+    get:
+      operationId: healthCheck
+      tags: [Health]
+      summary: Health check
+      description: Returns server health status. No authentication required.
+      security: []
+      responses:
+        "200":
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "503":
+          description: Server is unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
 
 # =============================================================================
 # Components
@@ -1302,39 +1078,27 @@ components:
   # Security Schemes
   # ---------------------------------------------------------------------------
   securitySchemes:
-    bearerAuth:
+    sessionAuth:
       type: http
       scheme: bearer
-      bearerFormat: JWT
       description: |
-        Short-lived JWT issued by `/auth/login` or `/auth/refresh`.
-        Include in the `Authorization` header as `Bearer <token>`.
+        Opaque server-signed session token (NOT a JWT). Obtained from
+        `POST /auth/verify` after Ed25519 challenge-response.
 
-        JWT claims:
-        - `sub` -- user UUID
-        - `did` -- device UUID
-        - `fam` -- array of family UUIDs the user belongs to
-        - `iat` -- issued-at epoch seconds
-        - `exp` -- expiration epoch seconds (15 minutes after issuance)
+        The token contains only: `{ deviceId, signingKey, exp }`.
+        No user ID, no bucket IDs, no email.
+
+        Include in the `Authorization` header as `Bearer <token>`.
 
   # ---------------------------------------------------------------------------
   # Parameters
   # ---------------------------------------------------------------------------
   parameters:
-    familyId:
-      name: familyId
+    bucketId:
+      name: bucketId
       in: path
       required: true
-      description: UUID of the family
-      schema:
-        type: string
-        format: uuid
-
-    deviceId:
-      name: deviceId
-      in: path
-      required: true
-      description: UUID of the device
+      description: UUID of the bucket
       schema:
         type: string
         format: uuid
@@ -1353,28 +1117,22 @@ components:
   # ---------------------------------------------------------------------------
   headers:
     X-RateLimit-Limit:
-      description: Maximum number of requests allowed in the current window
+      description: Maximum requests allowed in the current window
       schema:
         type: integer
         format: int32
-        examples:
-          - 100
 
     X-RateLimit-Remaining:
-      description: Number of requests remaining in the current window
+      description: Requests remaining in the current window
       schema:
         type: integer
         format: int32
-        examples:
-          - 87
 
     X-RateLimit-Reset:
-      description: UTC epoch seconds when the rate-limit window resets
+      description: UTC epoch seconds when the window resets
       schema:
         type: integer
         format: int64
-        examples:
-          - 1771545600
 
   # ---------------------------------------------------------------------------
   # Reusable Responses
@@ -1391,30 +1149,28 @@ components:
             message: "Validation failed"
             details:
               fields:
-                - field: email
-                  reason: "Must be a valid email address"
+                - field: signingKey
+                  reason: "Must be a valid base64-encoded 32-byte Ed25519 public key"
 
     Unauthorized:
-      description: Authentication required or token invalid/expired
+      description: Authentication required or session token invalid/expired
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
           example:
-            error: UNAUTHORIZED
-            message: "Token expired"
-            details: {}
+            error: TOKEN_EXPIRED
+            message: "Session token has expired. Please re-authenticate."
 
-    Forbidden:
-      description: Authenticated but insufficient permissions
+    BucketAccessDenied:
+      description: Device does not have access to this bucket
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
           example:
-            error: FORBIDDEN
-            message: "You are not a member of this family"
-            details: {}
+            error: BUCKET_ACCESS_DENIED
+            message: "Device does not have access to this bucket"
 
     NotFound:
       description: Requested resource does not exist
@@ -1424,22 +1180,7 @@ components:
             $ref: "#/components/schemas/ErrorResponse"
           example:
             error: NOT_FOUND
-            message: "Family not found"
-            details: {}
-
-    Conflict:
-      description: |
-        Resource conflict. Causes include duplicate email registration,
-        hash chain break (HASH_CHAIN_BREAK -- devicePrevHash mismatch),
-        sequence duplicate, or invalid state transition.
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorResponse"
-          example:
-            error: HASH_CHAIN_BREAK
-            message: "Expected devicePrevHash 'abc123...' but got 'def456...'"
-            details: {}
+            message: "Resource not found"
 
     RateLimited:
       description: Too many requests
@@ -1474,7 +1215,6 @@ components:
           example:
             error: INTERNAL_ERROR
             message: "An unexpected error occurred"
-            details: {}
 
   # ---------------------------------------------------------------------------
   # Schemas
@@ -1484,418 +1224,256 @@ components:
     # ---- Error ----
     ErrorResponse:
       type: object
-      required:
-        - error
-        - message
+      required: [error, message]
       properties:
         error:
           type: string
           description: Machine-readable error code
           enum:
-            - UNAUTHORIZED
-            - FORBIDDEN
-            - NOT_FOUND
-            - CONFLICT
-            - RATE_LIMITED
             - INVALID_REQUEST
-            - PROTOCOL_MISMATCH
-            - INTERNAL_ERROR
+            - UNAUTHORIZED
+            - TOKEN_EXPIRED
+            - TOKEN_INVALID
+            - UNKNOWN_SIGNING_KEY
+            - NONCE_EXPIRED
+            - NONCE_CONSUMED
+            - INVALID_SIGNATURE
+            - TIMESTAMP_DRIFT
+            - SIGNING_KEY_EXISTS
+            - BUCKET_NOT_FOUND
+            - BUCKET_ACCESS_DENIED
+            - NOT_BUCKET_CREATOR
+            - INVITE_EXPIRED
+            - INVITE_CONSUMED
+            - INVITE_INVALID
             - HASH_CHAIN_BREAK
             - HASH_MISMATCH
-            - SEQUENCE_GAP
-            - SEQUENCE_DUPLICATE
             - INVALID_KEY_EPOCH
-            - INVALID_ENTITY_TYPE
-            - INVALID_STATE_TRANSITION
-            - TRANSITION_NOT_AUTHORIZED
-            - DEVICE_REVOKED
+            - BATCH_TOO_LARGE
+            - PAYLOAD_TOO_LARGE
+            - SNAPSHOT_TOO_LARGE
+            - NO_SNAPSHOT
+            - NO_CHECKPOINT
+            - NOT_FOUND
+            - RATE_LIMITED
+            - INTERNAL_ERROR
         message:
           type: string
           description: Human-readable error description
         details:
           type: object
-          description: |
-            Additional structured details about the error. Contents vary
-            by error code. For `INVALID_REQUEST`, includes a `fields`
-            array. For `CONFLICT`, may include the conflicting resource.
+          description: Additional structured details (contents vary by error code)
           additionalProperties: true
 
-    # ---- Auth ----
+    # ---- Registration ----
     RegisterRequest:
       type: object
-      required:
-        - email
-        - password
+      required: [signingKey, encryptionKey]
       properties:
-        email:
+        signingKey:
           type: string
-          format: email
-          maxLength: 254
-          description: User's email address (normalized to lowercase)
-          examples:
-            - "parent@example.com"
-        password:
+          description: Base64-encoded Ed25519 public key (32 bytes)
+        encryptionKey:
           type: string
-          format: password
-          minLength: 12
-          maxLength: 128
-          description: |
-            Password with minimum 12 characters. Checked against
-            HaveIBeenPwned breach database (k-anonymity).
-          examples:
-            - "a-very-strong-passphrase-2026"
+          description: Base64-encoded X25519 public key (32 bytes)
 
     RegisterResponse:
       type: object
-      required:
-        - userId
-        - deviceId
-        - token
-        - refreshToken
-      properties:
-        userId:
-          type: string
-          format: uuid
-          description: Newly created user ID
-        deviceId:
-          type: string
-          format: uuid
-          description: |
-            Auto-generated device ID for the registering device. The
-            client should store this and use it for subsequent requests.
-        token:
-          type: string
-          description: Short-lived JWT (15-minute expiry)
-        refreshToken:
-          type: string
-          description: Long-lived refresh token (30-day expiry)
-
-    LoginRequest:
-      type: object
-      required:
-        - email
-        - password
-      properties:
-        email:
-          type: string
-          format: email
-          maxLength: 254
-          examples:
-            - "parent@example.com"
-        password:
-          type: string
-          format: password
-          maxLength: 128
-        totpCode:
-          type: string
-          pattern: "^[0-9]{6}$"
-          description: |
-            6-digit TOTP code. Required if TOTP is enabled on the
-            account. Omit if TOTP is not set up.
-          examples:
-            - "123456"
-
-    LoginResponse:
-      type: object
-      required:
-        - userId
-        - token
-        - refreshToken
-      properties:
-        userId:
-          type: string
-          format: uuid
-        token:
-          type: string
-          description: Short-lived JWT (15-minute expiry)
-        refreshToken:
-          type: string
-          description: Long-lived refresh token (30-day expiry)
-
-    TotpSetupResponse:
-      type: object
-      required:
-        - secret
-        - qrCodeUri
-      properties:
-        secret:
-          type: string
-          description: Base32-encoded TOTP secret
-          examples:
-            - "JBSWY3DPEHPK3PXP"
-        qrCodeUri:
-          type: string
-          format: uri
-          description: |
-            `otpauth://` URI for QR code generation, including issuer
-            and account name.
-          examples:
-            - "otpauth://totp/CoParenting:parent@example.com?secret=JBSWY3DPEHPK3PXP&issuer=CoParenting&algorithm=SHA1&digits=6&period=30"
-
-    TotpVerifyRequest:
-      type: object
-      required:
-        - code
-      properties:
-        code:
-          type: string
-          pattern: "^[0-9]{6}$"
-          description: 6-digit TOTP code from authenticator app
-          examples:
-            - "654321"
-
-    TotpVerifyResponse:
-      type: object
-      required:
-        - verified
-      properties:
-        verified:
-          type: boolean
-          const: true
-          description: Always `true` on success; errors return 400
-
-    RefreshRequest:
-      type: object
-      required:
-        - refreshToken
-      properties:
-        refreshToken:
-          type: string
-          description: The refresh token from a previous login or refresh
-
-    RefreshResponse:
-      type: object
-      required:
-        - token
-        - refreshToken
-      properties:
-        token:
-          type: string
-          description: New short-lived JWT (15-minute expiry)
-        refreshToken:
-          type: string
-          description: New refresh token (previous one is invalidated)
-
-    # ---- Families ----
-    CreateFamilyRequest:
-      type: object
-      required:
-        - name
-      properties:
-        name:
-          type: string
-          minLength: 1
-          maxLength: 100
-          description: Display name for the family
-          examples:
-            - "Smith-Jones Family"
-
-    CreateFamilyResponse:
-      type: object
-      required:
-        - familyId
-      properties:
-        familyId:
-          type: string
-          format: uuid
-          description: Newly created family UUID
-
-    InviteResponse:
-      type: object
-      required:
-        - inviteToken
-        - expiresAt
-      properties:
-        inviteToken:
-          type: string
-          description: |
-            Single-use, URL-safe invite token. Embed in a deep link
-            for the co-parent to open.
-          examples:
-            - "inv_a1b2c3d4e5f6g7h8i9j0"
-        expiresAt:
-          type: string
-          format: date-time
-          description: ISO 8601 UTC timestamp when the token expires (48 hours)
-          examples:
-            - "2026-02-22T14:30:00Z"
-
-    JoinFamilyRequest:
-      type: object
-      required:
-        - inviteToken
-        - devicePublicKey
-      properties:
-        inviteToken:
-          type: string
-          description: Invite token received from the inviting parent
-        devicePublicKey:
-          type: string
-          description: |
-            Base64-encoded X25519 public key of the joining device.
-            Existing family members use this to wrap the family DEK
-            for the new device.
-          examples:
-            - "MCowBQYDK2VuAyEAGb1gaf..."
-
-    JoinFamilyResponse:
-      type: object
-      required:
-        - familyId
-        - members
-      properties:
-        familyId:
-          type: string
-          format: uuid
-        members:
-          type: array
-          items:
-            $ref: "#/components/schemas/FamilyMember"
-          description: Current family members (so joiner can request wrapped DEKs)
-
-    MembersResponse:
-      type: object
-      required:
-        - members
-      properties:
-        members:
-          type: array
-          items:
-            $ref: "#/components/schemas/FamilyMember"
-
-    FamilyMember:
-      type: object
-      required:
-        - userId
-        - displayName
-        - role
-        - publicKey
-        - devices
-      properties:
-        userId:
-          type: string
-          format: uuid
-        displayName:
-          type: string
-          description: Human-readable display name
-          examples:
-            - "Alex"
-        role:
-          type: string
-          enum:
-            - PARENT
-            - CHILD
-            - GRANDPARENT
-            - CAREGIVER
-          description: |
-            Member role in the family. Only `PARENT` is supported in
-            v0.1; other roles are reserved for future versions.
-        publicKey:
-          type: string
-          description: Base64-encoded X25519 public key of the user's primary device
-        devices:
-          type: array
-          items:
-            $ref: "#/components/schemas/DeviceSummary"
-          description: Registered devices for this member
-
-    DeviceSummary:
-      type: object
-      required:
-        - deviceId
-        - deviceName
-        - publicKey
-        - createdAt
-      properties:
-        deviceId:
-          type: string
-          format: uuid
-        deviceName:
-          type: string
-          examples:
-            - "Pixel 9"
-        publicKey:
-          type: string
-          description: Base64-encoded X25519 public key of this device
-        createdAt:
-          type: string
-          format: date-time
-        revokedAt:
-          type: string
-          format: date-time
-          description: Present only if the device has been revoked
-
-    # ---- Devices ----
-    RegisterDeviceRequest:
-      type: object
-      required:
-        - deviceName
-        - publicKey
-      properties:
-        deviceName:
-          type: string
-          minLength: 1
-          maxLength: 100
-          description: Human-readable device name
-          examples:
-            - "Pixel 9"
-        publicKey:
-          type: string
-          description: Base64-encoded X25519 public key
-          examples:
-            - "MCowBQYDK2VuAyEAGb1gaf..."
-
-    RegisterDeviceResponse:
-      type: object
-      required:
-        - deviceId
+      required: [deviceId]
       properties:
         deviceId:
           type: string
           format: uuid
           description: Server-assigned device UUID
 
-    DeviceListResponse:
+    # ---- Auth ----
+    ChallengeRequest:
       type: object
-      required:
-        - devices
+      required: [signingKey]
+      properties:
+        signingKey:
+          type: string
+          description: Base64-encoded Ed25519 public key
+
+    ChallengeResponse:
+      type: object
+      required: [nonce, expiresAt]
+      properties:
+        nonce:
+          type: string
+          description: Base64-encoded 32-byte random nonce
+        expiresAt:
+          type: string
+          format: date-time
+          description: ISO 8601 UTC timestamp when the nonce expires (60s TTL)
+
+    VerifyRequest:
+      type: object
+      required: [signingKey, nonce, timestamp, signature]
+      properties:
+        signingKey:
+          type: string
+          description: Base64-encoded Ed25519 public key
+        nonce:
+          type: string
+          description: Base64-encoded nonce from the challenge
+        timestamp:
+          type: string
+          format: date-time
+          description: Client's ISO 8601 UTC timestamp (verified within 60s of server time)
+        signature:
+          type: string
+          description: |
+            Base64-encoded Ed25519 signature over:
+            `nonce (32 bytes) || signingKey (32 bytes) || serverOrigin (UTF-8) || timestamp (UTF-8)`
+
+    VerifyResponse:
+      type: object
+      required: [sessionToken, expiresIn]
+      properties:
+        sessionToken:
+          type: string
+          description: |
+            Opaque server-signed session token (NOT a JWT). Contains only
+            `{ deviceId, signingKey, exp }`. Use in Authorization header.
+        expiresIn:
+          type: integer
+          format: int32
+          description: Token lifetime in seconds (default 3600)
+
+    # ---- Buckets ----
+    CreateBucketResponse:
+      type: object
+      required: [bucketId]
+      properties:
+        bucketId:
+          type: string
+          format: uuid
+          description: Newly created bucket UUID
+
+    InviteRequest:
+      type: object
+      required: [tokenHash]
+      properties:
+        tokenHash:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+          description: SHA-256 hex digest of the plaintext invite token
+
+    InviteResponse:
+      type: object
+      required: [expiresAt]
+      properties:
+        expiresAt:
+          type: string
+          format: date-time
+          description: ISO 8601 UTC when the invite expires (24 hours)
+
+    JoinRequest:
+      type: object
+      required: [inviteToken]
+      properties:
+        inviteToken:
+          type: string
+          description: Plaintext invite token (base64url, 43 chars)
+
+    JoinResponse:
+      type: object
+      required: [bucketId, deviceId]
+      properties:
+        bucketId:
+          type: string
+          format: uuid
+        deviceId:
+          type: string
+          format: uuid
+          description: The joining device's ID
+
+    BucketDevicesResponse:
+      type: object
+      required: [devices]
       properties:
         devices:
           type: array
           items:
-            $ref: "#/components/schemas/Device"
+            $ref: "#/components/schemas/BucketDevice"
 
-    Device:
+    BucketDevice:
       type: object
-      required:
-        - deviceId
-        - deviceName
-        - publicKey
-        - createdAt
+      required: [deviceId, signingKey, encryptionKey, grantedAt]
       properties:
         deviceId:
           type: string
           format: uuid
-        deviceName:
+        signingKey:
           type: string
-          examples:
-            - "Pixel 9"
-        publicKey:
+          description: Base64-encoded Ed25519 public key
+        encryptionKey:
           type: string
           description: Base64-encoded X25519 public key
-        createdAt:
+        grantedAt:
           type: string
           format: date-time
-        revokedAt:
-          type: string
-          format: date-time
-          description: Present only if the device has been revoked
+          description: When bucket access was granted
 
     # ---- Sync ----
+    OpInput:
+      type: object
+      required: [deviceId, keyEpoch, encryptedPayload, prevHash, currentHash]
+      properties:
+        deviceId:
+          type: string
+          format: uuid
+          description: Must match authenticated device
+        keyEpoch:
+          type: integer
+          format: int32
+          minimum: 1
+          description: DEK epoch used to encrypt this payload
+        encryptedPayload:
+          type: string
+          description: Base64-encoded AES-256-GCM ciphertext (all metadata inside)
+        prevHash:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+          description: Previous hash in per-device chain (64 hex zeros for first op)
+        currentHash:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+          description: SHA256(hexDecode(prevHash) + base64Decode(encryptedPayload))
+
+    OpOutput:
+      type: object
+      required: [globalSequence, deviceId, keyEpoch, encryptedPayload, prevHash, currentHash, serverTimestamp]
+      properties:
+        globalSequence:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Server-assigned monotonic sequence number
+        deviceId:
+          type: string
+          format: uuid
+        keyEpoch:
+          type: integer
+          format: int32
+        encryptedPayload:
+          type: string
+          description: Base64-encoded ciphertext (opaque to server)
+        prevHash:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        currentHash:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        serverTimestamp:
+          type: string
+          format: date-time
+          description: Server UTC timestamp when persisted
+
     UploadOpsRequest:
       type: object
-      required:
-        - ops
+      required: [ops]
       properties:
         ops:
           type: array
@@ -1903,173 +1481,48 @@ components:
           maxItems: 100
           items:
             $ref: "#/components/schemas/OpInput"
-          description: |
-            Batch of operations to upload. All ops must be from the
-            same device. Maximum 100 ops per request.
-
-    OpInput:
-      type: object
-      required:
-        - deviceId
-        - deviceSequence
-        - entityType
-        - entityId
-        - operation
-        - encryptedPayload
-        - devicePrevHash
-        - currentHash
-        - keyEpoch
-        - clientTimestamp
-        - protocolVersion
-        - signature
-      properties:
-        localId:
-          type: string
-          description: |
-            Client-generated local identifier for correlation. Returned
-            in the response so the client can map local ops to global
-            sequence numbers. Not persisted server-side.
-          examples:
-            - "local-op-001"
-        deviceId:
-          type: string
-          format: uuid
-          description: Device that created this operation
-        deviceSequence:
-          type: integer
-          format: int64
-          minimum: 1
-          description: Monotonically increasing per-device counter, starting at 1
-        entityType:
-          type: string
-          enum:
-            - CustodySchedule
-            - ScheduleOverride
-            - Expense
-            - ExpenseStatus
-          description: |
-            The type of entity this operation targets. KeyRotation events
-            also flow through the OpLog; the encrypted payload contains
-            key rotation metadata, while wrapped DEKs are distributed
-            via the `/keys` endpoint.
-        entityId:
-          type: string
-          format: uuid
-          description: The entity this operation targets
-        operation:
-          type: string
-          enum:
-            - CREATE
-            - UPDATE
-            - DELETE
-          description: The mutation type
-        encryptedPayload:
-          type: string
-          description: |
-            Base64-encoded AES-256-GCM encrypted operation payload.
-            The server stores this opaquely without decryption.
-          examples:
-            - "dGhpcyBpcyBlbmNyeXB0ZWQ..."
-        devicePrevHash:
-          type: string
-          pattern: "^[0-9a-f]{64}$"
-          description: |
-            Hex-encoded SHA-256 hash of the previous op from this device.
-            Use 64 hex zeros for the first operation from a device.
-          examples:
-            - "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-        currentHash:
-          type: string
-          pattern: "^[0-9a-f]{64}$"
-          description: |
-            SHA-256(bytes(devicePrevHash) + rawEncryptedPayloadBytes).
-            Forms the per-device hash chain.
-        keyEpoch:
-          type: integer
-          format: int32
-          minimum: 1
-          description: DEK epoch used to encrypt this payload
-        clientTimestamp:
-          type: string
-          format: date-time
-          description: Client's local UTC time when the op was created
-        protocolVersion:
-          type: integer
-          format: int32
-          minimum: 1
-          description: Protocol version this op was created with
-        transitionTo:
-          type: string
-          enum:
-            - APPROVED
-            - DECLINED
-            - CANCELLED
-            - SUPERSEDED
-            - EXPIRED
-          description: |
-            Target state for ScheduleOverride UPDATE operations only.
-            Required when entityType is ScheduleOverride and operation
-            is UPDATE. Omit for all other operation types.
-        signature:
-          type: string
-          description: |
-            Base64-encoded Ed25519 signature of the op envelope,
-            created with the device's signing key.
+          description: Batch of 1-100 operations
 
     UploadOpsResponse:
       type: object
-      required:
-        - accepted
+      required: [accepted]
       properties:
         accepted:
           type: array
           items:
             type: object
-            required:
-              - localId
-              - globalSequence
-              - serverTimestamp
+            required: [index, globalSequence, serverTimestamp]
             properties:
-              localId:
-                type: string
-                description: The `localId` from the corresponding `OpInput`
+              index:
+                type: integer
+                format: int32
+                description: Index in the request ops array
               globalSequence:
                 type: integer
                 format: int64
-                description: Server-assigned monotonically increasing sequence number
-                examples:
-                  - 42
+                description: Server-assigned sequence number
               serverTimestamp:
                 type: string
                 format: date-time
-                description: Server UTC timestamp when the op was persisted
-                examples:
-                  - "2026-02-20T10:30:00.123Z"
         rejected:
           type: array
           items:
             type: object
-            required:
-              - localId
-              - reason
-              - code
+            required: [index, error, message]
             properties:
-              localId:
+              index:
+                type: integer
+                format: int32
+              error:
                 type: string
-                description: The `localId` from the corresponding `OpInput`
-              reason:
+                description: Machine-readable error code
+              message:
                 type: string
-                description: Human-readable rejection reason
-              code:
-                type: string
-                description: Machine-readable error code (e.g., HASH_CHAIN_BREAK, SEQUENCE_GAP)
+                description: Human-readable reason
 
     PullOpsResponse:
       type: object
-      required:
-        - ops
-        - hasMore
-        - latestSequence
+      required: [ops, hasMore, latestSequence]
       properties:
         ops:
           type: array
@@ -2077,230 +1530,216 @@ components:
             $ref: "#/components/schemas/OpOutput"
         hasMore:
           type: boolean
-          description: |
-            `true` if there are more operations beyond this page. The
-            client should issue another `GET /sync/ops` with `since`
-            set to the last received `globalSequence`.
+          description: True if more ops exist beyond this page
         latestSequence:
           type: integer
           format: int64
-          description: |
-            The highest known global sequence number on the server.
-            Useful for progress indication.
-          examples:
-            - 150
-
-    OpOutput:
-      type: object
-      required:
-        - globalSequence
-        - deviceId
-        - deviceSequence
-        - entityType
-        - entityId
-        - operation
-        - encryptedPayload
-        - devicePrevHash
-        - currentHash
-        - keyEpoch
-        - clientTimestamp
-        - serverTimestamp
-        - protocolVersion
-      properties:
-        globalSequence:
-          type: integer
-          format: int64
-          description: Server-assigned monotonic sequence number
-        deviceId:
-          type: string
-          format: uuid
-          description: Device that created this operation
-        deviceSequence:
-          type: integer
-          format: int64
-          minimum: 1
-          description: Per-device monotonic counter
-        entityType:
-          type: string
-          enum:
-            - CustodySchedule
-            - ScheduleOverride
-            - Expense
-            - ExpenseStatus
-          description: |
-            The type of entity this operation targets. KeyRotation events
-            also flow through the OpLog; the encrypted payload contains
-            key rotation metadata, while wrapped DEKs are distributed
-            via the `/keys` endpoint.
-        entityId:
-          type: string
-          format: uuid
-          description: The entity this operation targets
-        operation:
-          type: string
-          enum:
-            - CREATE
-            - UPDATE
-            - DELETE
-          description: The mutation type
-        encryptedPayload:
-          type: string
-          description: Base64-encoded AES-256-GCM encrypted payload
-        devicePrevHash:
-          type: string
-          pattern: "^[0-9a-f]{64}$"
-          description: Hex-encoded SHA-256 per-device hash chain value
-        currentHash:
-          type: string
-          pattern: "^[0-9a-f]{64}$"
-          description: SHA-256 hash forming the per-device hash chain
-        keyEpoch:
-          type: integer
-          format: int32
-          description: DEK epoch used to encrypt this payload
-        clientTimestamp:
-          type: string
-          format: date-time
-          description: Client's local UTC time when the op was created
-        serverTimestamp:
-          type: string
-          format: date-time
-          description: Server UTC timestamp when the op was persisted
-        protocolVersion:
-          type: integer
-          format: int32
-          minimum: 1
-          description: Protocol version this op was created with
-        transitionTo:
-          type: string
-          enum:
-            - APPROVED
-            - DECLINED
-            - CANCELLED
-            - SUPERSEDED
-            - EXPIRED
-          description: |
-            Present only for ScheduleOverride UPDATE operations.
-            Indicates the target state transition.
-        signature:
-          type: string
-          description: Base64-encoded Ed25519 signature of the op envelope
-
-    UploadSnapshotResponse:
-      type: object
-      required:
-        - snapshotId
-        - sequence
-      properties:
-        snapshotId:
-          type: string
-          format: uuid
-          description: Server-assigned snapshot UUID
-        sequence:
-          type: integer
-          format: int64
-          description: The global sequence number the snapshot was taken at
-
-    LatestSnapshotResponse:
-      type: object
-      required:
-        - snapshotId
-        - sequence
-        - downloadUrl
-        - createdAt
-      properties:
-        snapshotId:
-          type: string
-          format: uuid
-        sequence:
-          type: integer
-          format: int64
-          description: Global sequence number the snapshot represents
-          examples:
-            - 500
-        downloadUrl:
-          type: string
-          format: uri
-          description: |
-            Time-limited URL to download the encrypted snapshot binary.
-            Expires after 1 hour.
-          examples:
-            - "https://api.example.com/v1/internal/snapshots/abc123?token=xyz"
-        createdAt:
-          type: string
-          format: date-time
-          description: When the snapshot was uploaded
-          examples:
-            - "2026-02-20T08:00:00Z"
+          description: Highest known global sequence on the server
 
     CheckpointResponse:
       type: object
-      required:
-        - startSequence
-        - endSequence
-        - hash
-        - timestamp
+      required: [checkpoint, latestSequence, nextCheckpointAt]
       properties:
-        startSequence:
+        checkpoint:
+          type: object
+          required: [startSequence, endSequence, hash, timestamp, opCount]
+          properties:
+            startSequence:
+              type: integer
+              format: int64
+            endSequence:
+              type: integer
+              format: int64
+            hash:
+              type: string
+              pattern: "^[0-9a-f]{64}$"
+              description: SHA-256 of concatenated encrypted payloads
+            timestamp:
+              type: string
+              format: date-time
+            opCount:
+              type: integer
+              format: int32
+        latestSequence:
           type: integer
           format: int64
-          description: First global sequence number in the checkpoint range (inclusive)
-          examples:
-            - 1
-        endSequence:
+        nextCheckpointAt:
           type: integer
           format: int64
-          description: Last global sequence number in the checkpoint range (inclusive)
-          examples:
-            - 100
-        hash:
-          type: string
-          description: |
-            Hex-encoded SHA-256 hash computed as
-            `SHA-256(concat(encrypted_payload[startSequence..endSequence]))`.
-            Clients can independently verify this by computing the same
-            hash over their local copy of the ops in the range.
-          examples:
-            - "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456"
-        timestamp:
-          type: string
-          format: date-time
-          description: When the checkpoint was computed
-          examples:
-            - "2026-02-20T10:00:00Z"
+          description: Sequence number when next checkpoint will be created
 
     # ---- Blobs ----
     UploadBlobResponse:
       type: object
-      required:
-        - blobId
-        - sizeBytes
-        - sha256Hash
+      required: [blobId, sizeBytes, sha256, uploadedAt]
       properties:
         blobId:
           type: string
           format: uuid
-          description: Server-assigned blob UUID
         sizeBytes:
           type: integer
           format: int64
-          description: Size of the uploaded blob in bytes
-          examples:
-            - 245760
-        sha256Hash:
+        sha256:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        uploadedAt:
+          type: string
+          format: date-time
+
+    # ---- Snapshots ----
+    UploadSnapshotResponse:
+      type: object
+      required: [snapshotId, atSequence]
+      properties:
+        snapshotId:
+          type: string
+          format: uuid
+        atSequence:
+          type: integer
+          format: int64
+          description: Global sequence number the snapshot was taken at
+
+    LatestSnapshotResponse:
+      type: object
+      required: [snapshotId, atSequence, keyEpoch, sizeBytes, sha256, signature, deviceId, createdAt]
+      properties:
+        snapshotId:
+          type: string
+          format: uuid
+        atSequence:
+          type: integer
+          format: int64
+          description: Global sequence number the snapshot represents
+        keyEpoch:
+          type: integer
+          format: int32
+          description: DEK epoch used to encrypt the snapshot
+        sizeBytes:
+          type: integer
+          format: int64
+        sha256:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+          description: SHA-256 of the encrypted snapshot bytes
+        signature:
+          type: string
+          description: Base64-encoded Ed25519 signature by the creating device
+        deviceId:
+          type: string
+          format: uuid
+          description: Device that created the snapshot
+        createdAt:
+          type: string
+          format: date-time
+
+    # ---- Keys ----
+    UploadWrappedKeyRequest:
+      type: object
+      required: [targetDevice, keyEpoch, wrappedDek]
+      properties:
+        targetDevice:
+          type: string
+          format: uuid
+          description: Device UUID to deliver the wrapped DEK to
+        keyEpoch:
+          type: integer
+          format: int32
+          minimum: 1
+          description: Key epoch this wrapped DEK belongs to
+        wrappedDek:
           type: string
           description: |
-            Hex-encoded SHA-256 hash of the uploaded bytes. The client
-            should verify this matches its locally computed hash.
-          examples:
-            - "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+            Base64-encoded wrapped DEK envelope (ephemeral public key,
+            salt, nonce, ciphertext). See encryption-spec.md Section 10.
+
+    WrappedKeyResponse:
+      type: object
+      required: [wrappedDek, keyEpoch, wrappedBy]
+      properties:
+        wrappedDek:
+          type: string
+          description: Base64-encoded wrapped DEK envelope
+        keyEpoch:
+          type: integer
+          format: int32
+        wrappedBy:
+          type: string
+          format: uuid
+          description: Device that wrapped this DEK
+
+    UploadAttestationRequest:
+      type: object
+      required: [attestedDevice, attestedKey, signature]
+      properties:
+        attestedDevice:
+          type: string
+          format: uuid
+          description: Device whose encryption key is being attested
+        attestedKey:
+          type: string
+          description: Base64-encoded X25519 public key being attested
+        signature:
+          type: string
+          description: |
+            Base64-encoded Ed25519 signature over:
+            `attestedDeviceId (UTF-8, 36 bytes) || attestedEncryptionKey (raw 32 bytes)`
+
+    AttestationsResponse:
+      type: object
+      required: [attestations]
+      properties:
+        attestations:
+          type: array
+          items:
+            $ref: "#/components/schemas/KeyAttestation"
+
+    KeyAttestation:
+      type: object
+      required: [signerDevice, attestedDevice, attestedKey, signature, createdAt]
+      properties:
+        signerDevice:
+          type: string
+          format: uuid
+        attestedDevice:
+          type: string
+          format: uuid
+        attestedKey:
+          type: string
+          description: Base64-encoded X25519 public key
+        signature:
+          type: string
+          description: Base64-encoded Ed25519 signature
+        createdAt:
+          type: string
+          format: date-time
+
+    # ---- Recovery ----
+    UploadRecoveryRequest:
+      type: object
+      required: [encryptedBlob]
+      properties:
+        encryptedBlob:
+          type: string
+          description: |
+            Base64-encoded recovery blob (nonce || ciphertext || GCM tag).
+            Contains seed + bucketIds + DEKs, encrypted with the recovery
+            key derived from BIP39 mnemonic + optional passphrase.
+
+    RecoveryBlobResponse:
+      type: object
+      required: [encryptedBlob, createdAt]
+      properties:
+        encryptedBlob:
+          type: string
+          description: Base64-encoded encrypted recovery blob
+        createdAt:
+          type: string
+          format: date-time
 
     # ---- Push ----
-    RegisterPushRequest:
+    PushTokenRequest:
       type: object
-      required:
-        - token
-        - platform
+      required: [token, platform]
       properties:
         token:
           type: string
@@ -2309,81 +1748,21 @@ components:
           description: Platform-specific push notification token
         platform:
           type: string
-          enum:
-            - FCM
-            - APNS
-          description: |
-            Push notification platform. `FCM` for Firebase Cloud
-            Messaging (Android), `APNS` for Apple Push Notification
-            Service (iOS, future).
+          enum: [FCM, APNS]
+          description: Push platform (FCM=Android, APNS=iOS)
 
-    # ---- Wrapped Keys ----
-    UploadWrappedKeyRequest:
+    # ---- Health ----
+    HealthResponse:
       type: object
-      required:
-        - targetDeviceId
-        - wrappedDek
-        - keyEpoch
+      required: [status]
       properties:
-        targetDeviceId:
+        status:
           type: string
-          format: uuid
-          description: Device UUID to deliver the wrapped DEK to
-        wrappedDek:
+          enum: [healthy, degraded, unhealthy]
+        version:
           type: string
-          description: |
-            Base64-encoded DEK wrapped (encrypted) with the target
-            device's X25519 public key using X25519 key agreement
-            followed by AES-256-GCM.
-          examples:
-            - "ZW5jcnlwdGVkIERFSw..."
-        keyEpoch:
+          description: Server version
+        uptime:
           type: integer
-          format: int32
-          minimum: 1
-          description: The key epoch this wrapped DEK belongs to
-          examples:
-            - 1
-
-    WrappedKeyResponse:
-      type: object
-      required:
-        - wrappedDek
-        - keyEpoch
-        - wrappedBy
-      properties:
-        wrappedDek:
-          type: string
-          description: Base64-encoded wrapped DEK
-        keyEpoch:
-          type: integer
-          format: int32
-          description: Key epoch of this wrapped DEK
-          examples:
-            - 1
-        wrappedBy:
-          type: string
-          format: uuid
-          description: User ID of the member who wrapped this DEK
-
-    UploadRecoveryBlobRequest:
-      type: object
-      required:
-        - encryptedRecoveryBlob
-      properties:
-        encryptedRecoveryBlob:
-          type: string
-          description: |
-            Base64-encoded blob containing the family DEK encrypted
-            with the user's recovery key (derived from BIP39 mnemonic).
-          examples:
-            - "cmVjb3ZlcnkgYmxvYg..."
-
-    RecoveryBlobResponse:
-      type: object
-      required:
-        - encryptedRecoveryBlob
-      properties:
-        encryptedRecoveryBlob:
-          type: string
-          description: Base64-encoded encrypted recovery blob
+          format: int64
+          description: Server uptime in seconds
