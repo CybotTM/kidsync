@@ -69,12 +69,12 @@ class OverrideStateMachineTest : FunSpec({
         stateMachine.isValidTransition(OverrideStatus.APPROVED, OverrideStatus.DECLINED) shouldBe false
     }
 
-    test("IT-07: PROPOSED -> EXPIRED is invalid") {
-        stateMachine.isValidTransition(OverrideStatus.PROPOSED, OverrideStatus.EXPIRED) shouldBe false
+    test("IT-07: PROPOSED -> EXPIRED is valid (auto-expiry in ZK architecture)") {
+        stateMachine.isValidTransition(OverrideStatus.PROPOSED, OverrideStatus.EXPIRED) shouldBe true
     }
 
-    test("IT-08: PROPOSED -> SUPERSEDED is invalid") {
-        stateMachine.isValidTransition(OverrideStatus.PROPOSED, OverrideStatus.SUPERSEDED) shouldBe false
+    test("IT-08: PROPOSED -> SUPERSEDED is valid (auto-supersede in ZK architecture)") {
+        stateMachine.isValidTransition(OverrideStatus.PROPOSED, OverrideStatus.SUPERSEDED) shouldBe true
     }
 
     test("IT-09: SUPERSEDED -> APPROVED is invalid (terminal state)") {
@@ -135,11 +135,13 @@ class OverrideStateMachineTest : FunSpec({
 
     // ---- validTransitionsFrom ----
 
-    test("PROPOSED can transition to APPROVED, DECLINED, CANCELLED") {
+    test("PROPOSED can transition to APPROVED, DECLINED, CANCELLED, SUPERSEDED, EXPIRED") {
         stateMachine.validTransitionsFrom(OverrideStatus.PROPOSED) shouldBe setOf(
             OverrideStatus.APPROVED,
             OverrideStatus.DECLINED,
-            OverrideStatus.CANCELLED
+            OverrideStatus.CANCELLED,
+            OverrideStatus.SUPERSEDED,
+            OverrideStatus.EXPIRED
         )
     }
 

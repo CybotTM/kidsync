@@ -178,7 +178,7 @@ class ConflictResolutionTest : FunSpec({
 
     // ---- Tie-break by scheduleId ----
 
-    test("same effectiveFrom, same clientTimestamp: lexicographically greater scheduleId wins") {
+    test("same effectiveFrom, same clientTimestamp: lexicographically greater deviceId wins") {
         val timestamp = "2026-03-28T10:00:00.000Z"
 
         val scheduleSmall = CustodyScheduleEntity(
@@ -189,7 +189,8 @@ class ConflictResolutionTest : FunSpec({
             patternJson = "[]",
             effectiveFrom = "2026-04-01T00:00:00.000Z",
             timeZone = "UTC",
-            clientTimestamp = timestamp
+            clientTimestamp = timestamp,
+            deviceId = "device-aaa"
         )
 
         val scheduleLarge = CustodyScheduleEntity(
@@ -200,7 +201,8 @@ class ConflictResolutionTest : FunSpec({
             patternJson = "[]",
             effectiveFrom = "2026-04-01T00:00:00.000Z",
             timeZone = "UTC",
-            clientTimestamp = timestamp
+            clientTimestamp = timestamp,
+            deviceId = "device-zzz"
         )
 
         val winner = conflictResolver.resolveCustodyScheduleConflict(
@@ -209,7 +211,7 @@ class ConflictResolutionTest : FunSpec({
             incomingClientTimestamp = Instant.parse(timestamp)
         )
 
-        // "ffffffff..." > "11111111..." -> scheduleLarge wins
+        // "device-zzz" > "device-aaa" -> scheduleLarge wins
         winner.scheduleId shouldBe scheduleLarge.scheduleId
     }
 

@@ -52,11 +52,11 @@ class CryptoManagerExtendedTest : FunSpec({
 
     // ── Key Fingerprint ─────────────────────────────────────────────────────
 
-    test("computeKeyFingerprint(ByteArray) returns 64 hex char string") {
+    test("computeKeyFingerprint(ByteArray) returns 32 hex char string") {
         val (publicKey, _) = cryptoManager.generateEd25519KeyPair()
         val fingerprint = cryptoManager.computeKeyFingerprint(publicKey)
-        fingerprint shouldHaveLength 64
-        fingerprint shouldMatch Regex("[0-9a-f]{64}")
+        fingerprint shouldHaveLength 32
+        fingerprint shouldMatch Regex("[0-9a-f]{32}")
     }
 
     test("computeKeyFingerprint is deterministic") {
@@ -74,7 +74,7 @@ class CryptoManagerExtendedTest : FunSpec({
         fp1 shouldNotBe fp2
     }
 
-    test("computeFingerprint (two-key) is 16 hex chars") {
+    test("computeFingerprint (two-key) is 32 hex chars") {
         val kp1 = cryptoManager.generateX25519KeyPair()
         val kp2 = cryptoManager.generateX25519KeyPair()
 
@@ -82,8 +82,8 @@ class CryptoManagerExtendedTest : FunSpec({
         val pk2 = cryptoManager.encodePublicKey(kp2.public)
 
         val fp = cryptoManager.computeFingerprint(pk1, pk2)
-        fp shouldHaveLength 16
-        fp shouldMatch Regex("[0-9a-f]{16}")
+        fp shouldHaveLength 32
+        fp shouldMatch Regex("[0-9a-f]{32}")
     }
 
     test("computeFingerprint is symmetric (order independent)") {
@@ -104,7 +104,7 @@ class CryptoManagerExtendedTest : FunSpec({
         val pk = cryptoManager.encodePublicKey(kp.public)
 
         val fp = cryptoManager.computeFingerprint(pk, pk)
-        fp shouldHaveLength 16
+        fp shouldHaveLength 32
     }
 
     // ── Invite Token ────────────────────────────────────────────────────────

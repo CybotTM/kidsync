@@ -56,6 +56,7 @@ class SyncEngineTest : FunSpec({
             lastSyncTimestamp = Instant.now()
         )
         coEvery { syncRepository.pullOps(bucketId, afterSequence = 10) } returns Result.success(emptyList())
+        every { hashChainVerifier.verifyChains(emptyList()) } returns Result.success(Unit)
         coEvery { opApplier.getPendingOps(bucketId) } returns emptyList()
 
         val useCase = createSyncUseCase()
@@ -72,6 +73,7 @@ class SyncEngineTest : FunSpec({
     test("sync from scratch (no sync state) starts from sequence 0") {
         coEvery { syncRepository.getSyncState(bucketId) } returns null
         coEvery { syncRepository.pullOps(bucketId, afterSequence = 0) } returns Result.success(emptyList())
+        every { hashChainVerifier.verifyChains(emptyList()) } returns Result.success(Unit)
         coEvery { opApplier.getPendingOps(bucketId) } returns emptyList()
 
         val useCase = createSyncUseCase()
@@ -204,6 +206,7 @@ class SyncEngineTest : FunSpec({
 
         coEvery { syncRepository.getSyncState(bucketId) } returns null
         coEvery { syncRepository.pullOps(bucketId, afterSequence = 0) } returns Result.success(emptyList())
+        every { hashChainVerifier.verifyChains(emptyList()) } returns Result.success(Unit)
         coEvery { opApplier.getPendingOps(bucketId) } returns pendingOps
         coEvery { syncRepository.pushOps(bucketId, pendingOps) } returns Result.success(pendingOps)
 

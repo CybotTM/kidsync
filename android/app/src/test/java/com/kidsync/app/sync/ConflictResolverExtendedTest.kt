@@ -145,6 +145,12 @@ class ConflictResolverExtendedTest : FunSpec({
 
     test("invalid transitions between non-terminal states") {
         conflictResolver.isValidOverrideTransition(OverrideStatus.APPROVED, OverrideStatus.DECLINED) shouldBe false
-        conflictResolver.isValidOverrideTransition(OverrideStatus.PROPOSED, OverrideStatus.EXPIRED) shouldBe false
+    }
+
+    test("valid transitions from PROPOSED to EXPIRED and SUPERSEDED in ZK architecture") {
+        // In the zero-knowledge architecture, PROPOSED can transition to EXPIRED and SUPERSEDED
+        // (auto-expiry and auto-supersede are system-initiated)
+        conflictResolver.isValidOverrideTransition(OverrideStatus.PROPOSED, OverrideStatus.EXPIRED) shouldBe true
+        conflictResolver.isValidOverrideTransition(OverrideStatus.PROPOSED, OverrideStatus.SUPERSEDED) shouldBe true
     }
 })

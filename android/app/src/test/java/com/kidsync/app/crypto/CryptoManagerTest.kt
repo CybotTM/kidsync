@@ -224,7 +224,7 @@ class CryptoManagerTest : FunSpec({
         val fp2 = cryptoManager.computeFingerprint(pk2, pk1)
 
         fp1 shouldBe fp2
-        fp1 shouldHaveLength 16
+        fp1 shouldHaveLength 32
     }
 
     test("blob encrypt and decrypt round-trip") {

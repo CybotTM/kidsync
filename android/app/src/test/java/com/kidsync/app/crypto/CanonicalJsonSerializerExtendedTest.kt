@@ -275,7 +275,7 @@ class CanonicalJsonSerializerExtendedTest : FunSpec({
     test("sha256Hex of empty object is known") {
         val hash = serializer.sha256Hex("{}")
         // SHA-256 of "{}"
-        hash shouldBe "44136fa355b311bfa706c3cf3c82f220f3e4d08fb1bf4f1eef0e7b4285e15f40"
+        hash shouldBe "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
     }
 
     // ── serializeAndHash ────────────────────────────────────────────────────

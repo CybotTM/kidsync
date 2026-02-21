@@ -161,6 +161,9 @@ class CreateOperationUseCaseTest : FunSpec({
         coEvery { keyManager.getCurrentEpoch(bucketId) } returns 1
         coEvery { keyManager.getDek(bucketId, 1) } returns dek
 
+        // Use a valid 64-char hex hash for previousOp's currentHash
+        // (HashChainVerifier.computeHash uses hexToBytes which requires valid hex)
+        val prevCurrentHash = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90"
         val previousOp = OpLogEntryEntity(
             globalSequence = 5,
             bucketId = bucketId,
@@ -168,8 +171,8 @@ class CreateOperationUseCaseTest : FunSpec({
             deviceSequence = 3,
             keyEpoch = 1,
             encryptedPayload = "prev-enc",
-            devicePrevHash = "prev-prev",
-            currentHash = "previous-current-hash",
+            devicePrevHash = "0000000000000000000000000000000000000000000000000000000000000000",
+            currentHash = prevCurrentHash,
             serverTimestamp = null,
             isPending = false
         )
@@ -191,7 +194,7 @@ class CreateOperationUseCaseTest : FunSpec({
         )
 
         val entry = insertSlot.captured
-        entry.devicePrevHash shouldBe "previous-current-hash"
+        entry.devicePrevHash shouldBe prevCurrentHash
         entry.deviceSequence shouldBe 4L // previous was 3
     }
 

@@ -186,8 +186,9 @@ class DtoSerializationTest : FunSpec({
         val payload = QrPairingPayload(v = 1, s = "https://s.co", b = "b1", t = "t1", f = "f1")
         val encoded = json.encodeToString(payload)
 
-        // Should use short keys: v, s, b, t, f - not verbose names
-        encoded shouldContain "\"v\":"
+        // Should use short keys: s, b, t, f - not verbose names
+        // Note: 'v' has a default value (1) and encodeDefaults is false, so it's omitted
+        // when the value matches the default - this is correct for compact QR codes
         encoded shouldContain "\"s\":"
         encoded shouldContain "\"b\":"
         encoded shouldContain "\"t\":"
@@ -195,6 +196,11 @@ class DtoSerializationTest : FunSpec({
         encoded shouldNotContain "serverUrl"
         encoded shouldNotContain "bucketId"
         encoded shouldNotContain "inviteToken"
+
+        // When v differs from default, it IS included
+        val v2Payload = QrPairingPayload(v = 2, s = "https://s.co", b = "b1", t = "t1", f = "f1")
+        val v2Encoded = json.encodeToString(v2Payload)
+        v2Encoded shouldContain "\"v\":2"
     }
 
     test("QrPairingPayload default version is 1") {

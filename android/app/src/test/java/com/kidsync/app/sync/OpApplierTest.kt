@@ -104,13 +104,15 @@ class OpApplierTest : FunSpec({
     // ── CustodySchedule with Conflict ───────────────────────────────────────
 
     test("CustodySchedule CREATE with conflict resolution - incoming wins") {
+        // Note: Instant.parse("...").toString() truncates trailing zeros,
+        // so effectiveFrom must match the Instant.toString() format for string comparison
         val existingSchedule = CustodyScheduleEntity(
             scheduleId = "sched-old",
             childId = "child-001",
             anchorDate = "2026-04-01",
             cycleLengthDays = 14,
             patternJson = "[]",
-            effectiveFrom = "2026-04-01T00:00:00.000Z",
+            effectiveFrom = "2026-04-01T00:00:00Z",
             timeZone = "UTC",
             clientTimestamp = "2026-03-28T10:00:00.000Z"
         )
