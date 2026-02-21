@@ -234,12 +234,9 @@ class ExpenseViewModel @Inject constructor(
 
     fun selectExpense(expenseId: String) {
         viewModelScope.launch {
-            val uuid = try { UUID.fromString(expenseId) }
-            catch (_: IllegalArgumentException) { return@launch }
-
-            val entity = expenseRepository.getExpenseById(uuid) ?: return@launch
-            val latestStatus = expenseRepository.getLatestStatusForExpense(uuid)
-            val statusHistory = expenseRepository.getStatusHistoryForExpense(uuid)
+            val entity = expenseRepository.getExpenseById(expenseId) ?: return@launch
+            val latestStatus = expenseRepository.getLatestStatusForExpense(expenseId)
+            val statusHistory = expenseRepository.getStatusHistoryForExpense(expenseId)
             val statusType = latestStatus?.let {
                 try { ExpenseStatusType.valueOf(it.status) }
                 catch (_: IllegalArgumentException) { ExpenseStatusType.LOGGED }

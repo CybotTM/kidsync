@@ -225,8 +225,8 @@ fun CalendarScreen(
                 CalendarGrid(
                     yearMonth = uiState.currentMonth,
                     days = days,
-                    parentAId = uiState.parentAId ?: java.util.UUID.randomUUID(),
-                    parentBId = uiState.parentBId ?: java.util.UUID.randomUUID(),
+                    parentAId = uiState.parentAId ?: "",
+                    parentBId = uiState.parentBId ?: "",
                     parentAName = uiState.parentAName,
                     parentBName = uiState.parentBName,
                     parentAColor = parentAColor,
@@ -272,8 +272,8 @@ fun CalendarScreen(
 @Composable
 private fun ChildSelector(
     children: List<com.kidsync.app.ui.viewmodel.ChildInfo>,
-    selectedChildId: java.util.UUID?,
-    onChildSelected: (java.util.UUID) -> Unit,
+    selectedChildId: String?,
+    onChildSelected: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }

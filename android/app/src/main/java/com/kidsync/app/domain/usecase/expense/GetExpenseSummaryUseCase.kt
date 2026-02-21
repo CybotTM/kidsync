@@ -1,7 +1,6 @@
 package com.kidsync.app.domain.usecase.expense
 
 import com.kidsync.app.data.local.dao.ExpenseDao
-import java.util.UUID
 import javax.inject.Inject
 
 data class ExpenseSummary(
@@ -17,7 +16,7 @@ class GetExpenseSummaryUseCase @Inject constructor(
     private val expenseDao: ExpenseDao
 ) {
     suspend operator fun invoke(
-        childId: UUID,
+        childId: String,
         parentAId: String,
         parentBId: String
     ): Result<ExpenseSummary> {

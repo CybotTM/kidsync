@@ -28,7 +28,7 @@ data class EventFormUiState(
     val error: String? = null,
 
     // Child context
-    val childId: UUID? = null,
+    val childId: String? = null,
 
     // Event form fields
     val eventTitle: String = "",
@@ -36,7 +36,7 @@ data class EventFormUiState(
     val eventTime: LocalTime? = null,
     val eventLocation: String = "",
     val eventNotes: String = "",
-    val editingEventId: UUID? = null,
+    val editingEventId: String? = null,
     val isSavingEvent: Boolean = false,
 
     // Result flags
@@ -58,7 +58,7 @@ class EventFormViewModel @Inject constructor(
 
     // ── Context Setup ────────────────────────────────────────────────────
 
-    fun setChildId(childId: UUID) {
+    fun setChildId(childId: String) {
         _uiState.update { it.copy(childId = childId) }
     }
 
@@ -82,7 +82,7 @@ class EventFormViewModel @Inject constructor(
     fun startEditingEvent(event: CalendarEvent) {
         _uiState.update {
             it.copy(
-                editingEventId = try { UUID.fromString(event.eventId) } catch (_: Exception) { null },
+                editingEventId = event.eventId,
                 eventTitle = event.title,
                 eventDate = event.date,
                 eventTime = event.time,
@@ -156,12 +156,12 @@ class EventFormViewModel @Inject constructor(
                     return@launch
                 }
 
-                val eventId = state.editingEventId ?: UUID.randomUUID()
+                val eventId = state.editingEventId ?: UUID.randomUUID().toString()
                 val operationType = if (state.editingEventId != null) OperationType.UPDATE else OperationType.CREATE
 
                 val contentData = buildJsonObject {
-                    put("eventId", JsonPrimitive(eventId.toString()))
-                    put("childId", JsonPrimitive(childId.toString()))
+                    put("eventId", JsonPrimitive(eventId))
+                    put("childId", JsonPrimitive(childId))
                     put("title", JsonPrimitive(title))
                     put("date", JsonPrimitive(date.toString()))
                     state.eventTime?.let { put("time", JsonPrimitive(it.toString())) }
@@ -172,7 +172,7 @@ class EventFormViewModel @Inject constructor(
                 val result = createOperationUseCase(
                     bucketId = bucketId,
                     entityType = EntityType.CalendarEvent,
-                    entityId = eventId.toString(),
+                    entityId = eventId,
                     operationType = operationType,
                     contentData = contentData
                 )
@@ -200,7 +200,7 @@ class EventFormViewModel @Inject constructor(
 
     // ── Delete Event ─────────────────────────────────────────────────────
 
-    fun deleteEvent(eventId: UUID) {
+    fun deleteEvent(eventId: String) {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
 
@@ -216,14 +216,14 @@ class EventFormViewModel @Inject constructor(
                 }
 
                 val contentData = buildJsonObject {
-                    put("eventId", JsonPrimitive(eventId.toString()))
+                    put("eventId", JsonPrimitive(eventId))
                     put("cancelled", JsonPrimitive(true))
                 }
 
                 val result = createOperationUseCase(
                     bucketId = bucketId,
                     entityType = EntityType.CalendarEvent,
-                    entityId = eventId.toString(),
+                    entityId = eventId,
                     operationType = OperationType.UPDATE,
                     contentData = contentData
                 )

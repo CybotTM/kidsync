@@ -209,7 +209,7 @@ fun DayDetailScreen(
                 items(relevantSwaps) { swap ->
                     SwapRequestCard(
                         swap = swap,
-                        parentAId = uiState.parentAId,
+                        parentAId = uiState.parentAId ?: "",
                         parentAName = uiState.parentAName,
                         parentBName = uiState.parentBName
                     )
@@ -344,7 +344,7 @@ private fun EventCard(
 @Composable
 private fun SwapRequestCard(
     swap: ScheduleOverride,
-    parentAId: java.util.UUID?,
+    parentAId: String,
     parentAName: String,
     parentBName: String,
     modifier: Modifier = Modifier

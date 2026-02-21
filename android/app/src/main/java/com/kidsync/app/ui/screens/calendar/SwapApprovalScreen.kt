@@ -58,7 +58,6 @@ import com.kidsync.app.ui.theme.Blue40
 import com.kidsync.app.ui.viewmodel.SwapRequestViewModel
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
-import java.util.UUID
 
 /**
  * Swap approval screen showing pending swap requests.
@@ -165,7 +164,7 @@ fun SwapApprovalScreen(
                     items(pendingSwaps) { swap ->
                         SwapApprovalCard(
                             swap = swap,
-                            parentAId = uiState.parentAId,
+                            parentAId = uiState.parentAId ?: "",
                             parentAName = uiState.parentAName,
                             parentBName = uiState.parentBName,
                             parentAColor = parentAColor,
@@ -189,7 +188,7 @@ fun SwapApprovalScreen(
 @Composable
 private fun SwapApprovalCard(
     swap: ScheduleOverride,
-    parentAId: UUID?,
+    parentAId: String,
     parentAName: String,
     parentBName: String,
     parentAColor: Color,

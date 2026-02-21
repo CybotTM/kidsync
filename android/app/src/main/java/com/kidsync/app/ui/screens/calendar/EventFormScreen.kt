@@ -28,7 +28,6 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
-import androidx.compose.material3.TimePickerDialog
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
@@ -233,7 +232,7 @@ fun EventFormScreen(
                     OutlinedButton(
                         onClick = {
                             eventId?.let { id ->
-                                viewModel.deleteEvent(java.util.UUID.fromString(id))
+                                viewModel.deleteEvent(id)
                                 onBack()
                             }
                         },

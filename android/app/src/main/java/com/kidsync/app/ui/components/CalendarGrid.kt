@@ -33,18 +33,17 @@ import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.TextStyle
 import java.util.Locale
-import java.util.UUID
 
 /**
  * Data class representing a single day cell in the calendar grid.
  *
  * @param date The date for this cell
- * @param assignedParentId The UUID of the parent assigned for this day, or null if no schedule
+ * @param assignedParentId The ID of the parent assigned for this day, or null if no schedule
  * @param isOverride Whether this assignment comes from an override rather than the base schedule
  */
 data class CalendarDayCell(
     val date: LocalDate,
-    val assignedParentId: UUID? = null,
+    val assignedParentId: String? = null,
     val isOverride: Boolean = false
 )
 
@@ -57,8 +56,8 @@ data class CalendarDayCell(
  *
  * @param yearMonth The month to display
  * @param days The list of day cells with parent assignments
- * @param parentAId UUID of Parent A
- * @param parentBId UUID of Parent B
+ * @param parentAId ID of Parent A
+ * @param parentBId ID of Parent B
  * @param parentAName Display name of Parent A
  * @param parentBName Display name of Parent B
  * @param parentAColor Color for Parent A days
@@ -72,8 +71,8 @@ data class CalendarDayCell(
 fun CalendarGrid(
     yearMonth: YearMonth,
     days: List<CalendarDayCell>,
-    parentAId: UUID,
-    parentBId: UUID,
+    parentAId: String,
+    parentBId: String,
     parentAName: String,
     parentBName: String,
     parentAColor: Color,
