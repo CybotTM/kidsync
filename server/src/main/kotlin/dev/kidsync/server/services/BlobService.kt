@@ -25,7 +25,7 @@ class BlobService(private val config: AppConfig) {
         fileBytes: ByteArray,
     ): BlobResponse {
         if (fileBytes.size > config.maxBlobSizeBytes) {
-            throw ApiException(413, "BLOB_TOO_LARGE", "File exceeds ${config.maxBlobSizeBytes} byte limit")
+            throw ApiException(413, "PAYLOAD_TOO_LARGE", "File exceeds ${config.maxBlobSizeBytes} byte limit")
         }
 
         // Check access BEFORE writing file to disk (prevent TOCTOU)

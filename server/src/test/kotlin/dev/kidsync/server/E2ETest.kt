@@ -339,8 +339,8 @@ class E2ETest {
             contentType(ContentType.Application.Json)
             header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
             setBody(KeyAttestationRequest(
-                attestedDeviceId = deviceB.deviceId,
-                attestedEncryptionKey = deviceB.encryptionKeyBase64,
+                attestedDevice = deviceB.deviceId,
+                attestedKey = deviceB.encryptionKeyBase64,
                 signature = sigAB,
             ))
         }.also { assertEquals(HttpStatusCode.Created, it.status) }
@@ -356,8 +356,8 @@ class E2ETest {
             contentType(ContentType.Application.Json)
             header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
             setBody(KeyAttestationRequest(
-                attestedDeviceId = deviceA.deviceId,
-                attestedEncryptionKey = deviceA.encryptionKeyBase64,
+                attestedDevice = deviceA.deviceId,
+                attestedKey = deviceA.encryptionKeyBase64,
                 signature = sigBA,
             ))
         }.also { assertEquals(HttpStatusCode.Created, it.status) }

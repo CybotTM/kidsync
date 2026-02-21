@@ -79,7 +79,7 @@ fun Route.authRoutes(config: AppConfig, sessionUtil: SessionUtil) {
                 val now = Instant.now()
                 val timeDiff = kotlin.math.abs(now.epochSecond - clientTimestamp.epochSecond)
                 if (timeDiff > 60) {
-                    throw ApiException(400, "INVALID_REQUEST", "Timestamp too far from server time")
+                    throw ApiException(400, "TIMESTAMP_DRIFT", "Timestamp too far from server time")
                 }
 
                 // Consume the nonce (one-time use)
@@ -156,7 +156,7 @@ fun Route.authRoutes(config: AppConfig, sessionUtil: SessionUtil) {
                     HttpStatusCode.OK,
                     VerifyResponse(
                         sessionToken = token,
-                        expiresIn = config.sessionTtlSeconds,
+                        expiresIn = config.sessionTtlSeconds.toInt(),
                     )
                 )
             }

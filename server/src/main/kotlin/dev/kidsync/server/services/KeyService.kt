@@ -86,18 +86,15 @@ class KeyService {
             throw ApiException(413, "PAYLOAD_TOO_LARGE", "Attestation signature exceeds maximum size of 4KB")
         }
 
-        val attestedDeviceId = request.resolvedAttestedDeviceId()
-        val attestedKeyValue = request.resolvedAttestedKey()
-
         dbQuery {
             // Verify attested device exists
-            Devices.selectAll().where { Devices.id eq attestedDeviceId }.firstOrNull()
+            Devices.selectAll().where { Devices.id eq request.attestedDevice }.firstOrNull()
                 ?: throw ApiException(404, "NOT_FOUND", "Attested device not found")
 
             // Check if attestation already exists for this signer+attested pair
             val existing = KeyAttestations.selectAll().where {
                 (KeyAttestations.signerDevice eq signerDeviceId) and
-                    (KeyAttestations.attestedDevice eq attestedDeviceId)
+                    (KeyAttestations.attestedDevice eq request.attestedDevice)
             }.firstOrNull()
 
             if (existing != null) {
@@ -106,8 +103,8 @@ class KeyService {
 
             KeyAttestations.insert {
                 it[signerDevice] = signerDeviceId
-                it[attestedDevice] = attestedDeviceId
-                it[attestedKey] = attestedKeyValue
+                it[attestedDevice] = request.attestedDevice
+                it[attestedKey] = request.attestedKey
                 it[signature] = request.signature
                 it[createdAt] = LocalDateTime.now(ZoneOffset.UTC)
             }

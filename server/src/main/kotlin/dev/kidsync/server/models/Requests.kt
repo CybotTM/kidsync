@@ -70,17 +70,10 @@ data class WrappedKeyRequest(
 
 @Serializable
 data class KeyAttestationRequest(
-    val attestedDeviceId: String? = null,
-    val attestedDevice: String? = null,
-    val attestedEncryptionKey: String? = null,
-    val attestedKey: String? = null,
+    val attestedDevice: String,
+    val attestedKey: String,
     val signature: String,
-) {
-    /** Resolve attestedDevice from either spec field name or legacy name. */
-    fun resolvedAttestedDeviceId(): String = attestedDevice ?: attestedDeviceId ?: ""
-    /** Resolve attestedKey from either spec field name or legacy name. */
-    fun resolvedAttestedKey(): String = attestedKey ?: attestedEncryptionKey ?: ""
-}
+)
 
 // ---- Recovery ----
 

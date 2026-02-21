@@ -2,6 +2,15 @@ package dev.kidsync.server.models
 
 import kotlinx.serialization.Serializable
 
+// ---- Health ----
+
+@Serializable
+data class HealthResponse(
+    val status: String,
+    val version: String? = null,
+    val uptime: Long? = null,
+)
+
 // ---- Error ----
 
 @Serializable
@@ -29,7 +38,7 @@ data class ChallengeResponse(
 @Serializable
 data class VerifyResponse(
     val sessionToken: String,
-    val expiresIn: Long,
+    val expiresIn: Int,
 )
 
 // ---- Buckets ----
@@ -84,9 +93,16 @@ data class AcceptedOp(
 )
 
 @Serializable
+data class RejectedOp(
+    val index: Int,
+    val error: String,
+    val message: String,
+)
+
+@Serializable
 data class OpsBatchResponse(
     val accepted: List<AcceptedOp>,
-    val latestSequence: Long,
+    val rejected: List<RejectedOp>? = null,
 )
 
 @Serializable

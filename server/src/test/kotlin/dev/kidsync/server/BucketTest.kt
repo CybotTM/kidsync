@@ -270,8 +270,9 @@ class BucketTest {
         }
 
         assertTrue(
-            join2.status == HttpStatusCode.NotFound || join2.status == HttpStatusCode.Conflict,
-            "Expected 404 or 409 for reused invite token, got ${join2.status}"
+            join2.status == HttpStatusCode.NotFound || join2.status == HttpStatusCode.Conflict ||
+                join2.status == HttpStatusCode.Gone,
+            "Expected 404, 409, or 410 for reused invite token, got ${join2.status}"
         )
     }
 

@@ -129,13 +129,22 @@ class BucketService(
             val tokenHash = HashUtil.sha256HexString(inviteToken)
             val now = LocalDateTime.now(ZoneOffset.UTC)
 
+            // Stage 1: Find token by hash + bucketId
             val invite = InviteTokens.selectAll().where {
                 (InviteTokens.tokenHash eq tokenHash) and
-                    (InviteTokens.bucketId eq bucketId) and
-                    InviteTokens.usedAt.isNull() and
-                    (InviteTokens.expiresAt greater now)
+                    (InviteTokens.bucketId eq bucketId)
             }.firstOrNull()
-                ?: throw ApiException(404, "NOT_FOUND", "Invalid or expired invite token")
+                ?: throw ApiException(404, "INVITE_INVALID", "Invalid invite token")
+
+            // Stage 2: Check if already used
+            if (invite[InviteTokens.usedAt] != null) {
+                throw ApiException(410, "INVITE_CONSUMED", "Invite token has already been used")
+            }
+
+            // Stage 3: Check if expired
+            if (invite[InviteTokens.expiresAt] <= now) {
+                throw ApiException(410, "INVITE_EXPIRED", "Invite token has expired")
+            }
 
             // Check if already has active access
             val existingActive = BucketAccess.selectAll().where {

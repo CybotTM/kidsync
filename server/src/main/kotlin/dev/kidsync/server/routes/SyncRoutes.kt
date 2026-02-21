@@ -50,8 +50,9 @@ fun Route.syncRoutes(
                     call.respond(HttpStatusCode.Created, response)
 
                     // Notify via WebSocket and push
-                    wsManager.notifyOpsAvailable(bucketId, response.latestSequence, principal.deviceId)
-                    pushService.notifyBucketDevices(bucketId, principal.deviceId, response.latestSequence)
+                    val latestSequence = response.accepted.lastOrNull()?.globalSequence ?: 0L
+                    wsManager.notifyOpsAvailable(bucketId, latestSequence, principal.deviceId)
+                    pushService.notifyBucketDevices(bucketId, principal.deviceId, latestSequence)
 
                     // Fire checkpoint notification if one was created
                     if (checkpoint != null) {
@@ -85,7 +86,7 @@ fun Route.syncRoutes(
 
                     val checkpoint = syncService.getCheckpoint(bucketId, principal.deviceId)
                     if (checkpoint == null) {
-                        throw ApiException(404, "NOT_FOUND", "No checkpoint available")
+                        throw ApiException(404, "NO_CHECKPOINT", "No checkpoint available")
                     }
                     call.respond(HttpStatusCode.OK, checkpoint)
                 }
@@ -223,7 +224,7 @@ fun Route.syncRoutes(
                     }
 
                     if (snapshot == null) {
-                        throw ApiException(404, "NOT_FOUND", "No snapshot available")
+                        throw ApiException(404, "NO_SNAPSHOT", "No snapshot available")
                     }
 
                     call.respond(

@@ -173,7 +173,7 @@ class KeyTest {
         val (deviceA, deviceB) = TestHelper.setupTwoDeviceBucket(client)
 
         // Device A attests Device B's encryption key
-        // Sign: Ed25519(attestedDeviceId || attestedEncryptionKey)
+        // Sign: Ed25519(attestedDevice || attestedKey)
         val message = "${deviceB.deviceId}${deviceB.encryptionKeyBase64}"
         val signer = Signature.getInstance("Ed25519")
         signer.initSign(deviceA.signingKeyPair.private)
@@ -184,8 +184,8 @@ class KeyTest {
             contentType(ContentType.Application.Json)
             header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
             setBody(KeyAttestationRequest(
-                attestedDeviceId = deviceB.deviceId,
-                attestedEncryptionKey = deviceB.encryptionKeyBase64,
+                attestedDevice = deviceB.deviceId,
+                attestedKey = deviceB.encryptionKeyBase64,
                 signature = attestSig,
             ))
         }
@@ -211,8 +211,8 @@ class KeyTest {
             contentType(ContentType.Application.Json)
             header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
             setBody(KeyAttestationRequest(
-                attestedDeviceId = deviceB.deviceId,
-                attestedEncryptionKey = deviceB.encryptionKeyBase64,
+                attestedDevice = deviceB.deviceId,
+                attestedKey = deviceB.encryptionKeyBase64,
                 signature = attestSig,
             ))
         }
@@ -250,8 +250,8 @@ class KeyTest {
             contentType(ContentType.Application.Json)
             header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
             setBody(KeyAttestationRequest(
-                attestedDeviceId = deviceB.deviceId,
-                attestedEncryptionKey = deviceB.encryptionKeyBase64,
+                attestedDevice = deviceB.deviceId,
+                attestedKey = deviceB.encryptionKeyBase64,
                 signature = attestSig,
             ))
         }
@@ -262,8 +262,8 @@ class KeyTest {
             contentType(ContentType.Application.Json)
             header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
             setBody(KeyAttestationRequest(
-                attestedDeviceId = deviceB.deviceId,
-                attestedEncryptionKey = deviceB.encryptionKeyBase64,
+                attestedDevice = deviceB.deviceId,
+                attestedKey = deviceB.encryptionKeyBase64,
                 signature = attestSig,
             ))
         }
@@ -289,8 +289,8 @@ class KeyTest {
             contentType(ContentType.Application.Json)
             header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
             setBody(KeyAttestationRequest(
-                attestedDeviceId = deviceB.deviceId,
-                attestedEncryptionKey = deviceB.encryptionKeyBase64,
+                attestedDevice = deviceB.deviceId,
+                attestedKey = deviceB.encryptionKeyBase64,
                 signature = sigAB,
             ))
         }
@@ -306,8 +306,8 @@ class KeyTest {
             contentType(ContentType.Application.Json)
             header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
             setBody(KeyAttestationRequest(
-                attestedDeviceId = deviceA.deviceId,
-                attestedEncryptionKey = deviceA.encryptionKeyBase64,
+                attestedDevice = deviceA.deviceId,
+                attestedKey = deviceA.encryptionKeyBase64,
                 signature = sigBA,
             ))
         }

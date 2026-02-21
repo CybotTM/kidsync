@@ -2,6 +2,7 @@ package dev.kidsync.server
 
 import dev.kidsync.server.db.DatabaseFactory
 import dev.kidsync.server.db.DatabaseFactory.dbQuery
+import dev.kidsync.server.models.HealthResponse
 import dev.kidsync.server.plugins.*
 import dev.kidsync.server.routes.*
 import dev.kidsync.server.services.*
@@ -70,12 +71,11 @@ fun Application.module(config: AppConfig = AppConfig()) {
                 false
             }
             val status = if (dbOk) HttpStatusCode.OK else HttpStatusCode.ServiceUnavailable
-            val uptimeMs = System.currentTimeMillis() - startTime
-            call.respond(status, mapOf(
-                "status" to if (dbOk) "healthy" else "degraded",
-                "version" to config.serverVersion,
-                "db" to dbOk.toString(),
-                "uptime" to "${uptimeMs}ms",
+            val uptimeSeconds = (System.currentTimeMillis() - startTime) / 1000
+            call.respond(status, HealthResponse(
+                status = if (dbOk) "healthy" else "degraded",
+                version = config.serverVersion,
+                uptime = uptimeSeconds,
             ))
         }
 

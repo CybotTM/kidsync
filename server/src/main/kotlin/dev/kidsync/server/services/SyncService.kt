@@ -42,7 +42,6 @@ class SyncService(private val config: AppConfig) {
 
             val now = LocalDateTime.now(ZoneOffset.UTC)
             val serverTimestamp = now.atOffset(ZoneOffset.UTC).format(isoFormatter)
-            var latestSequence = 0L
             val acceptedOps = mutableListOf<AcceptedOp>()
 
             // Query the last op once before the loop, then track running hash in memory
@@ -77,8 +76,9 @@ class SyncService(private val config: AppConfig) {
                     throw ApiException(400, "INVALID_REQUEST", "encryptedPayload must be valid base64")
                 }
 
-                // Enforce per-op payload size limit
-                if (op.encryptedPayload.length > config.maxPayloadSizeBytes) {
+                // Enforce per-op payload size limit (check decoded byte count, not base64 string length)
+                val payloadBytes = java.util.Base64.getDecoder().decode(op.encryptedPayload)
+                if (payloadBytes.size > config.maxPayloadSizeBytes) {
                     throw ApiException(413, "PAYLOAD_TOO_LARGE", "Encrypted payload exceeds size limit")
                 }
 
@@ -119,7 +119,6 @@ class SyncService(private val config: AppConfig) {
                     it[createdAt] = now
                 } get Ops.sequence
 
-                latestSequence = seq
                 runningHash = op.currentHash
                 acceptedOps.add(AcceptedOp(
                     index = index,
@@ -134,7 +133,6 @@ class SyncService(private val config: AppConfig) {
             Pair(
                 OpsBatchResponse(
                     accepted = acceptedOps,
-                    latestSequence = latestSequence,
                 ),
                 checkpoint,
             )
