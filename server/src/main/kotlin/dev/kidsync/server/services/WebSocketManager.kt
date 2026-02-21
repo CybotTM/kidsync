@@ -23,7 +23,7 @@ class WebSocketManager {
     private val json = Json { encodeDefaults = true }
 
     fun addConnection(bucketId: String, connection: WsConnection) {
-        connections.getOrPut(bucketId) { ConcurrentHashMap.newKeySet() }.add(connection)
+        connections.computeIfAbsent(bucketId) { ConcurrentHashMap.newKeySet() }.add(connection)
         logger.info("WebSocket connected: device={} bucket={}", connection.deviceId, bucketId)
     }
 

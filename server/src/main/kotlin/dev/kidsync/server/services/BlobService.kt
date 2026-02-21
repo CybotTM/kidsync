@@ -28,19 +28,20 @@ class BlobService(private val config: AppConfig) {
             throw ApiException(413, "BLOB_TOO_LARGE", "File exceeds ${config.maxBlobSizeBytes} byte limit")
         }
 
+        // Check access BEFORE writing file to disk (prevent TOCTOU)
+        dbQuery { BucketService.requireBucketAccess(bucketId, deviceId) }
+
         val blobId = UUID.randomUUID().toString()
         val sha256 = computeSha256(fileBytes)
         val now = LocalDateTime.now(ZoneOffset.UTC)
 
-        // Write to filesystem
+        // Write to filesystem only after access check passes
         val blobDir = File(config.blobStoragePath)
         blobDir.mkdirs()
         val blobFile = File(blobDir, blobId)
         blobFile.writeBytes(fileBytes)
 
         dbQuery {
-            BucketService.requireBucketAccess(bucketId, deviceId)
-
             Blobs.insert {
                 it[id] = blobId
                 it[Blobs.bucketId] = bucketId

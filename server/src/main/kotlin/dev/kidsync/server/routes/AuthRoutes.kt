@@ -69,7 +69,7 @@ fun Route.authRoutes(config: AppConfig, sessionUtil: SessionUtil) {
                     throw ApiException(400, "INVALID_REQUEST", "All fields are required")
                 }
 
-                // Validate timestamp is within acceptable window (5 minutes)
+                // Validate timestamp is within acceptable window (60 seconds)
                 val clientTimestamp = try {
                     Instant.parse(request.timestamp)
                 } catch (_: Exception) {
@@ -78,7 +78,7 @@ fun Route.authRoutes(config: AppConfig, sessionUtil: SessionUtil) {
 
                 val now = Instant.now()
                 val timeDiff = kotlin.math.abs(now.epochSecond - clientTimestamp.epochSecond)
-                if (timeDiff > 300) {
+                if (timeDiff > 60) {
                     throw ApiException(400, "INVALID_REQUEST", "Timestamp too far from server time")
                 }
 

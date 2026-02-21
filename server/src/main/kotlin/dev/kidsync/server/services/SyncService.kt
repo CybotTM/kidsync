@@ -42,6 +42,11 @@ class SyncService(private val config: AppConfig) {
                     throw ApiException(403, "FORBIDDEN", "Op deviceId does not match authenticated device")
                 }
 
+                // Validate key epoch
+                if (op.keyEpoch < 1) {
+                    throw ApiException(400, "INVALID_REQUEST", "keyEpoch must be >= 1")
+                }
+
                 // Enforce per-op payload size limit
                 if (op.encryptedPayload.length > config.maxPayloadSizeBytes) {
                     throw ApiException(413, "PAYLOAD_TOO_LARGE", "Encrypted payload exceeds size limit")

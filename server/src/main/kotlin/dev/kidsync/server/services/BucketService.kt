@@ -87,6 +87,17 @@ class BucketService(
             val now = LocalDateTime.now(ZoneOffset.UTC)
             val expiresAt = now.plusHours(24)
 
+            // Rate limit: max 5 active (unused, non-expired) invites per bucket
+            val activeInviteCount = InviteTokens.selectAll().where {
+                (InviteTokens.bucketId eq bucketId) and
+                    InviteTokens.usedAt.isNull() and
+                    (InviteTokens.expiresAt greater now)
+            }.count()
+
+            if (activeInviteCount >= 5) {
+                throw ApiException(429, "RATE_LIMITED", "Too many active invites for this bucket (max 5)")
+            }
+
             // Upsert: replace if same hash exists
             InviteTokens.deleteWhere { InviteTokens.tokenHash eq tokenHash }
 
@@ -115,14 +126,14 @@ class BucketService(
             }.firstOrNull()
                 ?: throw ApiException(404, "NOT_FOUND", "Invalid or expired invite token")
 
-            // Check if already has access
-            val existing = BucketAccess.selectAll().where {
+            // Check if already has active access
+            val existingActive = BucketAccess.selectAll().where {
                 (BucketAccess.bucketId eq bucketId) and
                     (BucketAccess.deviceId eq deviceId) and
                     BucketAccess.revokedAt.isNull()
             }.firstOrNull()
 
-            if (existing != null) {
+            if (existingActive != null) {
                 throw ApiException(409, "CONFLICT", "Device already has access to this bucket")
             }
 
@@ -131,11 +142,30 @@ class BucketService(
                 it[usedAt] = now
             }
 
-            // Grant access
-            BucketAccess.insert {
-                it[BucketAccess.bucketId] = bucketId
-                it[BucketAccess.deviceId] = deviceId
-                it[grantedAt] = now
+            // Check for a previously revoked access record and re-activate it
+            val existingRevoked = BucketAccess.selectAll().where {
+                (BucketAccess.bucketId eq bucketId) and
+                    (BucketAccess.deviceId eq deviceId) and
+                    BucketAccess.revokedAt.isNotNull()
+            }.firstOrNull()
+
+            if (existingRevoked != null) {
+                // Re-activate existing revoked record
+                BucketAccess.update({
+                    (BucketAccess.bucketId eq bucketId) and
+                        (BucketAccess.deviceId eq deviceId) and
+                        BucketAccess.revokedAt.isNotNull()
+                }) {
+                    it[grantedAt] = now
+                    it[revokedAt] = null
+                }
+            } else {
+                // Grant new access
+                BucketAccess.insert {
+                    it[BucketAccess.bucketId] = bucketId
+                    it[BucketAccess.deviceId] = deviceId
+                    it[grantedAt] = now
+                }
             }
 
             BucketResponse(bucketId = bucketId)
@@ -177,7 +207,9 @@ class BucketService(
                 ?: throw ApiException(404, "NOT_FOUND", "No active access to this bucket")
 
             BucketAccess.update({
-                (BucketAccess.bucketId eq bucketId) and (BucketAccess.deviceId eq deviceId)
+                (BucketAccess.bucketId eq bucketId) and
+                    (BucketAccess.deviceId eq deviceId) and
+                    BucketAccess.revokedAt.isNull()
             }) {
                 it[revokedAt] = LocalDateTime.now(ZoneOffset.UTC)
             }

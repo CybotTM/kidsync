@@ -17,9 +17,11 @@ import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
 import io.ktor.utils.io.*
 import io.ktor.websocket.*
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.*
 import org.jetbrains.exposed.sql.*
 import java.io.File
+import java.security.MessageDigest
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneOffset
@@ -124,6 +126,18 @@ fun Route.syncRoutes(
                         throw ApiException(413, "SNAPSHOT_TOO_LARGE", "Snapshot exceeds size limit")
                     }
 
+                    // Verify SHA-256 of the uploaded snapshot matches declared hash
+                    val computedHash = MessageDigest.getInstance("SHA-256")
+                        .digest(blob)
+                        .joinToString("") { "%02x".format(it) }
+                    if (computedHash != meta.sha256) {
+                        throw ApiException(
+                            400,
+                            "HASH_MISMATCH",
+                            "Snapshot SHA-256 mismatch: expected ${meta.sha256}, got $computedHash"
+                        )
+                    }
+
                     val snapshotId = UUID.randomUUID().toString()
                     val snapshotDir = File(config.snapshotStoragePath)
                     snapshotDir.mkdirs()
@@ -214,8 +228,12 @@ fun Route.syncRoutes(
         var connection: WebSocketManager.WsConnection? = null
 
         try {
-            // Wait for auth message
-            val authFrame = incoming.receive()
+            // Wait for auth message with timeout
+            val authFrame = withTimeoutOrNull(5000) { incoming.receive() }
+            if (authFrame == null) {
+                close(CloseReason(4001, "Auth timeout"))
+                return@webSocket
+            }
             if (authFrame is Frame.Text) {
                 val text = authFrame.readText()
                 val jsonObj = json.parseToJsonElement(text).jsonObject

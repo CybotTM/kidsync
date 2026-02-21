@@ -27,12 +27,13 @@ object Buckets : Table("buckets") {
 // ---- Bucket Access ----
 
 object BucketAccess : Table("bucket_access") {
+    val id = integer("id").autoIncrement()
     val bucketId = varchar("bucket_id", 36).references(Buckets.id)
     val deviceId = varchar("device_id", 36).references(Devices.id)
     val grantedAt = datetime("granted_at")
     val revokedAt = datetime("revoked_at").nullable()
 
-    override val primaryKey = PrimaryKey(bucketId, deviceId)
+    override val primaryKey = PrimaryKey(id)
 }
 
 // ---- Ops ----
