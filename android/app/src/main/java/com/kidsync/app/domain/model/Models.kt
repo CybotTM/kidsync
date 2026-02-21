@@ -16,7 +16,8 @@ enum class EntityType {
     Expense,
     ExpenseStatus,
     Event,
-    InfoBank
+    InfoBank,
+    DeviceSnapshot
 }
 
 enum class OverrideType {

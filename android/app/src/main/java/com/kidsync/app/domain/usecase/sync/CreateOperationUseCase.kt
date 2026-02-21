@@ -57,7 +57,7 @@ class CreateOperationUseCase @Inject constructor(
                 entityId = entityId,
                 operation = operationType.name,
                 clientTimestamp = Instant.now().toString(),
-                protocolVersion = 1,
+                protocolVersion = 2,
                 data = contentData
             )
 

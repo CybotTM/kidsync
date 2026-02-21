@@ -99,7 +99,7 @@ class TinkCryptoManager @Inject constructor(
 
     override fun computeKeyFingerprint(publicKey: ByteArray): String {
         val hashBytes = sha256(publicKey)
-        return hashBytes.joinToString("") { "%02x".format(it) }
+        return hashBytes.joinToString("") { "%02x".format(it) }.substring(0, 32)
     }
 
     // ─── X25519 Key Exchange ────────────────────────────────────────────────────
@@ -324,7 +324,7 @@ class TinkCryptoManager @Inject constructor(
 
     // ─── Blob Encryption ────────────────────────────────────────────────────────
 
-    override fun encryptBlob(data: ByteArray): Pair<ByteArray, ByteArray> {
+    override fun encryptBlob(data: ByteArray, blobId: String): Pair<ByteArray, ByteArray> {
         // Generate per-blob key
         val blobKey = generateDek()
 
@@ -336,6 +336,7 @@ class TinkCryptoManager @Inject constructor(
         val keySpec = SecretKeySpec(blobKey, "AES")
         val gcmSpec = GCMParameterSpec(AES_GCM_TAG_SIZE, nonce)
         cipher.init(Cipher.ENCRYPT_MODE, keySpec, gcmSpec)
+        cipher.updateAAD(blobId.toByteArray(Charsets.UTF_8))
         val encrypted = cipher.doFinal(data)
 
         // nonce || ciphertext || tag
@@ -346,7 +347,7 @@ class TinkCryptoManager @Inject constructor(
         return Pair(result, blobKey)
     }
 
-    override fun decryptBlob(encryptedData: ByteArray, key: ByteArray): ByteArray {
+    override fun decryptBlob(encryptedData: ByteArray, key: ByteArray, blobId: String): ByteArray {
         val nonce = encryptedData.sliceArray(0 until AES_GCM_NONCE_SIZE)
         val ciphertextAndTag = encryptedData.sliceArray(AES_GCM_NONCE_SIZE until encryptedData.size)
 
@@ -354,6 +355,7 @@ class TinkCryptoManager @Inject constructor(
         val keySpec = SecretKeySpec(key, "AES")
         val gcmSpec = GCMParameterSpec(AES_GCM_TAG_SIZE, nonce)
         cipher.init(Cipher.DECRYPT_MODE, keySpec, gcmSpec)
+        cipher.updateAAD(blobId.toByteArray(Charsets.UTF_8))
 
         return cipher.doFinal(ciphertextAndTag)
     }
@@ -389,7 +391,7 @@ class TinkCryptoManager @Inject constructor(
     override fun computeKeyFingerprint(publicKey: String): String {
         val keyBytes = Base64.getDecoder().decode(publicKey)
         val hashBytes = sha256(keyBytes)
-        return hashBytes.joinToString("") { "%02x".format(it) }
+        return hashBytes.joinToString("") { "%02x".format(it) }.substring(0, 32)
     }
 
     // ─── Private Helpers ────────────────────────────────────────────────────────

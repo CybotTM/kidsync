@@ -150,6 +150,10 @@ class BucketViewModel @Inject constructor(
                 inviteResult.getOrThrow()
 
                 // Build QR payload
+                // TODO(SC-03): The spec says the QR code should contain the signing key fingerprint,
+                // but we currently use the encryption key fingerprint. Both sides (QR generation and
+                // verification) consistently use the encryption key, so this works. If the spec is
+                // updated or the server changes to use signing key fingerprints, update both sides.
                 val serverUrl = authRepository.getServerUrl()
                 val fingerprint = keyManager.getEncryptionKeyFingerprint()
 

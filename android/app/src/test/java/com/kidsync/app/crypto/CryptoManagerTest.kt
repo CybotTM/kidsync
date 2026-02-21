@@ -226,20 +226,22 @@ class CryptoManagerTest : FunSpec({
 
     test("blob encrypt and decrypt round-trip") {
         val data = "receipt image data".toByteArray()
+        val blobId = "test-blob-123"
 
-        val (encrypted, key) = cryptoManager.encryptBlob(data)
-        val decrypted = cryptoManager.decryptBlob(encrypted, key)
+        val (encrypted, key) = cryptoManager.encryptBlob(data, blobId)
+        val decrypted = cryptoManager.decryptBlob(encrypted, key, blobId)
 
         decrypted.toList() shouldBe data.toList()
     }
 
     test("blob decrypt with wrong key fails") {
         val data = "receipt data".toByteArray()
-        val (encrypted, _) = cryptoManager.encryptBlob(data)
+        val blobId = "test-blob-456"
+        val (encrypted, _) = cryptoManager.encryptBlob(data, blobId)
         val wrongKey = cryptoManager.generateDek()
 
         val result = runCatching {
-            cryptoManager.decryptBlob(encrypted, wrongKey)
+            cryptoManager.decryptBlob(encrypted, wrongKey, blobId)
         }
         result.isFailure shouldBe true
     }

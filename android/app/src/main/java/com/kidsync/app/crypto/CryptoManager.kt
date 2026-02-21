@@ -202,18 +202,20 @@ interface CryptoManager {
      * Encrypt blob data with a per-blob key.
      *
      * @param data The raw blob data
+     * @param blobId The blob identifier, used as Additional Authenticated Data (AAD)
      * @return Pair of (encrypted data, encryption key)
      */
-    fun encryptBlob(data: ByteArray): Pair<ByteArray, ByteArray>
+    fun encryptBlob(data: ByteArray, blobId: String): Pair<ByteArray, ByteArray>
 
     /**
      * Decrypt blob data.
      *
      * @param encryptedData The encrypted blob data
      * @param key The blob encryption key
+     * @param blobId The blob identifier, used as Additional Authenticated Data (AAD)
      * @return Decrypted raw data
      */
-    fun decryptBlob(encryptedData: ByteArray, key: ByteArray): ByteArray
+    fun decryptBlob(encryptedData: ByteArray, key: ByteArray, blobId: String): ByteArray
 
     // ─── Invite Token ────────────────────────────────────────────────────────────
 

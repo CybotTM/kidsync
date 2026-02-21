@@ -24,7 +24,7 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideAuthInterceptor(
-        @Named("prefs") prefs: SharedPreferences
+        @Named("encrypted_prefs") prefs: SharedPreferences
     ): AuthInterceptor {
         return AuthInterceptor(prefs)
     }

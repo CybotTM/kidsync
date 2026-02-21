@@ -2,6 +2,7 @@ package com.kidsync.app.di
 
 import android.content.Context
 import androidx.room.Room
+import com.kidsync.app.BuildConfig
 import com.kidsync.app.data.local.KidSyncDatabase
 import com.kidsync.app.data.local.dao.*
 import dagger.Module
@@ -25,14 +26,18 @@ object DatabaseModule {
         val passphrase = "kidsync-dev-passphrase".toByteArray()
         val factory = SupportOpenHelperFactory(passphrase)
 
-        return Room.databaseBuilder(
+        val builder = Room.databaseBuilder(
             context,
             KidSyncDatabase::class.java,
             KidSyncDatabase.DATABASE_NAME
         )
             .openHelperFactory(factory)
-            .fallbackToDestructiveMigration()
-            .build()
+
+        if (BuildConfig.DEBUG) {
+            builder.fallbackToDestructiveMigration()
+        }
+
+        return builder.build()
     }
 
     @Provides

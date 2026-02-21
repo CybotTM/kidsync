@@ -4,6 +4,7 @@ import android.content.SharedPreferences
 import okhttp3.Interceptor
 import okhttp3.Response
 import javax.inject.Inject
+import javax.inject.Named
 
 /**
  * OkHttp interceptor that adds the session token to all outgoing requests.
@@ -15,9 +16,12 @@ import javax.inject.Inject
  *
  * Requests to unauthenticated endpoints (/register, /auth/*, /health) are
  * sent without a token if none is available.
+ *
+ * Session tokens are stored in EncryptedSharedPreferences to prevent extraction
+ * from device backups or root access.
  */
 class AuthInterceptor @Inject constructor(
-    private val prefs: SharedPreferences
+    @Named("encrypted_prefs") private val prefs: SharedPreferences
 ) : Interceptor {
 
     companion object {

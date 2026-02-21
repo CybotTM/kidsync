@@ -199,6 +199,13 @@ class TinkKeyManager @Inject constructor(
         }
     }
 
+    // TODO(SC-06/SC-07): The spec requires the recovery blob to contain ALL epoch DEKs
+    // (not just a single DEK) plus the device seed, structured as:
+    //   { "seed": base64(seed), "deks": { "1": base64(dek1), "2": base64(dek2), ... } }
+    // Currently we only wrap the single current-epoch DEK, which works for single-epoch
+    // scenarios but will lose access to older epoch data after key rotation.
+    // Additionally, restoreFromRecovery always stores as epoch 1, which should instead
+    // restore all epochs from the blob and set the current epoch to the latest.
     override suspend fun wrapDekWithRecoveryKey(bucketId: String, recoveryKey: ByteArray) {
         val currentEpoch = getCurrentEpoch(bucketId)
         val dek = getDek(bucketId, currentEpoch)

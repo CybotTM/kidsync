@@ -4,7 +4,6 @@ import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
-import java.util.UUID
 
 @Entity(
     tableName = "expense_statuses",
@@ -20,10 +19,10 @@ import java.util.UUID
 )
 data class ExpenseStatusEntity(
     @PrimaryKey
-    val id: UUID,
-    val expenseId: UUID,
+    val id: String,
+    val expenseId: String,
     val status: String,
-    val responderId: UUID,
+    val responderId: String,
     val note: String? = null,
     val clientTimestamp: String
 )

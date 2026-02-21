@@ -152,7 +152,7 @@ class OpApplier @Inject constructor(
             description = data["description"]!!.jsonPrimitive.content,
             incurredAt = data["incurredAt"]!!.jsonPrimitive.content,
             payerResponsibilityRatio = data["payerResponsibilityRatio"]!!.jsonPrimitive.double,
-            receiptBlobId = data["receiptBlobId"]?.jsonPrimitive?.content?.let { UUID.fromString(it) },
+            receiptBlobId = data["receiptBlobId"]?.jsonPrimitive?.content,
             receiptDecryptionKey = data["receiptDecryptionKey"]?.jsonPrimitive?.content,
             clientTimestamp = payload.clientTimestamp
         )
@@ -166,10 +166,10 @@ class OpApplier @Inject constructor(
     ): ApplyResult {
         val data = payload.data
         val entity = ExpenseStatusEntity(
-            id = UUID.randomUUID(),
-            expenseId = UUID.fromString(data["expenseId"]!!.jsonPrimitive.content),
+            id = java.util.UUID.randomUUID().toString(),
+            expenseId = data["expenseId"]!!.jsonPrimitive.content,
             status = data["status"]!!.jsonPrimitive.content,
-            responderId = UUID.fromString(data["responderId"]!!.jsonPrimitive.content),
+            responderId = data["responderId"]!!.jsonPrimitive.content,
             note = data["note"]?.jsonPrimitive?.content,
             clientTimestamp = payload.clientTimestamp
         )

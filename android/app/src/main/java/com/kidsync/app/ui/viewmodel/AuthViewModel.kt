@@ -191,7 +191,7 @@ class AuthViewModel @Inject constructor(
             try {
                 // Generate recovery key for the first accessible bucket
                 // The recovery use case generates a mnemonic and wraps the DEK
-                val currentBucketId = bucketRepository.getAccessibleBuckets().firstOrNull()?.bucketId
+                val currentBucketId = bucketRepository.getAccessibleBuckets().firstOrNull()
                     ?: throw IllegalStateException("No accessible bucket for recovery key generation")
                 val result = recoveryUseCase.generateRecoveryKey(
                     bucketId = currentBucketId,
@@ -305,7 +305,7 @@ class AuthViewModel @Inject constructor(
                 }
 
                 // Step 4: Restore DEK from recovery mnemonic
-                val recoveryBucketId = bucketRepository.getAccessibleBuckets().firstOrNull()?.bucketId
+                val recoveryBucketId = bucketRepository.getAccessibleBuckets().firstOrNull()
                     ?: throw IllegalStateException("No accessible bucket after authentication")
                 val restoreResult = recoveryUseCase.restoreFromRecovery(
                     mnemonic = words,

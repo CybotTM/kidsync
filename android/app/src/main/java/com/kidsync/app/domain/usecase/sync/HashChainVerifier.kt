@@ -21,6 +21,8 @@ class HashChainVerifier @Inject constructor() {
 
     /**
      * Verify hash chains for a set of ops, grouped by device.
+     * Checks both individual hash correctness and chain continuity
+     * (each op's devicePrevHash must equal the previous op's currentHash).
      * Returns failure with details if any chain is broken.
      */
     fun verifyChains(ops: List<OpLogEntry>): Result<Unit> {
@@ -29,6 +31,8 @@ class HashChainVerifier @Inject constructor() {
 
         for ((deviceId, deviceOps) in byDevice) {
             val sorted = deviceOps.sortedBy { it.deviceSequence }
+
+            // Verify each op's hash is correctly computed
             for (op in sorted) {
                 val expected = computeHash(op.devicePrevHash, op.encryptedPayload)
                 if (expected != op.currentHash) {
@@ -38,6 +42,22 @@ class HashChainVerifier @Inject constructor() {
                             deviceSequence = op.deviceSequence,
                             expectedHash = expected,
                             actualHash = op.currentHash
+                        )
+                    )
+                }
+            }
+
+            // Verify chain continuity: consecutive pairs must be linked
+            for (i in 0 until sorted.size - 1) {
+                val current = sorted[i]
+                val next = sorted[i + 1]
+                if (current.currentHash != next.devicePrevHash) {
+                    return Result.failure(
+                        HashChainBreakException(
+                            deviceId = deviceId.toString(),
+                            deviceSequence = next.deviceSequence,
+                            expectedHash = current.currentHash,
+                            actualHash = next.devicePrevHash
                         )
                     )
                 }

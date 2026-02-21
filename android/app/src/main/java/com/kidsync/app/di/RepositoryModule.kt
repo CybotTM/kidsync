@@ -10,10 +10,12 @@ import com.kidsync.app.data.local.dao.OpLogDao
 import com.kidsync.app.data.local.dao.SyncStateDao
 import com.kidsync.app.data.remote.api.ApiService
 import com.kidsync.app.data.repository.AuthRepositoryImpl
+import com.kidsync.app.data.repository.BlobRepositoryImpl
 import com.kidsync.app.data.repository.BucketRepositoryImpl
 import com.kidsync.app.data.repository.ExpenseRepositoryImpl
 import com.kidsync.app.data.repository.SyncRepositoryImpl
 import com.kidsync.app.domain.repository.AuthRepository
+import com.kidsync.app.domain.repository.BlobRepository
 import com.kidsync.app.domain.repository.BucketRepository
 import com.kidsync.app.domain.repository.ExpenseRepository
 import com.kidsync.app.domain.repository.SyncRepository
@@ -34,6 +36,7 @@ object RepositoryModule {
         apiService: ApiService,
         cryptoManager: CryptoManager,
         keyManager: KeyManager,
+        @Named("encrypted_prefs") encryptedPrefs: SharedPreferences,
         @Named("prefs") prefs: SharedPreferences,
         baseUrl: String
     ): AuthRepository {
@@ -41,6 +44,7 @@ object RepositoryModule {
             apiService = apiService,
             cryptoManager = cryptoManager,
             keyManager = keyManager,
+            encryptedPrefs = encryptedPrefs,
             prefs = prefs,
             serverOrigin = baseUrl
         )
@@ -66,6 +70,14 @@ object RepositoryModule {
         expenseDao: ExpenseDao
     ): ExpenseRepository {
         return ExpenseRepositoryImpl(expenseDao)
+    }
+
+    @Provides
+    @Singleton
+    fun provideBlobRepository(
+        apiService: ApiService
+    ): BlobRepository {
+        return BlobRepositoryImpl(apiService)
     }
 
     @Provides

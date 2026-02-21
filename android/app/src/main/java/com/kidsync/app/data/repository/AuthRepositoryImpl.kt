@@ -13,6 +13,7 @@ import com.kidsync.app.domain.repository.AuthRepository
 import java.time.Instant
 import java.util.Base64
 import javax.inject.Inject
+import javax.inject.Named
 
 /**
  * AuthRepository implementation for the zero-knowledge architecture.
@@ -23,17 +24,20 @@ import javax.inject.Inject
  * 3. Send signature to verify and get session token
  *
  * No emails, no passwords, no TOTP, no refresh tokens.
+ *
+ * Session tokens and device IDs are stored in EncryptedSharedPreferences.
+ * Only non-sensitive settings (server URL) remain in plain SharedPreferences.
  */
 class AuthRepositoryImpl @Inject constructor(
     private val apiService: ApiService,
     private val cryptoManager: CryptoManager,
     private val keyManager: KeyManager,
-    private val prefs: SharedPreferences,
+    @Named("encrypted_prefs") private val encryptedPrefs: SharedPreferences,
+    @Named("prefs") private val prefs: SharedPreferences,
     private val serverOrigin: String
 ) : AuthRepository {
 
     companion object {
-        private const val PREF_DEVICE_ID = "device_id"
         private const val PREF_SERVER_URL = "server_url"
     }
 
@@ -48,10 +52,7 @@ class AuthRepositoryImpl @Inject constructor(
 
             val deviceId = response.deviceId
 
-            // Store device ID
-            prefs.edit()
-                .putString(PREF_DEVICE_ID, deviceId)
-                .apply()
+            // Store device ID in KeyManager (which uses encrypted prefs)
             keyManager.storeDeviceId(deviceId)
 
             Result.success(deviceId)
@@ -90,8 +91,8 @@ class AuthRepositoryImpl @Inject constructor(
                 )
             )
 
-            // 5. Store session token
-            prefs.edit()
+            // 5. Store session token in encrypted prefs
+            encryptedPrefs.edit()
                 .putString(AuthInterceptor.PREF_SESSION_TOKEN, verifyResponse.sessionToken)
                 .apply()
 
@@ -111,19 +112,19 @@ class AuthRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getDeviceId(): String? {
-        return prefs.getString(PREF_DEVICE_ID, null) ?: keyManager.getDeviceId()
+        return keyManager.getDeviceId()
     }
 
     override suspend fun getSessionToken(): String? {
-        return prefs.getString(AuthInterceptor.PREF_SESSION_TOKEN, null)
+        return encryptedPrefs.getString(AuthInterceptor.PREF_SESSION_TOKEN, null)
     }
 
     override suspend fun isAuthenticated(): Boolean {
-        return prefs.getString(AuthInterceptor.PREF_SESSION_TOKEN, null) != null
+        return encryptedPrefs.getString(AuthInterceptor.PREF_SESSION_TOKEN, null) != null
     }
 
     override suspend fun clearSession() {
-        prefs.edit()
+        encryptedPrefs.edit()
             .remove(AuthInterceptor.PREF_SESSION_TOKEN)
             .apply()
     }
@@ -163,6 +164,11 @@ class AuthRepositoryImpl @Inject constructor(
      * Build the challenge message to sign.
      * Format: nonce || signingKey || serverOrigin || timestamp
      * Concatenated directly as UTF-8 string bytes (no separator), matching server-side construction.
+     *
+     * TODO(SC-01): The spec requires raw byte concatenation of decoded binary values,
+     * but both client and server currently use string concatenation of base64-encoded values.
+     * This works because both sides use the same format. If the server changes to raw byte
+     * concatenation per spec, this must be updated to match.
      */
     private fun buildChallengeMessage(
         nonce: String,

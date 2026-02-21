@@ -52,7 +52,7 @@ class SnapshotUseCase @Inject constructor(
 
             createOperationUseCase(
                 bucketId = bucketId,
-                entityType = EntityType.CustodySchedule,
+                entityType = EntityType.DeviceSnapshot,
                 entityId = snapshotId,
                 operationType = OperationType.CREATE,
                 contentData = contentData
