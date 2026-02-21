@@ -13,6 +13,7 @@ import java.security.spec.X509EncodedKeySpec
 import java.time.Instant
 import java.util.Base64
 import javax.inject.Inject
+// SEC2-A-02: Uses zeroOut() extension from TinkCryptoManager.kt (same package, internal visibility)
 
 /**
  * KeyManager implementation using Android Keystore-backed EncryptedSharedPreferences
@@ -38,6 +39,9 @@ class TinkKeyManager @Inject constructor(
         private const val PREF_CURRENT_EPOCH_PREFIX = "current_epoch_"
     }
 
+    // SEC2-A-14: Lock to prevent concurrent key generation race conditions
+    private val keyGenerationLock = Any()
+
     // ─── Device Identity ────────────────────────────────────────────────────────
 
     override suspend fun getSigningKeyPair(): Pair<ByteArray, ByteArray>? {
@@ -53,13 +57,28 @@ class TinkKeyManager @Inject constructor(
         val existing = getSigningKeyPair()
         if (existing != null) return existing
 
-        val (publicKey, seed) = cryptoManager.generateEd25519KeyPair()
-        encryptedPrefs.edit()
-            .putString(PREF_SIGNING_SEED, Base64.getEncoder().encodeToString(seed))
-            .putString(PREF_SIGNING_PUBLIC_KEY, Base64.getEncoder().encodeToString(publicKey))
-            .apply()
+        // SEC2-A-14: Synchronized to prevent concurrent key generation.
+        // Without this lock, two coroutines could both see null from getSigningKeyPair()
+        // and each generate a different key pair, with only the last write persisting.
+        synchronized(keyGenerationLock) {
+            // Double-check inside the lock
+            val existingInLock = encryptedPrefs.getString(PREF_SIGNING_SEED, null)
+            if (existingInLock != null) {
+                val publicKeyBase64 = encryptedPrefs.getString(PREF_SIGNING_PUBLIC_KEY, null)!!
+                return Pair(
+                    Base64.getDecoder().decode(publicKeyBase64),
+                    Base64.getDecoder().decode(existingInLock)
+                )
+            }
 
-        return Pair(publicKey, seed)
+            val (publicKey, seed) = cryptoManager.generateEd25519KeyPair()
+            encryptedPrefs.edit()
+                .putString(PREF_SIGNING_SEED, Base64.getEncoder().encodeToString(seed))
+                .putString(PREF_SIGNING_PUBLIC_KEY, Base64.getEncoder().encodeToString(publicKey))
+                .commit()
+
+            return Pair(publicKey, seed)
+        }
     }
 
     override suspend fun getSigningKeyFingerprint(): String {
@@ -82,20 +101,25 @@ class TinkKeyManager @Inject constructor(
         // Derive X25519 private key from Ed25519 seed
         val x25519PrivateBytes = cryptoManager.ed25519PrivateToX25519(seed)
 
-        // Derive X25519 public key from Ed25519 public key
-        val (ed25519Public, _) = getOrCreateSigningKeyPair()
-        val x25519PublicBytes = cryptoManager.ed25519PublicToX25519(ed25519Public)
+        try {
+            // Derive X25519 public key from Ed25519 public key
+            val (ed25519Public, _) = getOrCreateSigningKeyPair()
+            val x25519PublicBytes = cryptoManager.ed25519PublicToX25519(ed25519Public)
 
-        // Construct a Java KeyPair from the raw bytes using X25519 key specs
-        // Build X509-encoded public key: for X25519, the X509 encoding wraps the 32-byte key
-        val x25519PublicX509 = buildX25519PublicKeyEncoding(x25519PublicBytes)
-        val x25519PrivatePKCS8 = buildX25519PrivateKeyEncoding(x25519PrivateBytes)
+            // Construct a Java KeyPair from the raw bytes using X25519 key specs
+            // Build X509-encoded public key: for X25519, the X509 encoding wraps the 32-byte key
+            val x25519PublicX509 = buildX25519PublicKeyEncoding(x25519PublicBytes)
+            val x25519PrivatePKCS8 = buildX25519PrivateKeyEncoding(x25519PrivateBytes)
 
-        val keyFactory = KeyFactory.getInstance("X25519")
-        val publicKey = keyFactory.generatePublic(X509EncodedKeySpec(x25519PublicX509))
-        val privateKey = keyFactory.generatePrivate(PKCS8EncodedKeySpec(x25519PrivatePKCS8))
+            val keyFactory = KeyFactory.getInstance("X25519")
+            val publicKey = keyFactory.generatePublic(X509EncodedKeySpec(x25519PublicX509))
+            val privateKey = keyFactory.generatePrivate(PKCS8EncodedKeySpec(x25519PrivatePKCS8))
 
-        return KeyPair(publicKey, privateKey)
+            return KeyPair(publicKey, privateKey)
+        } finally {
+            // SEC2-A-02: Zero X25519 private key material after constructing KeyPair
+            x25519PrivateBytes.zeroOut()
+        }
     }
 
     override suspend fun getDeviceId(): String? {
@@ -118,8 +142,13 @@ class TinkKeyManager @Inject constructor(
         val signerDeviceId = getDeviceId()
             ?: throw IllegalStateException("Device not registered; cannot create attestation")
 
-        // Sign: attestedDeviceId || attestedEncryptionKey
-        val message = attestedDeviceId.toByteArray(Charsets.UTF_8) + attestedEncryptionKey
+        // SEC2-A-19: Use ":" delimiter between deviceId and key to prevent ambiguity.
+        // Without a delimiter, attestedDeviceId="abc" + key=[0x64,...] is indistinguishable
+        // from attestedDeviceId="abcd" + key=[...] at the byte level.
+        // Sign: attestedDeviceId + ":" + attestedEncryptionKey
+        val message = attestedDeviceId.toByteArray(Charsets.UTF_8) +
+            ":".toByteArray(Charsets.UTF_8) +
+            attestedEncryptionKey
         val signature = cryptoManager.signEd25519(message, signerSeed)
 
         return KeyAttestation(
@@ -138,8 +167,10 @@ class TinkKeyManager @Inject constructor(
         val attestedEncryptionKey = Base64.getDecoder().decode(attestation.attestedEncryptionKey)
         val signature = Base64.getDecoder().decode(attestation.signature)
 
-        // Reconstruct signed message: attestedDeviceId || attestedEncryptionKey
-        val message = attestation.attestedDeviceId.toByteArray(Charsets.UTF_8) + attestedEncryptionKey
+        // SEC2-A-19: Reconstruct signed message with delimiter: attestedDeviceId + ":" + attestedEncryptionKey
+        val message = attestation.attestedDeviceId.toByteArray(Charsets.UTF_8) +
+            ":".toByteArray(Charsets.UTF_8) +
+            attestedEncryptionKey
 
         return cryptoManager.verifyEd25519(message, signature, signerPublicKey)
     }
@@ -154,17 +185,20 @@ class TinkKeyManager @Inject constructor(
 
     override suspend fun storeDek(bucketId: String, epoch: Int, dek: ByteArray) {
         val key = "${PREF_DEK_PREFIX}${bucketId}_$epoch"
-        encryptedPrefs.edit()
+
+        // SEC2-A-06: Use a single editor with commit() for atomic DEK + epoch storage.
+        // Two separate apply() calls risk partial writes if the process is killed between them.
+        val editor = encryptedPrefs.edit()
             .putString(key, Base64.getEncoder().encodeToString(dek))
-            .apply()
 
         // Update current epoch if this is newer
         val currentEpoch = getCurrentEpoch(bucketId)
         if (epoch > currentEpoch) {
-            encryptedPrefs.edit()
-                .putInt(PREF_CURRENT_EPOCH_PREFIX + bucketId, epoch)
-                .apply()
+            editor.putInt(PREF_CURRENT_EPOCH_PREFIX + bucketId, epoch)
         }
+
+        // commit() is synchronous and returns success/failure, ensuring atomicity
+        editor.commit()
 
         // Store epoch record in database
         keyEpochDao.insertEpoch(
@@ -327,33 +361,49 @@ class TinkKeyManager @Inject constructor(
     }
 
     override suspend fun rotateKey(bucketId: String, newEpoch: Int, excludeDeviceId: String?) {
+        // SEC2-A-04: Save previous epoch so we can rollback on partial failure
+        val previousEpoch = getCurrentEpoch(bucketId)
+
         // Generate new DEK
         val newDek = cryptoManager.generateDek()
 
-        // Store locally
-        storeDek(bucketId, newEpoch, newDek)
+        try {
+            // Store locally
+            storeDek(bucketId, newEpoch, newDek)
 
-        // Wrap for all active devices in this bucket
-        val response = apiService.getBucketDevices(bucketId)
+            // Wrap for all active devices in this bucket
+            val response = apiService.getBucketDevices(bucketId)
 
-        for (device in response.devices) {
-            if (excludeDeviceId != null && device.deviceId == excludeDeviceId) continue
+            for (device in response.devices) {
+                if (excludeDeviceId != null && device.deviceId == excludeDeviceId) continue
 
-            val publicKey = cryptoManager.decodePublicKey(device.encryptionKey)
-            val wrapped = cryptoManager.wrapDek(
-                dek = newDek,
-                recipientPublicKey = publicKey,
-                deviceId = device.deviceId,
-                keyEpoch = newEpoch
-            )
-
-            apiService.uploadWrappedKey(
-                UploadWrappedKeyRequest(
-                    targetDevice = device.deviceId,
-                    wrappedDek = wrapped,
+                val publicKey = cryptoManager.decodePublicKey(device.encryptionKey)
+                val wrapped = cryptoManager.wrapDek(
+                    dek = newDek,
+                    recipientPublicKey = publicKey,
+                    deviceId = device.deviceId,
                     keyEpoch = newEpoch
                 )
-            )
+
+                apiService.uploadWrappedKey(
+                    UploadWrappedKeyRequest(
+                        targetDevice = device.deviceId,
+                        wrappedDek = wrapped,
+                        keyEpoch = newEpoch
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            // SEC2-A-04: Rollback epoch to previous value on partial failure.
+            // The DEK entry in encrypted prefs remains (orphaned), but the epoch
+            // pointer is reverted so the system continues using the previous DEK.
+            encryptedPrefs.edit()
+                .putInt(PREF_CURRENT_EPOCH_PREFIX + bucketId, previousEpoch)
+                .commit()
+            throw e
+        } finally {
+            // SEC2-A-11: Zero DEK after use
+            newDek.zeroOut()
         }
     }
 
@@ -396,6 +446,8 @@ class TinkKeyManager @Inject constructor(
 
     override fun deriveEncryptionKeyPair(seed: ByteArray): Pair<ByteArray, ByteArray> {
         val x25519Private = cryptoManager.ed25519PrivateToX25519(seed)
+        // SEC2-A-02: Caller is responsible for zeroing x25519Private after use.
+        // Note: the returned ByteArray must be zeroed by the caller when done.
         // Derive public from Ed25519 public -> X25519 public
         val ed25519Public = deriveSigningKeyPair(seed).first
         val x25519Public = cryptoManager.ed25519PublicToX25519(ed25519Public)

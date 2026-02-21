@@ -52,7 +52,9 @@ fun MnemonicWordGrid(
         maxItemsInEachRow = 4
     ) {
         words.forEachIndexed { index, word ->
-            val wordDescription = stringResource(R.string.cd_mnemonic_word, index + 1, word)
+            // SEC2-A-15: Use generic description without the actual word to prevent
+            // mnemonic leakage via accessibility services (TalkBack, screen readers).
+            val wordDescription = stringResource(R.string.cd_mnemonic_word_position, index + 1)
             Card(
                 modifier = Modifier
                     .widthIn(min = 80.dp)

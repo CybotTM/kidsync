@@ -212,7 +212,13 @@ class CanonicalJsonSerializer @Inject constructor() {
                 @Suppress("UNCHECKED_CAST")
                 mapToJsonElement(value as Map<String, Any?>)
             }
-            else -> JsonPrimitive(value.toString())
+            // SEC2-A-18: Fail explicitly for unknown types instead of falling through to toString().
+            // toString() could produce non-deterministic output (e.g., object identity hashes),
+            // which breaks the canonical serialization contract.
+            else -> throw IllegalArgumentException(
+                "Cannot serialize value of type ${value::class.qualifiedName} to canonical JSON. " +
+                    "Supported types: String, Int, Long, Double, Float, Boolean, List, Map."
+            )
         }
     }
 }

@@ -347,6 +347,8 @@
     <string name="cd_password_strength_strong">Passwortst\u00e4rke: stark</string>
     <string name="cd_mnemonic_grid">Wiederherstellungsschl\u00fcssel mit %1$d W\u00f6rtern</string>
     <string name="cd_mnemonic_word">Wort %1$d: %2$s</string>
+    <!-- SEC2-A-15: Generic description without actual word to prevent leakage via accessibility -->
+    <string name="cd_mnemonic_word_position">Wiederherstellungswort %1$d</string>
     <string name="cd_mnemonic_input_grid">Wiederherstellungsw\u00f6rter-Eingabe, %1$d W\u00f6rter</string>
     <string name="cd_mnemonic_input_word">Wiederherstellungswort %1$d</string>
     <string name="cd_expense_summary">Ausgaben\u00fcbersicht anzeigen</string>

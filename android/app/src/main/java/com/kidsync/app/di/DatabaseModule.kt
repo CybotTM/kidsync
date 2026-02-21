@@ -53,12 +53,17 @@ object DatabaseModule {
         )
             .openHelperFactory(factory)
 
-        // SEC-A-17: fallbackToDestructiveMigration is acceptable for debug builds only.
-        // In production, proper migrations must be provided to avoid data loss.
+        // SEC2-A-17: fallbackToDestructiveMigration is acceptable for debug builds only.
+        // In production, proper migrations MUST be provided to avoid encrypted data loss.
+        // If a migration path is missing in a release build, Room will throw
+        // IllegalStateException rather than silently destroying the database.
         if (BuildConfig.DEBUG) {
             Log.w("DatabaseModule", "Using destructive migration fallback (debug build only)")
+            @Suppress("DEPRECATION")
             builder.fallbackToDestructiveMigration()
         }
+        // TODO: Add migration objects here for each version bump in release builds:
+        // builder.addMigrations(MIGRATION_4_5, MIGRATION_5_6, ...)
 
         return builder.build()
     }

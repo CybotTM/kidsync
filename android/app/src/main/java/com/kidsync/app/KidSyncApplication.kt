@@ -20,6 +20,6 @@ class KidSyncApplication : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
-        // Tink initialization is handled in CryptoModule
+        // Crypto provider (BouncyCastle) initialization is handled in CryptoModule
     }
 }

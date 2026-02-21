@@ -311,24 +311,36 @@ class TinkCryptoManager @Inject constructor(
         val actualSalt = if (salt.isEmpty()) ByteArray(32) else salt
         val prk = hmacSha256(actualSalt, ikm)
 
-        // Step 2: Expand
-        val n = (length + 31) / 32 // ceil(length / hashLen)
-        val okm = ByteArray(length)
-        var t = ByteArray(0)
+        try {
+            // Step 2: Expand
+            val n = (length + 31) / 32 // ceil(length / hashLen)
+            val okm = ByteArray(length)
+            var t = ByteArray(0)
 
-        for (i in 1..n) {
-            val input = ByteArray(t.size + info.size + 1)
-            System.arraycopy(t, 0, input, 0, t.size)
-            System.arraycopy(info, 0, input, t.size, info.size)
-            input[input.size - 1] = i.toByte()
+            for (i in 1..n) {
+                val input = ByteArray(t.size + info.size + 1)
+                System.arraycopy(t, 0, input, 0, t.size)
+                System.arraycopy(info, 0, input, t.size, info.size)
+                input[input.size - 1] = i.toByte()
 
-            t = hmacSha256(prk, input)
+                val prevT = t
+                t = hmacSha256(prk, input)
+                // Zero intermediate T blocks
+                if (prevT.isNotEmpty()) prevT.zeroOut()
+                input.zeroOut()
 
-            val copyLen = minOf(32, length - (i - 1) * 32)
-            System.arraycopy(t, 0, okm, (i - 1) * 32, copyLen)
+                val copyLen = minOf(32, length - (i - 1) * 32)
+                System.arraycopy(t, 0, okm, (i - 1) * 32, copyLen)
+            }
+
+            // Zero the last T block
+            t.zeroOut()
+
+            return okm
+        } finally {
+            // SEC2-A-08: Zero the intermediate PRK after HKDF expand step
+            prk.zeroOut()
         }
-
-        return okm
     }
 
     override fun computeFingerprint(publicKeyA: String, publicKeyB: String): String {
@@ -394,7 +406,12 @@ class TinkCryptoManager @Inject constructor(
 
     override suspend fun generateAndStoreDek(bucketId: String) {
         val dek = generateDek()
-        keyManager.get().storeDek(bucketId, 1, dek)
+        try {
+            keyManager.get().storeDek(bucketId, 1, dek)
+        } finally {
+            // SEC2-A-11: Zero the DEK byte array after storing it
+            dek.zeroOut()
+        }
     }
 
     override suspend fun unwrapAndStoreDek(
@@ -407,7 +424,12 @@ class TinkCryptoManager @Inject constructor(
             ?: throw IllegalStateException("Device not registered")
         val currentEpoch = keyManager.get().getCurrentEpoch(bucketId)
         val dek = unwrapDek(wrappedDek, privateKey, deviceId, currentEpoch)
-        keyManager.get().storeDek(bucketId, currentEpoch, dek)
+        try {
+            keyManager.get().storeDek(bucketId, currentEpoch, dek)
+        } finally {
+            // SEC2-A-11: Zero the DEK byte array after storing it
+            dek.zeroOut()
+        }
     }
 
     override fun computeKeyFingerprint(publicKey: String): String {
@@ -454,6 +476,11 @@ class TinkCryptoManager @Inject constructor(
      *   u = (1 + y) / (1 - y)  mod p
      *
      * where y is the y-coordinate of the Edwards point, and p = 2^255 - 19.
+     *
+     * SEC2-A-03: Note on BigInteger timing - BigInteger operations are not constant-time,
+     * but this is acceptable for client-side use where the public key is not secret and the
+     * private key is already in memory. The identity point check prevents a crash when
+     * y == 1 (denominator becomes zero).
      */
     private fun convertEdwardsToMontgomery(edwardsPublicKey: ByteArray, montgomeryPublicKey: ByteArray) {
         // The Ed25519 public key encodes the y-coordinate (with the sign of x in the high bit).
@@ -468,10 +495,19 @@ class TinkCryptoManager @Inject constructor(
         val reversed = yBytes.reversedArray()
         val y = java.math.BigInteger(1, reversed)
 
+        // SEC2-A-03: Check for the identity point (y == 1 mod p means denominator is zero).
+        // The Ed25519 identity point (neutral element) has y = 1, which maps to u = infinity
+        // on the Montgomery curve and cannot be represented in X25519.
+        val denominator = java.math.BigInteger.ONE.subtract(y).mod(p)
+        if (denominator == java.math.BigInteger.ZERO) {
+            throw IllegalArgumentException(
+                "Cannot convert Ed25519 identity point to X25519: the point has y=1 (mod p), " +
+                    "which maps to the point at infinity on the Montgomery curve"
+            )
+        }
+
         // u = (1 + y) * (1 - y)^(-1) mod p
-        val one = java.math.BigInteger.ONE
-        val numerator = one.add(y).mod(p)
-        val denominator = one.subtract(y).mod(p)
+        val numerator = java.math.BigInteger.ONE.add(y).mod(p)
         val denominatorInverse = denominator.modInverse(p)
         val u = numerator.multiply(denominatorInverse).mod(p)
 

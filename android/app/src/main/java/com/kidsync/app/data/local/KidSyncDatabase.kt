@@ -7,6 +7,19 @@ import com.kidsync.app.data.local.converter.Converters
 import com.kidsync.app.data.local.dao.*
 import com.kidsync.app.data.local.entity.*
 
+/**
+ * SEC2-A-17: Room migration strategy for production:
+ * - Schema is exported (exportSchema = true) to enable auto-migration verification.
+ * - autoMigrations should be defined for each version bump (e.g., 4->5).
+ * - fallbackToDestructiveMigration() is only used in debug builds (see DatabaseModule).
+ * - For release builds, if a migration is missing, Room will throw an
+ *   IllegalStateException at runtime rather than silently destroying data.
+ *
+ * Before each release with schema changes:
+ * 1. Increment the version number
+ * 2. Add an AutoMigration spec or manual Migration object
+ * 3. Test migration with MigrationTestHelper in androidTest
+ */
 @Database(
     entities = [
         CustodyScheduleEntity::class,
@@ -23,7 +36,9 @@ import com.kidsync.app.data.local.entity.*
         CalendarEventEntity::class
     ],
     version = 4,
-    exportSchema = true
+    exportSchema = true,
+    // SEC2-A-17: Add auto-migrations here as schema evolves. Example:
+    // autoMigrations = [AutoMigration(from = 4, to = 5)]
 )
 @TypeConverters(Converters::class)
 abstract class KidSyncDatabase : RoomDatabase() {

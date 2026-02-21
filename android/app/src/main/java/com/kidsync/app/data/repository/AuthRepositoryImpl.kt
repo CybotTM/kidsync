@@ -39,7 +39,6 @@ class AuthRepositoryImpl @Inject constructor(
 
     companion object {
         private const val PREF_SERVER_URL = "server_url"
-        private const val PREF_SESSION_EXPIRES_AT = "session_expires_at"
     }
 
     override suspend fun register(signingKey: String, encryptionKey: String): Result<String> {
@@ -93,10 +92,10 @@ class AuthRepositoryImpl @Inject constructor(
             )
 
             // 5. Store session token and expiry in encrypted prefs
-            // SEC-A-10: Track session expiry to enforce token lifetime
+            // SEC2-A-21: Track session expiry to enforce token lifetime in both AuthInterceptor and here
             encryptedPrefs.edit()
                 .putString(AuthInterceptor.PREF_SESSION_TOKEN, verifyResponse.sessionToken)
-                .putLong(PREF_SESSION_EXPIRES_AT, System.currentTimeMillis() + verifyResponse.expiresIn * 1000L)
+                .putLong(AuthInterceptor.PREF_SESSION_EXPIRES_AT, System.currentTimeMillis() + verifyResponse.expiresIn * 1000L)
                 .apply()
 
             val deviceId = keyManager.getDeviceId()
@@ -122,10 +121,10 @@ class AuthRepositoryImpl @Inject constructor(
         return encryptedPrefs.getString(AuthInterceptor.PREF_SESSION_TOKEN, null)
     }
 
-    // SEC-A-10: Check token expiry in addition to token presence
+    // SEC2-A-21: Check token expiry in addition to token presence
     override suspend fun isAuthenticated(): Boolean {
         val token = encryptedPrefs.getString(AuthInterceptor.PREF_SESSION_TOKEN, null) ?: return false
-        val expiresAt = encryptedPrefs.getLong(PREF_SESSION_EXPIRES_AT, 0L)
+        val expiresAt = encryptedPrefs.getLong(AuthInterceptor.PREF_SESSION_EXPIRES_AT, 0L)
         if (expiresAt > 0L && System.currentTimeMillis() >= expiresAt) {
             clearSession()
             return false

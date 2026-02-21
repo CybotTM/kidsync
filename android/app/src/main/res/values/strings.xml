@@ -340,6 +340,8 @@
     <string name="cd_key_fingerprint">Device key fingerprint: %1$s</string>
     <string name="cd_mnemonic_grid">Recovery key with %1$d words</string>
     <string name="cd_mnemonic_word">Word %1$d: %2$s</string>
+    <!-- SEC2-A-15: Generic description without actual word to prevent leakage via accessibility -->
+    <string name="cd_mnemonic_word_position">Recovery word %1$d</string>
     <string name="cd_mnemonic_input_grid">Recovery word input, %1$d words</string>
     <string name="cd_mnemonic_input_word">Recovery word %1$d</string>
     <string name="cd_expense_summary">View expense summary</string>

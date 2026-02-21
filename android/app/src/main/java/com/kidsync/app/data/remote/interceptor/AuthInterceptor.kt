@@ -26,6 +26,7 @@ class AuthInterceptor @Inject constructor(
 
     companion object {
         const val PREF_SESSION_TOKEN = "session_token"
+        const val PREF_SESSION_EXPIRES_AT = "session_expires_at"
         const val HEADER_AUTHORIZATION = "Authorization"
 
         /**
@@ -56,10 +57,22 @@ class AuthInterceptor @Inject constructor(
 
         val requestBuilder = originalRequest.newBuilder()
 
-        // Add Bearer session token if available
+        // Add Bearer session token if available and not expired
         val token = prefs.getString(PREF_SESSION_TOKEN, null)
         if (!token.isNullOrBlank()) {
-            requestBuilder.header(HEADER_AUTHORIZATION, "Bearer $token")
+            // SEC2-A-21: Check if the session has expired before adding the Bearer token.
+            // If expired, clear the token and skip the header -- the server will return 401,
+            // which the app can handle by triggering re-authentication via challenge-response.
+            val expiresAt = prefs.getLong(PREF_SESSION_EXPIRES_AT, 0L)
+            if (expiresAt > 0L && System.currentTimeMillis() >= expiresAt) {
+                // Session expired -- clear token and do not send it
+                prefs.edit()
+                    .remove(PREF_SESSION_TOKEN)
+                    .remove(PREF_SESSION_EXPIRES_AT)
+                    .apply()
+            } else {
+                requestBuilder.header(HEADER_AUTHORIZATION, "Bearer $token")
+            }
         }
 
         return chain.proceed(requestBuilder.build())

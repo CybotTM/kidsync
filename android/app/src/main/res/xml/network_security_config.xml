@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    SEC2-A-16: debug-overrides only apply when android:debuggable="true" (debug builds).
+    Release builds NEVER trust user-installed CAs. This is enforced by Android itself:
+    https://developer.android.com/training/articles/security-config#debug-overrides
+
+    Base config: no cleartext traffic, system CAs only.
+    Debug only: also trust user-installed CAs (for proxy debugging with Charles/mitmproxy).
+-->
 <network-security-config>
     <base-config cleartextTrafficPermitted="false">
         <trust-anchors>

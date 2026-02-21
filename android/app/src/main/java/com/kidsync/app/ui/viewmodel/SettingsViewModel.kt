@@ -47,7 +47,9 @@ class SettingsViewModel @Inject constructor(
     private val bucketRepository: BucketRepository,
     private val authRepository: AuthRepository,
     private val keyManager: KeyManager,
-    @Named("prefs") private val prefs: SharedPreferences
+    @Named("prefs") private val prefs: SharedPreferences,
+    // SEC2-A-09: Use encrypted prefs for server URL to match AuthRepositoryImpl
+    @Named("encrypted_prefs") private val encryptedPrefs: SharedPreferences
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
@@ -96,7 +98,8 @@ class SettingsViewModel @Inject constructor(
     private fun loadPreferences() {
         _uiState.update {
             it.copy(
-                serverUrl = prefs.getString(PREF_SERVER_URL, DEFAULT_SERVER_URL) ?: DEFAULT_SERVER_URL,
+                // SEC2-A-09: Read server URL from encrypted prefs consistently with AuthRepositoryImpl
+                serverUrl = encryptedPrefs.getString(PREF_SERVER_URL, DEFAULT_SERVER_URL) ?: DEFAULT_SERVER_URL,
                 notificationsEnabled = prefs.getBoolean(PREF_NOTIFICATIONS, true),
                 defaultCurrency = prefs.getString(PREF_CURRENCY, "EUR") ?: "EUR",
                 defaultSplitRatio = prefs.getFloat(PREF_SPLIT_RATIO, 0.5f).toDouble()
@@ -116,7 +119,8 @@ class SettingsViewModel @Inject constructor(
             _uiState.update { it.copy(error = "Server URL is required") }
             return
         }
-        prefs.edit().putString(PREF_SERVER_URL, url).apply()
+        // SEC2-A-09: Store server URL in encrypted prefs consistently with AuthRepositoryImpl
+        encryptedPrefs.edit().putString(PREF_SERVER_URL, url).apply()
     }
 
     fun testConnection() {

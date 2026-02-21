@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    SEC2-A-07: Data extraction rules for Android 12+ (API 31+) cloud and device-to-device backup.
+    Excludes sensitive data directories from backup to prevent credential/key leakage.
+    See: https://developer.android.com/about/versions/12/backup-restore
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="kidsync_secure_prefs.xml" />
+        <exclude domain="sharedpref" path="kidsync_db_key.xml" />
+        <exclude domain="database" path="kidsync_db" />
+        <exclude domain="database" path="kidsync_db-shm" />
+        <exclude domain="database" path="kidsync_db-wal" />
+        <exclude domain="root" path="no_backup/" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="kidsync_secure_prefs.xml" />
+        <exclude domain="sharedpref" path="kidsync_db_key.xml" />
+        <exclude domain="database" path="kidsync_db" />
+        <exclude domain="database" path="kidsync_db-shm" />
+        <exclude domain="database" path="kidsync_db-wal" />
+        <exclude domain="root" path="no_backup/" />
+    </device-transfer>
+</data-extraction-rules>

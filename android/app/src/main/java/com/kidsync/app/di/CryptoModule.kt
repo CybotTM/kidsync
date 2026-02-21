@@ -23,11 +23,13 @@ import javax.inject.Singleton
 object CryptoModule {
 
     init {
-        // Ensure BouncyCastle is registered as a security provider for Ed25519 operations.
-        // Android includes a limited BouncyCastle; we add the full one for Ed25519 support.
-        if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
-            Security.addProvider(BouncyCastleProvider())
-        }
+        // SEC2-A-20: Register BouncyCastle as the FIRST security provider.
+        // Android ships a limited/outdated BouncyCastle provider. Using addProvider()
+        // puts it LAST, meaning the limited Android provider would be used for overlapping
+        // algorithms. insertProviderAt(_, 1) ensures our full BouncyCastle is preferred.
+        // If already registered (e.g., from a previous init), remove and re-insert at position 1.
+        Security.removeProvider(BouncyCastleProvider.PROVIDER_NAME)
+        Security.insertProviderAt(BouncyCastleProvider(), 1)
     }
 
     @Provides

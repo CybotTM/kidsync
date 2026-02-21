@@ -58,12 +58,19 @@ object NetworkModule {
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
 
-        // SEC-A-04: Certificate pinning for production builds
-        // TODO: Replace placeholder pins with actual certificate SHA-256 hashes before release
+        // SEC2-A-01: Certificate pinning for production builds only.
+        // In debug builds, pinning is disabled to allow proxy/MITM debugging.
+        // For release builds, real pins MUST be set in BuildConfig before shipping.
+        // TODO: Derive real pins before release using:
+        //   openssl s_client -connect api.kidsync.app:443 | openssl x509 -pubkey -noout | \
+        //     openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | openssl enc -base64
         if (!BuildConfig.DEBUG) {
+            require(BuildConfig.CERT_PIN_PRIMARY != "PLACEHOLDER" && BuildConfig.CERT_PIN_BACKUP != "PLACEHOLDER") {
+                "Release builds require real certificate pins. Set CERT_PIN_PRIMARY and CERT_PIN_BACKUP in build config."
+            }
             val certificatePinner = CertificatePinner.Builder()
-                .add("api.kidsync.app", "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=") // Primary pin - replace with actual
-                .add("api.kidsync.app", "sha256/BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=") // Backup pin - replace with actual
+                .add("api.kidsync.app", "sha256/${BuildConfig.CERT_PIN_PRIMARY}")
+                .add("api.kidsync.app", "sha256/${BuildConfig.CERT_PIN_BACKUP}")
                 .build()
             builder.certificatePinner(certificatePinner)
         }

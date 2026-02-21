@@ -350,6 +350,29 @@ class AuthViewModel @Inject constructor(
         }
     }
 
+    /**
+     * SEC2-A-05: Clear all sensitive data from the ViewModel's StateFlow.
+     * Should be called when the user navigates away from screens displaying
+     * recovery words/passphrase, or when the ViewModel is being cleared.
+     */
+    fun clearSensitiveData() {
+        _uiState.update {
+            it.copy(
+                recoveryWords = emptyList(),
+                recoveryPassphrase = "",
+                recoveryInputWords = List(24) { "" },
+                recoveryInputPassphrase = "",
+                recoveryProgress = ""
+            )
+        }
+    }
+
+    override fun onCleared() {
+        // SEC2-A-05: Ensure sensitive data is cleared when ViewModel is destroyed
+        clearSensitiveData()
+        super.onCleared()
+    }
+
     fun clearError() {
         _uiState.update { it.copy(error = null) }
     }

@@ -66,9 +66,18 @@ android {
             if (keystorePath != null && keystorePassword != null && keyAlias != null && keyPassword != null) {
                 signingConfig = signingConfigs.getByName("release")
             }
+            // SEC2-A-01: Real certificate pins required for release builds.
+            // Set via environment variables or local.properties before building release.
+            buildConfigField("String", "CERT_PIN_PRIMARY",
+                "\"${signingProp("KIDSYNC_CERT_PIN_PRIMARY", "cert.pin.primary") ?: "PLACEHOLDER"}\"")
+            buildConfigField("String", "CERT_PIN_BACKUP",
+                "\"${signingProp("KIDSYNC_CERT_PIN_BACKUP", "cert.pin.backup") ?: "PLACEHOLDER"}\"")
         }
         debug {
             isMinifyEnabled = false
+            // SEC2-A-01: Placeholder pins for debug builds (pinning is disabled in debug anyway)
+            buildConfigField("String", "CERT_PIN_PRIMARY", "\"PLACEHOLDER\"")
+            buildConfigField("String", "CERT_PIN_BACKUP", "\"PLACEHOLDER\"")
         }
     }
 
@@ -106,6 +115,12 @@ android {
     }
 }
 
+// SEC2-A-22: Dependency versions are managed in gradle/libs.versions.toml.
+// Run dependency update checks regularly:
+//   ./gradlew dependencyUpdates -Drevision=release
+// or use the Renovate/Dependabot bot for automated PRs.
+// Key libraries to keep current for security: BouncyCastle, OkHttp, SQLCipher,
+// androidx.security:security-crypto, Hilt, Room.
 dependencies {
     // AndroidX Core
     implementation(libs.androidx.core.ktx)
@@ -134,6 +149,10 @@ dependencies {
     implementation(libs.androidx.sqlite)
 
     // Security
+    // SEC2-A-12: androidx.security:security-crypto uses alpha-track EncryptedSharedPreferences.
+    // No stable release exists as of 2026-02. This is the recommended API for encrypted prefs
+    // on Android. Monitor https://developer.android.com/jetpack/androidx/releases/security
+    // for a stable release and upgrade when available.
     implementation(libs.androidx.security.crypto)
 
     // Network
@@ -148,10 +167,9 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
 
     // Crypto
-    // TODO(SEC-A-13): Tink is included as a dependency but not actively used for crypto operations.
-    //   The app uses BouncyCastle + JCA primitives directly. Evaluate removing Tink to reduce
-    //   attack surface, or migrate to Tink if its higher-level APIs become needed.
-    implementation(libs.tink)
+    // SEC2-A-13: Tink dependency removed - it was not actively used for any crypto operations.
+    // The app uses BouncyCastle + JCA primitives directly. If Tink is needed in the future,
+    // re-add it with a specific use case justification.
     implementation(libs.bouncycastle)
 
     // QR Code
