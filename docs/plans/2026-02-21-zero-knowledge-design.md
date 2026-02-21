@@ -14,6 +14,8 @@ Redesign the KidSync server from a traditional auth+relay server into a true zer
 2. **Public key = identity** -- no accounts, no usernames, no passwords on server
 3. **Client controls everything** -- pairing, conflict resolution, state machines are all client-side
 4. **QR code pairing** -- no server-managed invites; key exchange happens out-of-band
+5. **Key transparency** -- devices cross-sign each other's keys to detect server substitution
+6. **Self-revoke only** -- devices can only revoke themselves; admin revocation via signed ops inside encrypted payload
 
 ---
 
@@ -54,20 +56,33 @@ Client                              Server
   |  { signingKey: Ed25519_pub }      |
   | --------------------------------> |
   |                                   |  Generate 32-byte nonce
-  |  200 { nonce, expiresAt }         |  Store with 60s TTL
+  |                                   |  Store nonce with 60s TTL
+  |  200 { nonce, expiresAt }         |  Mark as one-time-use
   | <-------------------------------- |
   |                                   |
-  |  Sign: sig = Ed25519_sign(nonce)  |
+  |  Construct challenge:             |
+  |    msg = nonce ‖ signingKey       |
+  |        ‖ serverOrigin ‖ timestamp |
+  |  sig = Ed25519_sign(msg)          |
   |                                   |
   |  POST /auth/verify                |
-  |  { signingKey, nonce, signature } |
+  |  { signingKey, nonce, signature,  |
+  |    timestamp }                    |
   | --------------------------------> |
-  |                                   |  Verify signature
+  |                                   |  Verify nonce exists and unused
+  |                                   |  Verify nonce not expired
+  |                                   |  Consume nonce (delete from store)
+  |                                   |  Reconstruct msg, verify signature
   |  200 { sessionToken, expiresIn }  |  Issue short-lived token
   | <-------------------------------- |
 ```
 
-The session token is a server-signed JWT containing only `{ deviceId, signingKey, exp }`. No user ID, no family IDs, no email. The server does not know who this device belongs to.
+**Anti-replay protections:**
+- Nonces are one-time-use: consumed (deleted) on successful verification
+- Challenge message binds to the signing key, server origin, and client timestamp to prevent cross-context replay
+- 60-second nonce TTL prevents delayed replay
+
+The session token is a server-signed opaque token (not JWT) containing only `{ deviceId, signingKey, exp }`. No user ID, no family IDs, no email. The server does not know who this device belongs to.
 
 ### What disappears
 
@@ -101,6 +116,7 @@ devices (
 -- Anonymous storage namespaces (replaces Families)
 buckets (
     id              VARCHAR(36) PRIMARY KEY,
+    created_by      VARCHAR(36) REFERENCES devices(id),  -- for deletion authorization
     created_at      DATETIME NOT NULL
 )
 
@@ -134,6 +150,17 @@ blobs (
     sha256_hash     VARCHAR(64) NOT NULL,
     uploaded_by     VARCHAR(36) REFERENCES devices(id),
     uploaded_at     DATETIME NOT NULL
+)
+
+-- Key attestations (cross-signing for key transparency)
+key_attestations (
+    id              INTEGER AUTO_INCREMENT PRIMARY KEY,
+    signer_device   VARCHAR(36) REFERENCES devices(id),
+    attested_device VARCHAR(36) REFERENCES devices(id),
+    attested_key    TEXT NOT NULL,            -- X25519 pub key being attested
+    signature       TEXT NOT NULL,            -- Ed25519 sig over (attested_device ‖ attested_key)
+    created_at      DATETIME NOT NULL,
+    UNIQUE(signer_device, attested_device)
 )
 
 -- Wrapped keys (unchanged concept)
@@ -225,6 +252,8 @@ invite_tokens (
 
 ### How two devices connect to the same bucket
 
+The QR code contains ONLY the invite token and connection info -- never the DEK. The DEK is exchanged via wrapped key exchange after both devices are authenticated.
+
 ```
 Device A (initiator)                 Server                    Device B (joiner)
   |                                    |                          |
@@ -245,15 +274,16 @@ Device A (initiator)                 Server                    Device B (joiner)
   |  {                                 |                          |
   |    serverUrl,                      |                          |
   |    bucketId,                       |                          |
-  |    inviteToken,   (plaintext)      |                          |
-  |    dek,           (current DEK)    |                          |
-  |    epoch,                          |                          |
+  |    inviteToken,                    |                          |
+  |    signingKeyFingerprint (A's)     |                          |
   |  }                                 |                          |
+  |  NO DEK in QR code                 |                          |
   |  Encode as QR code                 |                          |
   |                                    |                          |
   |  4. Show QR =========================> 5. Scan QR             |
   |     (out-of-band, physical         |      Decode payload      |
-  |      proximity or secure channel)  |                          |
+  |      proximity or secure channel)  |      Store A's key       |
+  |                                    |      fingerprint         |
   |                                    |                          |
   |                                    |  6. Register device      |
   |                                    |  POST /register          |
@@ -278,28 +308,35 @@ Device A (initiator)                 Server                    Device B (joiner)
   |  "new device joined bucket"        |                          |
   | <--------------------------------- |                          |
   |                                    |                          |
-  | 10. Wrap DEK for Device B          |                          |
+  | 10. Verify B's key fingerprint     |                          |
   |  GET /buckets/{id}/devices         |                          |
   | ---------------------------------> |                          |
   |  [{ deviceId: B, encKey: ... }]    |                          |
   | <--------------------------------- |                          |
+  |  Cross-sign B's key (see §3.1)     |                          |
   |  Wrap DEK with B's X25519 key      |                          |
   |  POST /keys/wrapped                |                          |
-  |  { targetDevice: B, wrappedDek }   |                          |
+  |  { targetDevice: B, wrappedDek,    |                          |
+  |    epoch, crossSignature }         |                          |
   | ---------------------------------> |                          |
   |                                    |                          |
   |                                    | 11. Device B fetches key |
   |                                    |  GET /keys/wrapped       |
   |                                    | <----------------------- |
-  |                                    |  { wrappedDek, epoch }   |
+  |                                    |  { wrappedDek, epoch,    |
+  |                                    |    crossSignature }      |
   |                                    | -----------------------> |
-  |                                    |  Unwrap with private key |
+  |                                    |  Verify A's cross-sig    |
+  |                                    |  using fingerprint from  |
+  |                                    |  QR code (trusted)       |
+  |                                    |  Unwrap DEK with private |
+  |                                    |  key                     |
   |                                    |  Now can decrypt all ops |
 ```
 
 ### QR code contents
 
-The QR code is the secure channel. It contains everything the joiner needs:
+The QR code is the secure out-of-band channel. It contains connection info and the initiator's key fingerprint for cross-verification, but **never the DEK**:
 
 ```json
 {
@@ -307,8 +344,7 @@ The QR code is the secure channel. It contains everything the joiner needs:
   "s": "https://api.kidsync.app",
   "b": "bucket-uuid",
   "t": "invite-token-plaintext",
-  "k": "base64-encoded-dek",
-  "e": 1
+  "f": "SHA256-fingerprint-of-device-A-signing-key"
 }
 ```
 
@@ -317,9 +353,41 @@ Compact encoding (base64url of CBOR or MessagePack) keeps the QR small.
 ### Security properties
 
 - **Invite token**: One-time use, server stores only SHA-256 hash, expires in 24h
-- **DEK in QR**: The DEK is shared directly via the physical QR scan -- never transmitted over the network in plaintext
+- **No DEK in QR**: The DEK is never in the QR code. It is wrapped with Device B's X25519 key and exchanged via the server after join. This prevents DEK exposure if the QR image is captured
+- **Cross-signing**: Device A's key fingerprint in the QR code allows Device B to verify that the wrapped DEK actually came from Device A, not a server performing key substitution (see §3.1)
 - **Physical proximity**: QR scanning requires physical proximity (or deliberate secure sharing by the user)
 - **Server learns nothing**: Server sees "device B joined bucket X" but doesn't know what the bucket represents or who the users are
+
+---
+
+### 3.1. Key Transparency and Cross-Signing
+
+**Threat**: A compromised server could substitute Device B's encryption key during the DEK wrapping step, intercepting the DEK.
+
+**Mitigation**: Devices cross-sign each other's keys via signed attestations stored on the server:
+
+```kotlin
+@Serializable
+data class KeyAttestation(
+    val signerDeviceId: String,
+    val attestedDeviceId: String,
+    val attestedEncryptionKey: String,   // X25519 pub key being attested
+    val signature: String,               // Ed25519 sig over (attestedDeviceId ‖ attestedEncryptionKey)
+    val createdAt: String
+)
+```
+
+**Verification flow:**
+1. During pairing, Device A's signing key fingerprint is embedded in the QR code (trusted channel)
+2. After join, Device A signs Device B's encryption key and uploads the attestation
+3. Device B verifies Device A's attestation using the fingerprint from the QR code
+4. Device B signs Device A's encryption key and uploads its own attestation
+5. On subsequent key fetches, any device can verify that keys haven't been substituted by checking cross-signatures from at least one trusted device
+
+**Key change detection:**
+- When a device's encryption key changes (e.g., after recovery), existing attestations are invalidated
+- Other devices see unattested keys and prompt the user to verify in-person before wrapping DEK with the new key
+- This is similar to Signal's "safety number" change notification
 
 ---
 
@@ -443,10 +511,11 @@ POST   /auth/challenge                  Request auth nonce
 POST   /auth/verify                     Verify signed nonce, get session
 
 POST   /buckets                         Create bucket
+DELETE /buckets/{id}                    Delete bucket (creator only, all data purged)
 POST   /buckets/{id}/invite             Register invite token hash
 POST   /buckets/{id}/join               Redeem invite token
 GET    /buckets/{id}/devices            List devices with access
-DELETE /buckets/{id}/devices/{deviceId} Revoke device access
+DELETE /buckets/{id}/devices/me         Self-revoke (leave bucket)
 
 POST   /buckets/{id}/ops                Upload encrypted ops
 GET    /buckets/{id}/ops?since={seq}    Pull ops since sequence
@@ -460,6 +529,9 @@ GET    /buckets/{id}/snapshots/latest   Get latest snapshot
 
 POST   /keys/wrapped                    Upload wrapped DEK
 GET    /keys/wrapped?epoch={n}          Get wrapped DEK for device
+
+POST   /keys/attestations               Upload key cross-signature
+GET    /keys/attestations/{deviceId}    Get attestations for a device
 
 POST   /recovery                        Upload encrypted recovery blob
 GET    /recovery                        Download encrypted recovery blob
@@ -481,6 +553,12 @@ fun Route.requireBucketAccess(bucketId: String, deviceId: String) {
 }
 ```
 
+**Device revocation policy (server-enforced):**
+
+- **Self-revoke only**: `DELETE /buckets/{id}/devices/me` -- a device can only remove itself from a bucket. The server enforces `deviceId == authenticatedDeviceId`.
+- **Admin revocation**: Not a server concept. If admin revocation is needed, it is implemented as a signed op inside the encrypted payload. Remaining devices observe the revocation op, stop wrapping DEK for the revoked device's key, and rotate the DEK to a new epoch.
+- **Bucket deletion**: `DELETE /buckets/{id}` is restricted to the device that created the bucket (tracked in `buckets.created_by`). Deletes all ops, blobs, snapshots, and access records.
+
 No roles, no admin/member distinction on the server. The concept of "admin" is a client-side convention stored inside encrypted ops.
 
 ---
@@ -495,11 +573,12 @@ A single user with multiple devices (phone + tablet):
    - Device B registers with server
    - Device A shows "Link Device" QR containing:
      ```json
-     { "v": 1, "s": "serverUrl", "b": "bucketId", "k": "dek", "e": 1,
-       "t": "device-link-token", "link": true }
+     { "v": 1, "s": "serverUrl", "b": "bucketId",
+       "t": "device-link-token", "f": "device-A-key-fingerprint" }
      ```
-   - Device B scans QR, redeems token, gets bucket access
-   - Device A wraps DEK for Device B's X25519 key
+   - Device B scans QR, authenticates, redeems token, gets bucket access
+   - Device A and B cross-sign each other's keys (§3.1)
+   - Device A wraps DEK for Device B's verified X25519 key
 
 Same flow as co-parent pairing. The server doesn't distinguish between "same user, new device" and "new user joining family" -- it's all just "new device gets bucket access."
 
@@ -511,8 +590,8 @@ Same flow as co-parent pairing. The server doesn't distinguish between "same use
 ### Proposed: Unchanged, but now it's the ONLY recovery path
 
 Recovery flow:
-1. User enters 24-word BIP39 mnemonic
-2. Client derives recovery key via HKDF
+1. User enters 24-word BIP39 mnemonic + optional passphrase (25th word)
+2. Client derives recovery key via HKDF(mnemonic_seed ‖ passphrase)
 3. Client downloads encrypted recovery blob from server
 4. Client decrypts: gets DEK + device signing seed
 5. Client re-derives Ed25519 + X25519 keypairs from seed
@@ -520,6 +599,15 @@ Recovery flow:
 7. Client downloads ops and decrypts with recovered DEK
 
 No email-based "forgot password" -- that concept doesn't exist anymore.
+
+### Optional BIP39 passphrase (25th word)
+
+The recovery blob is a high-blast-radius target: a stolen mnemonic grants full access to all data. To mitigate this, the app supports an optional BIP39 passphrase ("25th word") that is NOT stored anywhere:
+
+- **Without passphrase**: Standard 24-word recovery (default, simpler UX)
+- **With passphrase**: 24 words + user-chosen passphrase. Both are needed to derive the recovery key. A stolen mnemonic alone is useless without the passphrase.
+
+The passphrase is presented as an opt-in during onboarding for security-conscious users.
 
 ### Recovery blob contents (encrypted with recovery key)
 
@@ -556,30 +644,36 @@ No entity types, no operation types, no user names, no content previews. The cli
 
 ## 10. Migration Path
 
-### Phase 1: Server changes (breaking)
+KidSync is pre-launch (no production users). This is a clean-start redesign, not a live migration.
+
+### Phase 1: Server changes (breaking, clean rewrite)
 
 1. Replace `Users`/`Devices` tables with `devices` table
 2. Replace `Families`/`FamilyMembers` with `buckets`/`bucket_access`
 3. Strip metadata columns from `ops` table
 4. Remove `OverrideStates` table
 5. Remove `RefreshTokens` table
-6. Add `invite_tokens` table
-7. Implement challenge-response auth
-8. Remove AuthService, simplify all route handlers
+6. Add `invite_tokens` and `key_attestations` tables
+7. Implement challenge-response auth with anti-replay
+8. Add `DELETE /buckets/{id}` endpoint
+9. Add key attestation endpoints
+10. Implement self-revoke-only policy
+11. Remove AuthService, simplify all route handlers
 
 ### Phase 2: Android changes
 
 1. Replace login/register screens with key-based onboarding
-2. Add QR code scanning/display for pairing
-3. Move override state machine to client
-4. Move entityType/entityId/operation inside encrypted payload
-5. Replace email-based recovery UI with mnemonic-only
-6. Remove all display name / email fields from server communication
+2. Add QR code scanning/display for pairing (no DEK in QR)
+3. Implement key cross-signing and verification (§3.1)
+4. Move override state machine to client
+5. Move entityType/entityId/operation inside encrypted payload
+6. Replace email-based recovery UI with mnemonic-only (+ optional passphrase)
+7. Remove all display name / email fields from server communication
 
 ### Phase 3: Protocol spec updates
 
 1. Update `sync-protocol.md` -- remove metadata fields from wire format
-2. Update `encryption-spec.md` -- document Ed25519 auth
+2. Update `encryption-spec.md` -- document Ed25519 auth, key attestations
 3. Update `wire-format.md` -- new OpInput format
 4. Update OpenAPI spec -- new endpoints
 5. Generate new conformance test vectors
@@ -606,7 +700,7 @@ No entity types, no operation types, no user names, no content previews. The cli
 
 ### Server tables
 
-| Before (13 tables) | After (10 tables) |
+| Before (13 tables) | After (11 tables) |
 |--------------------|--------------------|
 | Users | *(removed)* |
 | Devices | devices |
@@ -622,6 +716,7 @@ No entity types, no operation types, no user names, no content previews. The cli
 | Snapshots | snapshots |
 | Checkpoints | checkpoints |
 | OverrideStates | *(removed)* |
+| *(new)* | key_attestations |
 
 ### Security findings resolved
 
@@ -639,10 +734,52 @@ No entity types, no operation types, no user names, no content previews. The cli
 
 ---
 
+## 12. Residual Metadata and Privacy Limitations
+
+Even in the zero-knowledge design, the server still knows:
+
+| Metadata | Inherent reason |
+|----------|----------------|
+| Which device keys access which bucket | Required for routing encrypted ops to the right devices |
+| Number of ops and their sizes | Visible from storage |
+| Timing of ops | Server timestamps for ordering |
+| Number of devices per bucket | Visible from `bucket_access` |
+
+This means a compromised server can infer a **social graph** (which public keys collaborate via shared buckets) and **activity patterns** (when and how much data is exchanged). This is an inherent limitation of any server-relayed E2E encrypted system (Signal, Matrix, and WhatsApp all share this limitation).
+
+**Mitigations considered but deferred:**
+- **Padding**: Fixed-size ops would hide data volume but increase bandwidth
+- **Cover traffic**: Dummy ops would hide activity patterns but increase server load
+- **PIR (Private Information Retrieval)**: Would hide which bucket a device reads from, but is computationally expensive
+
+These are documented as known limitations, not design flaws.
+
+---
+
+## 13. Override Convergence Specification
+
+All clients process ops in the same global sequence order and apply the same deterministic state transitions:
+
+```
+Valid transitions:
+  PROPOSED → APPROVED    (by any device except proposer)
+  PROPOSED → DECLINED    (by any device except proposer)
+  PROPOSED → CANCELLED   (by proposer device only)
+  PROPOSED → EXPIRED     (by any device, when clientTimestamp + TTL < now)
+  PROPOSED → SUPERSEDED  (automatic: new PROPOSED for same date range supersedes previous)
+```
+
+**Convergence guarantee**: Given the same ordered sequence of ops, all clients compute the same override state. This is verified by:
+1. Each client maintaining a state hash (SHA-256 of serialized state map)
+2. Periodically exchanging state hashes via encrypted ops
+3. If hashes diverge, the client with fewer ops pulls missing ops and re-derives
+
+---
+
 ## Open Questions
 
 1. **Rate limiting without user identity**: Rate limit by public key + IP combination? By session token?
 2. **Abuse prevention**: Without email verification, how to prevent bucket spam? Proof-of-work on registration?
 3. **Push notification UX**: Can we show useful notifications without server knowing content? (Yes -- client decrypts and shows local notification)
 4. **Web client**: If a web client is ever needed, the challenge-response auth works with WebAuthn/passkeys stored in the browser
-5. **Key rotation when device is revoked**: Current flow has server initiate re-wrap. In ZK model, remaining devices detect revocation and re-wrap autonomously
+5. **Key rotation when device is revoked**: Remaining devices detect revocation, rotate DEK to new epoch, and wrap only for non-revoked devices

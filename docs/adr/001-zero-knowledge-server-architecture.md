@@ -39,13 +39,16 @@ Redesign the server to be a true zero-knowledge encrypted storage hub. The serve
 
 ### What changes
 
-1. **Authentication**: Email/password replaced by Ed25519 challenge-response
+1. **Authentication**: Email/password replaced by Ed25519 challenge-response with anti-replay (context-bound nonces)
 2. **Identity**: Public key IS the identity. No email, display name, or TOTP on server
 3. **Storage model**: "Families" become anonymous "buckets" -- server sees only bucket IDs
 4. **OpLog metadata**: `entityType`, `entityId`, `operation`, `clientTimestamp` move inside the encrypted payload
 5. **Override state machine**: Moves from server to client. Each client processes ops and computes state locally
-6. **Pairing**: Server-managed invites replaced by QR code / out-of-band key exchange
-7. **Account recovery**: BIP39 mnemonic only (already implemented). No email-based recovery
+6. **Pairing**: Server-managed invites replaced by QR code / out-of-band key exchange. QR contains invite token and key fingerprint only -- never the DEK
+7. **Key transparency**: Devices cross-sign each other's keys to detect server key substitution
+8. **Revocation**: Self-revoke only on server; admin revocation via signed ops in encrypted payload
+9. **Account recovery**: BIP39 mnemonic + optional passphrase (25th word). No email-based recovery
+10. **Bucket deletion**: `DELETE /buckets/{id}` for data purge (creator only)
 
 ### What stays the same
 
@@ -70,11 +73,14 @@ Redesign the server to be a true zero-knowledge encrypted storage hub. The serve
 
 | Risk | Mitigation |
 |------|------------|
-| Lost device + lost mnemonic = permanent data loss | Clear UX warning during onboarding; periodic mnemonic backup reminders |
+| Lost device + lost mnemonic = permanent data loss | Clear UX warning during onboarding; periodic mnemonic backup reminders; optional BIP39 passphrase |
 | QR-code pairing requires physical proximity or secure channel | Support multiple sharing methods: QR, NFC, paste-from-clipboard (user's risk) |
-| No server-side override state machine | Client-side state machine is deterministic; all clients converge to same state |
-| No email-based account recovery | BIP39 mnemonic is the recovery mechanism; this is by design |
+| No server-side override state machine | Client-side state machine is deterministic with specified convergence rules; all clients converge to same state |
+| No email-based account recovery | BIP39 mnemonic + optional passphrase is the recovery mechanism; this is by design |
 | No server-side rate limiting per user (no user identity) | Rate limit by public key or session token instead of email |
+| Server could substitute device encryption keys | Key transparency via cross-signing; key fingerprint in QR code; change detection prompts user re-verification |
+| Social graph visible via bucket_access | Inherent limitation of server-relayed E2E systems; documented, not a design flaw |
+| Recovery blob is high-blast-radius target | Optional BIP39 passphrase (25th word) adds second factor to mnemonic |
 
 ### What we lose
 
