@@ -5,7 +5,6 @@ import org.bouncycastle.crypto.generators.HKDFBytesGenerator
 import org.bouncycastle.crypto.params.HKDFParameters
 import java.security.MessageDigest
 import java.security.SecureRandom
-import javax.inject.Inject
 
 /**
  * BIP39 mnemonic generation and recovery key derivation using 256-bit entropy (24 words).
@@ -19,7 +18,7 @@ import javax.inject.Inject
  * Recovery key derivation uses HKDF-SHA256 per encryption-spec.md:
  *   HKDF-SHA256(IKM=entropy || passphrase, salt="kidsync-recovery-v2", info="recovery-key", L=32)
  */
-class RecoveryKeyGeneratorImpl @Inject constructor() : RecoveryKeyGenerator {
+class RecoveryKeyGeneratorImpl : RecoveryKeyGenerator {
 
     companion object {
         private const val ENTROPY_BYTES = 32 // 256 bits

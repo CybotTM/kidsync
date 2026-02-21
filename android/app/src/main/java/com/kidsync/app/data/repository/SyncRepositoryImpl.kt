@@ -16,9 +16,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.map
 import java.time.Instant
-import javax.inject.Inject
 
-class SyncRepositoryImpl @Inject constructor(
+class SyncRepositoryImpl(
     private val apiService: ApiService,
     private val opLogDao: OpLogDao,
     private val syncStateDao: SyncStateDao

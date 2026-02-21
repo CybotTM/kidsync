@@ -3,8 +3,6 @@ package com.kidsync.app.data.remote.interceptor
 import android.content.SharedPreferences
 import okhttp3.Interceptor
 import okhttp3.Response
-import javax.inject.Inject
-import javax.inject.Named
 
 /**
  * OkHttp interceptor that adds the session token to authenticated requests.
@@ -28,8 +26,8 @@ import javax.inject.Named
  * with Hilt). Consider using OkHttp's `Authenticator` interface which is specifically
  * designed for this purpose.
  */
-class AuthInterceptor @Inject constructor(
-    @Named("encrypted_prefs") private val prefs: SharedPreferences
+class AuthInterceptor(
+    private val prefs: SharedPreferences
 ) : Interceptor {
 
     companion object {

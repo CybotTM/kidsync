@@ -38,7 +38,7 @@ object RepositoryModule {
         keyManager: KeyManager,
         @Named("encrypted_prefs") encryptedPrefs: SharedPreferences,
         @Named("prefs") prefs: SharedPreferences,
-        baseUrl: String
+        @Named("baseUrl") baseUrl: String
     ): AuthRepository {
         return AuthRepositoryImpl(
             apiService = apiService,

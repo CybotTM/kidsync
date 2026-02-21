@@ -5,9 +5,8 @@ import com.kidsync.app.data.local.entity.ExpenseEntity
 import com.kidsync.app.data.local.entity.ExpenseStatusEntity
 import com.kidsync.app.domain.repository.ExpenseRepository
 import java.util.UUID
-import javax.inject.Inject
 
-class ExpenseRepositoryImpl @Inject constructor(
+class ExpenseRepositoryImpl(
     private val expenseDao: ExpenseDao
 ) : ExpenseRepository {
     override suspend fun getAllExpenses(): List<ExpenseEntity> = expenseDao.getAllExpenses()

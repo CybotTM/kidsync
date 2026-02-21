@@ -17,7 +17,6 @@ import javax.crypto.KeyAgreement
 import javax.crypto.Mac
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
-import javax.inject.Inject
 
 /** SEC-A-02: Zero out sensitive byte arrays after use. */
 internal fun ByteArray.zeroOut() { java.util.Arrays.fill(this, 0.toByte()) }
@@ -33,7 +32,7 @@ internal fun ByteArray.zeroOut() { java.util.Arrays.fill(this, 0.toByte()) }
  * - HKDF-SHA256 key derivation
  * - Gzip compression
  */
-class TinkCryptoManager @Inject constructor(
+class TinkCryptoManager(
     private val keyManager: dagger.Lazy<KeyManager>
 ) : CryptoManager {
 

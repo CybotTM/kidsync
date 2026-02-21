@@ -57,6 +57,7 @@ object AppModule {
 
     @Provides
     @Singleton
+    @Named("baseUrl")
     fun provideBaseUrl(): String {
         return "https://api.kidsync.app/"
     }

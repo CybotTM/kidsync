@@ -92,7 +92,7 @@ object NetworkModule {
     fun provideRetrofit(
         okHttpClient: OkHttpClient,
         json: Json,
-        baseUrl: String
+        @Named("baseUrl") baseUrl: String
     ): Retrofit {
         val contentType = "application/json".toMediaType()
         return Retrofit.Builder()

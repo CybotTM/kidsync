@@ -13,8 +13,6 @@ import com.kidsync.app.domain.repository.AuthRepository
 import java.time.Instant
 import java.util.Arrays
 import java.util.Base64
-import javax.inject.Inject
-import javax.inject.Named
 
 /**
  * AuthRepository implementation for the zero-knowledge architecture.
@@ -29,12 +27,12 @@ import javax.inject.Named
  * Session tokens and device IDs are stored in EncryptedSharedPreferences.
  * Only non-sensitive settings (server URL) remain in plain SharedPreferences.
  */
-class AuthRepositoryImpl @Inject constructor(
+class AuthRepositoryImpl(
     private val apiService: ApiService,
     private val cryptoManager: CryptoManager,
     private val keyManager: KeyManager,
-    @Named("encrypted_prefs") private val encryptedPrefs: SharedPreferences,
-    @Named("prefs") private val prefs: SharedPreferences,
+    private val encryptedPrefs: SharedPreferences,
+    private val prefs: SharedPreferences,
     private val serverOrigin: String
 ) : AuthRepository {
 

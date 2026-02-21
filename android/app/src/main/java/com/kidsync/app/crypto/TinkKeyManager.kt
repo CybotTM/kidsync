@@ -12,7 +12,6 @@ import java.security.spec.PKCS8EncodedKeySpec
 import java.security.spec.X509EncodedKeySpec
 import java.time.Instant
 import java.util.Base64
-import javax.inject.Inject
 // SEC2-A-02: Uses zeroOut() extension from TinkCryptoManager.kt (same package, internal visibility)
 
 /**
@@ -24,7 +23,7 @@ import javax.inject.Inject
  * - Both Ed25519 (signing) and X25519 (encryption) keys are derived from the same seed
  * - DEKs are indexed by bucketId (not familyId)
  */
-class TinkKeyManager @Inject constructor(
+class TinkKeyManager(
     private val encryptedPrefs: SharedPreferences,
     private val keyEpochDao: KeyEpochDao,
     private val cryptoManager: CryptoManager,

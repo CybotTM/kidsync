@@ -7,9 +7,8 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.security.MessageDigest
-import javax.inject.Inject
 
-class BlobRepositoryImpl @Inject constructor(
+class BlobRepositoryImpl(
     private val apiService: ApiService
 ) : BlobRepository {
 

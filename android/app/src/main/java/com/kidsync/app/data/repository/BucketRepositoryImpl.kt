@@ -20,7 +20,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import java.time.Instant
-import javax.inject.Inject
 
 /**
  * Repository for bucket operations in the zero-knowledge architecture.
@@ -28,7 +27,7 @@ import javax.inject.Inject
  * A bucket is an anonymous, opaque storage namespace. The server does not
  * know what a bucket represents (family, organization, etc.).
  */
-class BucketRepositoryImpl @Inject constructor(
+class BucketRepositoryImpl(
     private val apiService: ApiService,
     private val bucketDao: BucketDao,
     private val keyAttestationDao: KeyAttestationDao,
