@@ -175,7 +175,7 @@ class ExpenseViewModelTest : FunSpec({
             vm.onAmountChanged("") // empty
             vm.onCategoryChanged(ExpenseCategory.MEDICAL)
             vm.onDescriptionChanged("Test")
-            vm.onChildSelected(UUID.randomUUID())
+            vm.onChildSelected(UUID.randomUUID().toString())
             vm.saveExpense()
 
             vm.uiState.value.error shouldNotBe null
@@ -191,7 +191,7 @@ class ExpenseViewModelTest : FunSpec({
             vm.onAmountChanged("0")
             vm.onCategoryChanged(ExpenseCategory.MEDICAL)
             vm.onDescriptionChanged("Test")
-            vm.onChildSelected(UUID.randomUUID())
+            vm.onChildSelected(UUID.randomUUID().toString())
             vm.saveExpense()
 
             vm.uiState.value.error shouldNotBe null
@@ -207,7 +207,7 @@ class ExpenseViewModelTest : FunSpec({
             vm.onAmountChanged("25.00")
             // No category set
             vm.onDescriptionChanged("Test")
-            vm.onChildSelected(UUID.randomUUID())
+            vm.onChildSelected(UUID.randomUUID().toString())
             vm.saveExpense()
 
             vm.uiState.value.error shouldNotBe null
@@ -223,7 +223,7 @@ class ExpenseViewModelTest : FunSpec({
             vm.onAmountChanged("25.00")
             vm.onCategoryChanged(ExpenseCategory.MEDICAL)
             vm.onDescriptionChanged("   ") // blank
-            vm.onChildSelected(UUID.randomUUID())
+            vm.onChildSelected(UUID.randomUUID().toString())
             vm.saveExpense()
 
             vm.uiState.value.error shouldNotBe null
@@ -257,7 +257,7 @@ class ExpenseViewModelTest : FunSpec({
             vm.onAmountChanged("25.00")
             vm.onCategoryChanged(ExpenseCategory.MEDICAL)
             vm.onDescriptionChanged("Test expense")
-            vm.onChildSelected(UUID.randomUUID())
+            vm.onChildSelected(UUID.randomUUID().toString())
             vm.saveExpense()
             advanceUntilIdle()
 
@@ -277,7 +277,7 @@ class ExpenseViewModelTest : FunSpec({
             vm.onAmountChanged("25.00")
             vm.onCategoryChanged(ExpenseCategory.MEDICAL)
             vm.onDescriptionChanged("Test expense")
-            vm.onChildSelected(UUID.randomUUID())
+            vm.onChildSelected(UUID.randomUUID().toString())
             vm.saveExpense()
             advanceUntilIdle()
 
@@ -298,7 +298,7 @@ class ExpenseViewModelTest : FunSpec({
             vm.onAmountChanged("25.00")
             vm.onCategoryChanged(ExpenseCategory.MEDICAL)
             vm.onDescriptionChanged("Test expense")
-            vm.onChildSelected(UUID.randomUUID())
+            vm.onChildSelected(UUID.randomUUID().toString())
             vm.saveExpense()
             advanceUntilIdle()
 
@@ -323,14 +323,14 @@ class ExpenseViewModelTest : FunSpec({
             val vm = createViewModel()
             advanceUntilIdle()
 
-            val expenseId = UUID.randomUUID()
+            val expenseId = UUID.randomUUID().toString()
             vm.acknowledgeExpense(expenseId)
             advanceUntilIdle()
 
             coVerify {
                 updateExpenseStatusUseCase(
                     bucketId = "bucket-001",
-                    expenseId = expenseId.toString(),
+                    expenseId = expenseId,
                     status = ExpenseStatusType.ACKNOWLEDGED,
                     responderDeviceId = "d1",
                     note = null
@@ -348,14 +348,14 @@ class ExpenseViewModelTest : FunSpec({
             val vm = createViewModel()
             advanceUntilIdle()
 
-            val expenseId = UUID.randomUUID()
+            val expenseId = UUID.randomUUID().toString()
             vm.disputeExpense(expenseId, "Too expensive")
             advanceUntilIdle()
 
             coVerify {
                 updateExpenseStatusUseCase(
                     bucketId = "bucket-001",
-                    expenseId = expenseId.toString(),
+                    expenseId = expenseId,
                     status = ExpenseStatusType.DISPUTED,
                     responderDeviceId = "d1",
                     note = "Too expensive"

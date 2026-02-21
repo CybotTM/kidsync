@@ -294,6 +294,8 @@
     <string name="calendar_swap_reason_hint">Why are you requesting this swap?</string>
     <string name="calendar_swap_preview">Preview</string>
     <string name="calendar_swap_preview_subtitle">These days would change assignment if approved.</string>
+    <string name="calendar_swap_solo_title">Swap Requests Unavailable</string>
+    <string name="calendar_swap_solo_subtitle">Swap requests require a paired co-parent. Pair with your co-parent to enable schedule swaps.</string>
     <string name="calendar_submit_swap">Submit Request</string>
     <string name="calendar_date_range_error">End date must be on or after start date</string>
     <string name="calendar_confirm">OK</string>

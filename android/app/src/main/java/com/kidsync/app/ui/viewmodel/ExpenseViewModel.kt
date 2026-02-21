@@ -31,7 +31,7 @@ import javax.inject.Inject
 
 data class ExpenseFilter(
     val category: ExpenseCategory? = null,
-    val childId: UUID? = null,
+    val childId: String? = null,
     val status: ExpenseStatusType? = null,
     val dateFrom: LocalDate? = null,
     val dateTo: LocalDate? = null
@@ -76,7 +76,7 @@ data class ExpenseUiState(
     val addCategory: ExpenseCategory? = null,
     val addDescription: String = "",
     val addDate: LocalDate = LocalDate.now(),
-    val addChildId: UUID? = null,
+    val addChildId: String? = null,
     val addSplitRatio: Float = 0.5f,
     val addCurrencyCode: String = "USD",
     val addReceiptUri: Uri? = null,
@@ -90,7 +90,7 @@ data class ExpenseUiState(
     val categoryTotals: List<CategoryTotal> = emptyList(),
 
     // Available children for selection
-    val availableChildren: List<Pair<UUID, String>> = emptyList()
+    val availableChildren: List<Pair<String, String>> = emptyList()
 )
 
 @HiltViewModel
@@ -260,16 +260,16 @@ class ExpenseViewModel @Inject constructor(
 
     // ─── Status Updates ──────────────────────────────────────────────────────
 
-    fun acknowledgeExpense(expenseId: UUID) {
+    fun acknowledgeExpense(expenseId: String) {
         updateStatus(expenseId, ExpenseStatusType.ACKNOWLEDGED)
     }
 
-    fun disputeExpense(expenseId: UUID, note: String? = null) {
+    fun disputeExpense(expenseId: String, note: String? = null) {
         updateStatus(expenseId, ExpenseStatusType.DISPUTED, note)
     }
 
     private fun updateStatus(
-        expenseId: UUID,
+        expenseId: String,
         status: ExpenseStatusType,
         note: String? = null
     ) {
@@ -294,7 +294,7 @@ class ExpenseViewModel @Inject constructor(
 
             val result = updateExpenseStatusUseCase(
                 bucketId = bucketId,
-                expenseId = expenseId.toString(),
+                expenseId = expenseId,
                 status = status,
                 responderDeviceId = session.deviceId,
                 note = note
@@ -303,7 +303,7 @@ class ExpenseViewModel @Inject constructor(
             result.fold(
                 onSuccess = {
                     // Reload to reflect changes
-                    selectExpense(expenseId.toString())
+                    selectExpense(expenseId)
                     loadExpenses()
                 },
                 onFailure = { error ->
@@ -338,7 +338,7 @@ class ExpenseViewModel @Inject constructor(
         _uiState.update { it.copy(addDate = date, error = null) }
     }
 
-    fun onChildSelected(childId: UUID) {
+    fun onChildSelected(childId: String) {
         _uiState.update { it.copy(addChildId = childId, error = null) }
     }
 
@@ -398,7 +398,7 @@ class ExpenseViewModel @Inject constructor(
 
             val expense = Expense(
                 expenseId = UUID.randomUUID().toString(),
-                childId = state.addChildId.toString(),
+                childId = state.addChildId,
                 paidByDeviceId = session.deviceId,
                 amountCents = amountCents,
                 currencyCode = state.addCurrencyCode,

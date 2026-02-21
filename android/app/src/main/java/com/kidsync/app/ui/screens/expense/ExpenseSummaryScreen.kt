@@ -295,23 +295,24 @@ fun ExpenseSummaryScreen(
 
                     // Category breakdown list
                     uiState.categoryTotals.forEach { catTotal ->
+                        val label = categoryLabel(catTotal.category)
+                        val formattedTotal = formatCurrency(catTotal.totalCents, uiState.currencyCode)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 6.dp)
                                 .semantics {
-                                    contentDescription = "${categoryLabel(catTotal.category)}: " +
-                                        formatCurrency(catTotal.totalCents, uiState.currencyCode)
+                                    contentDescription = "$label: $formattedTotal"
                                 },
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = categoryLabel(catTotal.category),
+                                text = label,
                                 style = MaterialTheme.typography.bodyMedium
                             )
                             Text(
-                                text = formatCurrency(catTotal.totalCents, uiState.currencyCode),
+                                text = formattedTotal,
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Medium
                             )

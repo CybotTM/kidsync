@@ -185,7 +185,13 @@ data class Device(
     val deviceId: String,
     val signingKey: String,
     val encryptionKey: String,
-    val createdAt: Instant
+    val createdAt: Instant,
+    /** Derived from encryptionKey; populated by the repository/viewmodel layer. */
+    val keyFingerprint: String = "",
+    /** Whether this device has been cross-signed via key attestation. */
+    val isVerified: Boolean = false,
+    /** Client-side nickname for the device (stored locally, not on server). */
+    val name: String = ""
 )
 
 data class KeyEpoch(
