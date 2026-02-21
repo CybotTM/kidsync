@@ -1,19 +1,21 @@
 package com.kidsync.app.data.repository
 
+import android.content.SharedPreferences
 import com.kidsync.app.crypto.CryptoManager
 import com.kidsync.app.data.local.dao.BucketDao
 import com.kidsync.app.data.local.dao.KeyAttestationDao
 import com.kidsync.app.data.local.entity.BucketEntity
-import com.kidsync.app.data.local.entity.DeviceEntity
 import com.kidsync.app.data.local.entity.KeyAttestationEntity
 import com.kidsync.app.data.remote.api.ApiService
 import com.kidsync.app.data.remote.dto.InviteRequest
 import com.kidsync.app.data.remote.dto.JoinBucketRequest
 import com.kidsync.app.data.remote.dto.UploadAttestationRequest
+import com.kidsync.app.data.remote.dto.WrappedKeyResponse
 import com.kidsync.app.domain.model.Bucket
 import com.kidsync.app.domain.model.Device
 import com.kidsync.app.domain.model.KeyAttestation
 import com.kidsync.app.domain.repository.BucketRepository
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
@@ -30,8 +32,16 @@ class BucketRepositoryImpl @Inject constructor(
     private val apiService: ApiService,
     private val bucketDao: BucketDao,
     private val keyAttestationDao: KeyAttestationDao,
-    private val cryptoManager: CryptoManager
+    private val cryptoManager: CryptoManager,
+    private val encryptedPrefs: SharedPreferences
 ) : BucketRepository {
+
+    companion object {
+        private const val PREF_BUCKET_NAME_PREFIX = "bucket_name_"
+        private const val PREF_ACCESSIBLE_BUCKETS = "accessible_bucket_ids"
+        private const val WRAPPED_DEK_POLL_INTERVAL_MS = 2000L
+        private const val WRAPPED_DEK_POLL_TIMEOUT_MS = 120_000L
+    }
 
     override fun observeBuckets(): Flow<List<Bucket>> {
         return bucketDao.observeAllBuckets().map { entities ->
@@ -52,6 +62,12 @@ class BucketRepositoryImpl @Inject constructor(
                 createdAt = Instant.now()
             )
             bucketDao.insertBucket(bucket.toEntity())
+            // Track in accessible buckets
+            val existing = getAccessibleBuckets().toMutableSet()
+            existing.add(bucket.bucketId)
+            encryptedPrefs.edit()
+                .putStringSet(PREF_ACCESSIBLE_BUCKETS, existing)
+                .apply()
             Result.success(bucket)
         } catch (e: Exception) {
             Result.failure(e)
@@ -111,9 +127,9 @@ class BucketRepositoryImpl @Inject constructor(
             val domainDevices = devices.map { dto ->
                 Device(
                     deviceId = dto.deviceId,
-                    signingKey = dto.signingKey,
+                    signingKey = "", // Server does not return signing key in device list
                     encryptionKey = dto.encryptionKey,
-                    createdAt = Instant.parse(dto.createdAt)
+                    createdAt = Instant.parse(dto.grantedAt)
                 )
             }
             Result.success(domainDevices)
@@ -132,7 +148,7 @@ class BucketRepositoryImpl @Inject constructor(
             apiService.uploadAttestation(
                 UploadAttestationRequest(
                     attestedDeviceId = attestation.attestedDeviceId,
-                    attestedKey = attestation.attestedEncryptionKey,
+                    attestedEncryptionKey = attestation.attestedEncryptionKey,
                     signature = attestation.signature
                 )
             )
@@ -159,8 +175,8 @@ class BucketRepositoryImpl @Inject constructor(
             val remote = apiService.getAttestations(deviceId)
             val attestations = remote.map { dto ->
                 KeyAttestation(
-                    signerDeviceId = dto.signerDevice,
-                    attestedDeviceId = dto.attestedDevice,
+                    signerDeviceId = dto.signerDeviceId,
+                    attestedDeviceId = dto.attestedDeviceId,
                     attestedEncryptionKey = dto.attestedKey,
                     signature = dto.signature,
                     createdAt = dto.createdAt
@@ -208,6 +224,41 @@ class BucketRepositoryImpl @Inject constructor(
     override suspend fun saveDevice(device: Device) {
         // Store in local cache
         // The devices table now stores signing and encryption keys
+    }
+
+    override suspend fun storeLocalBucketName(bucketId: String, name: String) {
+        encryptedPrefs.edit()
+            .putString(PREF_BUCKET_NAME_PREFIX + bucketId, name)
+            .apply()
+        // Also track this bucket ID in the accessible list
+        val existing = getAccessibleBuckets().toMutableSet()
+        existing.add(bucketId)
+        encryptedPrefs.edit()
+            .putStringSet(PREF_ACCESSIBLE_BUCKETS, existing)
+            .apply()
+    }
+
+    override suspend fun getLocalBucketName(bucketId: String): String? {
+        return encryptedPrefs.getString(PREF_BUCKET_NAME_PREFIX + bucketId, null)
+    }
+
+    override suspend fun getAccessibleBuckets(): List<String> {
+        return encryptedPrefs.getStringSet(PREF_ACCESSIBLE_BUCKETS, emptySet())
+            ?.toList()
+            ?: emptyList()
+    }
+
+    override suspend fun waitForWrappedDek(bucketId: String): WrappedKeyResponse {
+        val startTime = System.currentTimeMillis()
+        while (System.currentTimeMillis() - startTime < WRAPPED_DEK_POLL_TIMEOUT_MS) {
+            try {
+                return apiService.getWrappedDek()
+            } catch (_: Exception) {
+                // Not available yet, keep polling
+            }
+            delay(WRAPPED_DEK_POLL_INTERVAL_MS)
+        }
+        throw IllegalStateException("Timed out waiting for wrapped DEK")
     }
 
     // ── Mapping helpers ─────────────────────────────────────────────────────────

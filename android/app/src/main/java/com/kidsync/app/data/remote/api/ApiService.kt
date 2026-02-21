@@ -111,9 +111,9 @@ interface ApiService {
     suspend fun uploadWrappedKey(@Body request: UploadWrappedKeyRequest)
 
     @GET("keys/wrapped")
-    suspend fun getWrappedDeks(
+    suspend fun getWrappedDek(
         @Query("epoch") epoch: Int? = null
-    ): List<WrappedKeyResponse>
+    ): WrappedKeyResponse
 
     // ── Key Attestations ────────────────────────────────────────────────────────
 
@@ -128,7 +128,7 @@ interface ApiService {
     // ── Recovery ────────────────────────────────────────────────────────────────
 
     @POST("recovery")
-    suspend fun uploadRecoveryBlob(@Body encryptedBlob: String)
+    suspend fun uploadRecoveryBlob(@Body request: RecoveryBlobRequest)
 
     @GET("recovery")
     suspend fun getRecoveryBlob(): RecoveryBlobResponse

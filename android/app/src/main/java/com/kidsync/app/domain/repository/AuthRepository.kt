@@ -52,4 +52,29 @@ interface AuthRepository {
      * Clear the session (logout). Does not revoke any server-side state.
      */
     suspend fun clearSession()
+
+    /**
+     * Get the current DeviceSession if authenticated, or null.
+     */
+    suspend fun getSession(): DeviceSession?
+
+    /**
+     * Get the configured server URL.
+     */
+    fun getServerUrl(): String
+
+    /**
+     * Set the server URL for API calls.
+     */
+    fun setServerUrl(url: String)
+
+    /**
+     * Test server connectivity by calling the health endpoint.
+     */
+    suspend fun testConnection()
+
+    /**
+     * Logout: clear the session. Alias for clearSession().
+     */
+    suspend fun logout()
 }

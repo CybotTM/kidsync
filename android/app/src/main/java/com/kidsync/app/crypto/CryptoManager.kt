@@ -216,4 +216,47 @@ interface CryptoManager {
      * @return Decrypted raw data
      */
     fun decryptBlob(encryptedData: ByteArray, key: ByteArray): ByteArray
+
+    // ─── Invite Token ────────────────────────────────────────────────────────────
+
+    /**
+     * Generate a cryptographically random invite token string.
+     *
+     * @return URL-safe base64-encoded random token
+     */
+    fun generateInviteToken(): String
+
+    // ─── DEK Lifecycle ───────────────────────────────────────────────────────────
+
+    /**
+     * Generate a new DEK and store it for a bucket (epoch 1).
+     * Used when creating a new bucket.
+     *
+     * @param bucketId The bucket to generate and store the DEK for
+     */
+    suspend fun generateAndStoreDek(bucketId: String)
+
+    /**
+     * Unwrap a received wrapped DEK and store it locally.
+     *
+     * @param bucketId The bucket the DEK belongs to
+     * @param wrappedDek The base64-encoded wrapped DEK
+     * @param senderPublicKey The sender's public key (base64-encoded)
+     * @param privateKey The device's private key for unwrapping
+     */
+    suspend fun unwrapAndStoreDek(
+        bucketId: String,
+        wrappedDek: String,
+        senderPublicKey: String,
+        privateKey: java.security.PrivateKey
+    )
+
+    /**
+     * Compute a key fingerprint from a single base64-encoded public key.
+     * This is a convenience overload of computeFingerprint for single-key use.
+     *
+     * @param publicKey Base64-encoded public key
+     * @return Hex-encoded SHA-256 fingerprint
+     */
+    fun computeKeyFingerprint(publicKey: String): String
 }

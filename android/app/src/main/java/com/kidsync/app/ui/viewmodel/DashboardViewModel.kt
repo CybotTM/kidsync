@@ -40,7 +40,8 @@ class DashboardViewModel @Inject constructor(
 
                 if (currentBucketId != null) {
                     val localName = bucketRepository.getLocalBucketName(currentBucketId) ?: "My Bucket"
-                    val devices = bucketRepository.getBucketDevices(currentBucketId)
+                    val devicesResult = bucketRepository.getBucketDevices(currentBucketId)
+                    val devices = devicesResult.getOrDefault(emptyList())
 
                     _uiState.update {
                         it.copy(

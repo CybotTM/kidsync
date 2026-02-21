@@ -142,7 +142,7 @@ class OpApplier @Inject constructor(
         val entity = ExpenseEntity(
             expenseId = UUID.fromString(payload.entityId),
             childId = UUID.fromString(data["childId"]!!.jsonPrimitive.content),
-            paidByUserId = UUID.fromString(data["paidByUserId"]!!.jsonPrimitive.content),
+            paidByUserId = UUID.fromString(data["paidByDeviceId"]!!.jsonPrimitive.content),
             amountCents = data["amountCents"]!!.jsonPrimitive.int,
             currencyCode = data["currencyCode"]!!.jsonPrimitive.content,
             category = data["category"]!!.jsonPrimitive.content,

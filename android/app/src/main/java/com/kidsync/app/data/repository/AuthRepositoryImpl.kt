@@ -34,6 +34,7 @@ class AuthRepositoryImpl @Inject constructor(
 
     companion object {
         private const val PREF_DEVICE_ID = "device_id"
+        private const val PREF_SERVER_URL = "server_url"
     }
 
     override suspend fun register(signingKey: String, encryptionKey: String): Result<String> {
@@ -125,6 +126,37 @@ class AuthRepositoryImpl @Inject constructor(
         prefs.edit()
             .remove(AuthInterceptor.PREF_SESSION_TOKEN)
             .apply()
+    }
+
+    override suspend fun getSession(): DeviceSession? {
+        val token = getSessionToken() ?: return null
+        val deviceId = getDeviceId() ?: return null
+        return DeviceSession(
+            deviceId = deviceId,
+            sessionToken = token,
+            expiresIn = 0 // Unknown for cached sessions
+        )
+    }
+
+    override fun getServerUrl(): String {
+        return prefs.getString(PREF_SERVER_URL, serverOrigin) ?: serverOrigin
+    }
+
+    override fun setServerUrl(url: String) {
+        prefs.edit()
+            .putString(PREF_SERVER_URL, url)
+            .apply()
+    }
+
+    override suspend fun testConnection() {
+        val response = apiService.health()
+        if (!response.isSuccessful) {
+            throw ApiException(response.code(), response.message())
+        }
+    }
+
+    override suspend fun logout() {
+        clearSession()
     }
 
     /**

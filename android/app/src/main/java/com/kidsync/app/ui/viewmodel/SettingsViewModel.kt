@@ -63,7 +63,7 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val fingerprint = keyManager.getSigningKeyFingerprint()
-                val deviceId = keyManager.getDeviceId()
+                val deviceId = keyManager.getDeviceId() ?: ""
                 _uiState.update {
                     it.copy(
                         keyFingerprint = fingerprint,
@@ -152,18 +152,8 @@ class SettingsViewModel @Inject constructor(
             try {
                 val currentBucket = _uiState.value.buckets.firstOrNull()
                 if (currentBucket != null) {
-                    val devices = bucketRepository.getBucketDevices(currentBucket.bucketId)
-                        .map { deviceInfo ->
-                            Device(
-                                deviceId = deviceInfo.deviceId,
-                                name = deviceInfo.localNickname
-                                    ?: formatFingerprintShort(deviceInfo.signingKey),
-                                status = deviceInfo.status,
-                                registeredAt = deviceInfo.registeredAt,
-                                keyFingerprint = deviceInfo.signingKey,
-                                isVerified = deviceInfo.isVerified
-                            )
-                        }
+                    val devicesResult = bucketRepository.getBucketDevices(currentBucket.bucketId)
+                    val devices = devicesResult.getOrThrow()
                     _uiState.update {
                         it.copy(isLoadingDevices = false, devices = devices)
                     }
@@ -234,10 +224,6 @@ class SettingsViewModel @Inject constructor(
 
     fun clearError() {
         _uiState.update { it.copy(error = null) }
-    }
-
-    private fun formatFingerprintShort(key: String): String {
-        return key.take(16).chunked(4).joinToString(" ")
     }
 
     companion object {

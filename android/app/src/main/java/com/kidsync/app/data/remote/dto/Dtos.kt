@@ -62,9 +62,8 @@ data class JoinBucketRequest(
 @Serializable
 data class DeviceInfo(
     val deviceId: String,
-    val signingKey: String,
     val encryptionKey: String,
-    val createdAt: String
+    val grantedAt: String
 )
 
 // ── Ops ─────────────────────────────────────────────────────────────────────
@@ -85,26 +84,14 @@ data class OpInputDto(
 
 @Serializable
 data class OpsBatchResponse(
-    val accepted: List<AcceptedOpDto>,
-    val rejected: List<RejectedOpDto> = emptyList()
-)
-
-@Serializable
-data class AcceptedOpDto(
-    val sequence: Long,
-    val serverTimestamp: String
-)
-
-@Serializable
-data class RejectedOpDto(
-    val index: Int,
-    val error: String,
-    val code: String? = null
+    val accepted: Int,
+    val latestSequence: Long
 )
 
 @Serializable
 data class OpResponse(
     val sequence: Long,
+    val bucketId: String,
     val deviceId: String,
     val encryptedPayload: String,
     val prevHash: String,
@@ -118,8 +105,7 @@ data class CheckpointResponse(
     val startSequence: Long,
     val endSequence: Long,
     val hash: String,
-    val opCount: Int,
-    val createdAt: String
+    val opCount: Int
 )
 
 // ── Blobs ───────────────────────────────────────────────────────────────────
@@ -155,16 +141,18 @@ data class LatestSnapshotResponse(
 
 @Serializable
 data class UploadWrappedKeyRequest(
-    val targetDeviceId: String,
+    val targetDevice: String,
     val wrappedDek: String,
-    val keyEpoch: Int
+    val keyEpoch: Int,
+    val crossSignature: String? = null
 )
 
 @Serializable
 data class WrappedKeyResponse(
     val wrappedDek: String,
     val keyEpoch: Int,
-    val wrappedBy: String
+    val wrappedBy: String,
+    val crossSignature: String? = null
 )
 
 // ── Key Attestations ────────────────────────────────────────────────────────
@@ -172,21 +160,25 @@ data class WrappedKeyResponse(
 @Serializable
 data class UploadAttestationRequest(
     val attestedDeviceId: String,
-    val attestedKey: String,
+    val attestedEncryptionKey: String,
     val signature: String
 )
 
 @Serializable
 data class AttestationResponse(
-    val id: Int,
-    val signerDevice: String,
-    val attestedDevice: String,
+    val signerDeviceId: String,
+    val attestedDeviceId: String,
     val attestedKey: String,
     val signature: String,
     val createdAt: String
 )
 
 // ── Recovery ────────────────────────────────────────────────────────────────
+
+@Serializable
+data class RecoveryBlobRequest(
+    val encryptedBlob: String
+)
 
 @Serializable
 data class RecoveryBlobResponse(

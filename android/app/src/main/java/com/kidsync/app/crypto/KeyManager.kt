@@ -127,4 +127,48 @@ interface KeyManager {
      * Get all epochs available locally for a bucket.
      */
     suspend fun getAvailableEpochs(bucketId: String): List<Int>
+
+    // ─── Seed Management ─────────────────────────────────────────────────────────
+
+    /**
+     * Generate a new random 32-byte seed for key derivation.
+     */
+    fun generateSeed(): ByteArray
+
+    /**
+     * Store the seed securely.
+     */
+    suspend fun storeSeed(seed: ByteArray)
+
+    /**
+     * Get the stored seed.
+     * @throws IllegalStateException if no seed is stored
+     */
+    suspend fun getSeed(): ByteArray
+
+    /**
+     * Derive an Ed25519 signing key pair from a seed.
+     *
+     * @param seed The 32-byte seed
+     * @return Pair of (publicKey, privateKey/seed)
+     */
+    fun deriveSigningKeyPair(seed: ByteArray): Pair<ByteArray, ByteArray>
+
+    /**
+     * Derive an X25519 encryption key pair from a seed.
+     *
+     * @param seed The 32-byte seed
+     * @return Pair of (publicKey, privateKey)
+     */
+    fun deriveEncryptionKeyPair(seed: ByteArray): Pair<ByteArray, ByteArray>
+
+    /**
+     * Encode a public key to Base64 string for transmission.
+     */
+    fun encodePublicKey(publicKey: ByteArray): String
+
+    /**
+     * Check if this device already has stored keys.
+     */
+    suspend fun hasExistingKeys(): Boolean
 }

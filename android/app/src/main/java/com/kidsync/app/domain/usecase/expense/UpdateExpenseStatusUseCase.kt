@@ -4,40 +4,33 @@ import com.kidsync.app.domain.model.EntityType
 import com.kidsync.app.domain.model.ExpenseStatusType
 import com.kidsync.app.domain.model.OperationType
 import com.kidsync.app.domain.usecase.sync.CreateOperationUseCase
-import java.time.Instant
-import java.util.UUID
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import javax.inject.Inject
 
 class UpdateExpenseStatusUseCase @Inject constructor(
     private val createOperationUseCase: CreateOperationUseCase
 ) {
     suspend operator fun invoke(
-        familyId: UUID,
-        deviceId: UUID,
-        expenseId: UUID,
+        bucketId: String,
+        expenseId: String,
         status: ExpenseStatusType,
-        responderId: UUID,
+        responderDeviceId: String,
         note: String? = null
     ): Result<Unit> {
-        val payloadMap = buildMap<String, Any?> {
-            put("payloadType", "UpdateExpenseStatus")
-            put("entityId", expenseId.toString())
-            put("timestamp", Instant.now().toString())
-            put("operationType", "UPDATE")
-            put("expenseId", expenseId.toString())
-            put("status", status.name)
-            put("responderId", responderId.toString())
-            note?.let { put("note", it) }
-        }
+        val contentData = JsonObject(buildMap {
+            put("expenseId", JsonPrimitive(expenseId))
+            put("status", JsonPrimitive(status.name))
+            put("responderDeviceId", JsonPrimitive(responderDeviceId))
+            note?.let { put("note", JsonPrimitive(it)) }
+        })
 
         return createOperationUseCase(
-            familyId = familyId,
-            deviceId = deviceId,
+            bucketId = bucketId,
             entityType = EntityType.ExpenseStatus,
             entityId = expenseId,
             operationType = OperationType.UPDATE,
-            payloadMap = payloadMap,
-            transitionTo = status.name
+            contentData = contentData
         ).map { }
     }
 }

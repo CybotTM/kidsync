@@ -60,7 +60,7 @@ data class CreateExpensePayload(
     override val operationType: String,
     val expenseId: String,
     val childId: String,
-    val paidByUserId: String,
+    val paidByDeviceId: String,
     val amountCents: Int,
     val currencyCode: String,
     val category: String,
@@ -211,7 +211,7 @@ data class DeviceSnapshotPayload(
     override val operationType: String,
     val snapshotId: String,
     val deviceId: String,
-    val familyId: String,
+    val bucketId: String,
     val lastGlobalSequence: Long,
     val stateHash: String
 ) : OperationPayload()

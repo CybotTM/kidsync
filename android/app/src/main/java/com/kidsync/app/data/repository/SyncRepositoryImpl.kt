@@ -41,26 +41,28 @@ class SyncRepositoryImpl @Inject constructor(
 
             val response = apiService.uploadOps(bucketId, request)
 
-            // Build lookup of accepted ops by index
-            val acceptedByIndex = response.accepted.withIndex().associate { (i, dto) -> i to dto }
+            // Server returns accepted count and latest sequence.
+            // Assign sequences starting from (latestSequence - accepted + 1).
+            val now = Instant.now().toString()
+            val baseSequence = response.latestSequence - response.accepted + 1
 
-            // Update local ops with server-assigned sequences
             val updatedOps = ops.mapIndexed { index, op ->
-                val accepted = acceptedByIndex[index]
-                if (accepted != null) {
+                if (index < response.accepted) {
+                    val assignedSequence = baseSequence + index
+
                     // Find and mark the local entity as synced
                     val pendingEntities = opLogDao.getPendingOps(bucketId)
                     val entity = pendingEntities.firstOrNull { it.currentHash == op.currentHash }
                     if (entity != null) {
                         opLogDao.markAsSynced(
                             id = entity.id,
-                            globalSequence = accepted.sequence,
-                            serverTimestamp = accepted.serverTimestamp
+                            globalSequence = assignedSequence,
+                            serverTimestamp = now
                         )
                     }
                     op.copy(
-                        globalSequence = accepted.sequence,
-                        serverTimestamp = Instant.parse(accepted.serverTimestamp)
+                        globalSequence = assignedSequence,
+                        serverTimestamp = Instant.parse(now)
                     )
                 } else {
                     op
@@ -121,7 +123,7 @@ class SyncRepositoryImpl @Inject constructor(
                 ServerCheckpoint(
                     globalSequence = body.endSequence,
                     checkpointHash = body.hash,
-                    timestamp = body.createdAt
+                    timestamp = Instant.now().toString()
                 )
             )
         } catch (e: Exception) {

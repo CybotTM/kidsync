@@ -30,7 +30,9 @@ import javax.inject.Inject
  * - HKDF-SHA256 key derivation
  * - Gzip compression
  */
-class TinkCryptoManager @Inject constructor() : CryptoManager {
+class TinkCryptoManager @Inject constructor(
+    private val keyManager: dagger.Lazy<KeyManager>
+) : CryptoManager {
 
     companion object {
         private const val AES_GCM_NONCE_SIZE = 12
@@ -354,6 +356,40 @@ class TinkCryptoManager @Inject constructor() : CryptoManager {
         cipher.init(Cipher.DECRYPT_MODE, keySpec, gcmSpec)
 
         return cipher.doFinal(ciphertextAndTag)
+    }
+
+    // ─── Invite Token ────────────────────────────────────────────────────────────
+
+    override fun generateInviteToken(): String {
+        val bytes = ByteArray(32)
+        SecureRandom().nextBytes(bytes)
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+    }
+
+    // ─── DEK Lifecycle ───────────────────────────────────────────────────────────
+
+    override suspend fun generateAndStoreDek(bucketId: String) {
+        val dek = generateDek()
+        keyManager.get().storeDek(bucketId, 1, dek)
+    }
+
+    override suspend fun unwrapAndStoreDek(
+        bucketId: String,
+        wrappedDek: String,
+        senderPublicKey: String,
+        privateKey: PrivateKey
+    ) {
+        val deviceId = keyManager.get().getDeviceId()
+            ?: throw IllegalStateException("Device not registered")
+        val currentEpoch = keyManager.get().getCurrentEpoch(bucketId)
+        val dek = unwrapDek(wrappedDek, privateKey, deviceId, currentEpoch)
+        keyManager.get().storeDek(bucketId, currentEpoch, dek)
+    }
+
+    override fun computeKeyFingerprint(publicKey: String): String {
+        val keyBytes = Base64.getDecoder().decode(publicKey)
+        val hashBytes = sha256(keyBytes)
+        return hashBytes.joinToString("") { "%02x".format(it) }
     }
 
     // ─── Private Helpers ────────────────────────────────────────────────────────

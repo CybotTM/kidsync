@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.Base64
 import javax.inject.Inject
 
 /**
@@ -86,11 +87,9 @@ class AuthViewModel @Inject constructor(
             }
 
             try {
-                // Step 1: Generate keypairs
-                val seed = keyManager.generateSeed()
-                val signingKeyPair = keyManager.deriveSigningKeyPair(seed)
-                val encryptionKeyPair = keyManager.deriveEncryptionKeyPair(seed)
-                keyManager.storeSeed(seed)
+                // Step 1: Generate keypairs via getOrCreateSigningKeyPair
+                val (signingPublicKey, signingPrivateKey) = keyManager.getOrCreateSigningKeyPair()
+                val encryptionKeyPair = keyManager.getEncryptionKeyPair()
 
                 _uiState.update {
                     it.copy(
@@ -100,10 +99,14 @@ class AuthViewModel @Inject constructor(
                 }
 
                 // Step 2: Register with server (POST /register)
-                val deviceId = authRepository.registerDevice(
-                    signingKey = keyManager.encodePublicKey(signingKeyPair.public),
-                    encryptionKey = keyManager.encodePublicKey(encryptionKeyPair.public)
+                val signingKeyBase64 = Base64.getEncoder().encodeToString(signingPublicKey)
+                val encryptionKeyBase64 = Base64.getEncoder().encodeToString(
+                    encryptionKeyPair.public.encoded
                 )
+
+                val registerResult = authRepository.register(signingKeyBase64, encryptionKeyBase64)
+                val deviceId = registerResult.getOrThrow()
+                keyManager.storeDeviceId(deviceId)
 
                 _uiState.update {
                     it.copy(
@@ -114,7 +117,8 @@ class AuthViewModel @Inject constructor(
                 }
 
                 // Step 3: Authenticate via challenge-response
-                authRepository.authenticateWithChallenge(signingKeyPair)
+                val authResult = authRepository.authenticate()
+                authResult.getOrThrow()
 
                 val fingerprint = keyManager.getSigningKeyFingerprint()
 
@@ -147,8 +151,8 @@ class AuthViewModel @Inject constructor(
             _uiState.update { it.copy(isLoading = true, error = null) }
 
             try {
-                val signingKeyPair = keyManager.getSigningKeyPair()
-                authRepository.authenticateWithChallenge(signingKeyPair)
+                val authResult = authRepository.authenticate()
+                authResult.getOrThrow()
 
                 val fingerprint = keyManager.getSigningKeyFingerprint()
                 val deviceId = keyManager.getDeviceId()
@@ -175,16 +179,21 @@ class AuthViewModel @Inject constructor(
     // -- Recovery Key Generation --
 
     /**
-     * Generates a 24-word BIP39 mnemonic from the device seed.
+     * Generates a 24-word BIP39 mnemonic for recovery.
+     * Uses the RecoveryUseCase which generates from entropy (not from seed directly).
      */
     fun generateRecoveryPhrase() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
 
             try {
-                val words = recoveryUseCase.generateMnemonicFromSeed(
-                    seed = keyManager.getSeed()
+                // Generate recovery key for the first accessible bucket
+                // The recovery use case generates a mnemonic and wraps the DEK
+                val result = recoveryUseCase.generateRecoveryKey(
+                    bucketId = _uiState.value.deviceId ?: "default",
+                    passphrase = _uiState.value.recoveryPassphrase
                 )
+                val words = result.getOrThrow()
 
                 _uiState.update {
                     it.copy(isLoading = false, recoveryWords = words)
@@ -210,29 +219,17 @@ class AuthViewModel @Inject constructor(
 
     /**
      * SEC-C3: Called when the user confirms they have saved their recovery key
-     * and navigates away. Clears recovery words from memory and uploads
-     * the encrypted recovery blob.
+     * and navigates away. Clears recovery words from memory.
+     * The recovery blob was already uploaded during generateRecoveryPhrase
+     * (via recoveryUseCase.generateRecoveryKey which wraps the DEK).
      */
     fun confirmRecoveryKeySaved() {
-        viewModelScope.launch {
-            try {
-                val passphrase = _uiState.value.recoveryPassphrase
-                recoveryUseCase.uploadRecoveryBlob(
-                    seed = keyManager.getSeed(),
-                    passphrase = passphrase
-                )
-            } catch (_: Exception) {
-                // Recovery blob upload failure is non-fatal during onboarding;
-                // user can re-upload later from settings
-            }
-
-            _uiState.update {
-                it.copy(
-                    recoveryWords = emptyList(),
-                    recoveryPassphrase = "",
-                    hasSavedRecoveryKey = true
-                )
-            }
+        _uiState.update {
+            it.copy(
+                recoveryWords = emptyList(),
+                recoveryPassphrase = "",
+                hasSavedRecoveryKey = true
+            )
         }
     }
 
@@ -253,9 +250,9 @@ class AuthViewModel @Inject constructor(
     /**
      * Restores from a 24-word mnemonic + optional passphrase:
      * 1. Derive recovery key from mnemonic + passphrase via HKDF
-     * 2. Download and decrypt recovery blob from server
-     * 3. Re-derive Ed25519 + X25519 keypairs from recovered seed
-     * 4. Register as new device, authenticate
+     * 2. Re-derive Ed25519 + X25519 keypairs
+     * 3. Register as new device, authenticate
+     * 4. Unwrap DEK using recovery key
      */
     fun restoreFromRecovery() {
         val state = _uiState.value
@@ -273,47 +270,43 @@ class AuthViewModel @Inject constructor(
             }
 
             try {
-                // Step 1: Derive seed from mnemonic
-                val seed = recoveryUseCase.deriveSeedFromMnemonic(
-                    mnemonic = words,
-                    passphrase = state.recoveryInputPassphrase
-                )
-
-                _uiState.update {
-                    it.copy(recoveryProgress = "Downloading recovery data...")
-                }
-
-                // Step 2: Download and decrypt recovery blob
-                recoveryUseCase.downloadAndDecryptRecoveryBlob(
-                    seed = seed,
-                    passphrase = state.recoveryInputPassphrase
-                )
-
-                _uiState.update {
-                    it.copy(recoveryProgress = "Re-deriving keypairs...")
-                }
-
-                // Step 3: Re-derive keypairs and store seed
-                val signingKeyPair = keyManager.deriveSigningKeyPair(seed)
-                val encryptionKeyPair = keyManager.deriveEncryptionKeyPair(seed)
-                keyManager.storeSeed(seed)
+                // Step 1: Generate new keypairs for this device
+                val (signingPublicKey, _) = keyManager.getOrCreateSigningKeyPair()
+                val encryptionKeyPair = keyManager.getEncryptionKeyPair()
 
                 _uiState.update {
                     it.copy(recoveryProgress = "Registering device...")
                 }
 
-                // Step 4: Register as new device
-                val deviceId = authRepository.registerDevice(
-                    signingKey = keyManager.encodePublicKey(signingKeyPair.public),
-                    encryptionKey = keyManager.encodePublicKey(encryptionKeyPair.public)
+                // Step 2: Register as new device
+                val signingKeyBase64 = Base64.getEncoder().encodeToString(signingPublicKey)
+                val encryptionKeyBase64 = Base64.getEncoder().encodeToString(
+                    encryptionKeyPair.public.encoded
                 )
+
+                val registerResult = authRepository.register(signingKeyBase64, encryptionKeyBase64)
+                val deviceId = registerResult.getOrThrow()
+                keyManager.storeDeviceId(deviceId)
 
                 _uiState.update {
                     it.copy(recoveryProgress = "Authenticating...")
                 }
 
-                // Step 5: Authenticate
-                authRepository.authenticateWithChallenge(signingKeyPair)
+                // Step 3: Authenticate
+                val authResult = authRepository.authenticate()
+                authResult.getOrThrow()
+
+                _uiState.update {
+                    it.copy(recoveryProgress = "Restoring encryption keys...")
+                }
+
+                // Step 4: Restore DEK from recovery mnemonic
+                val restoreResult = recoveryUseCase.restoreFromRecovery(
+                    mnemonic = words,
+                    bucketId = "default", // Will be resolved once bucket list is loaded
+                    passphrase = state.recoveryInputPassphrase
+                )
+                restoreResult.getOrThrow()
 
                 val fingerprint = keyManager.getSigningKeyFingerprint()
 

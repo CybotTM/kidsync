@@ -15,6 +15,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.util.Base64
 import javax.inject.Inject
 
 /**
@@ -86,7 +87,9 @@ class BucketViewModel @Inject constructor(
             _uiState.update { it.copy(isLoading = true, error = null) }
 
             try {
-                val bucketId = bucketRepository.createBucket()
+                val result = bucketRepository.createBucket()
+                val bucket = result.getOrThrow()
+                val bucketId = bucket.bucketId
                 val localName = _uiState.value.localBucketName.trim().ifBlank { "My Bucket" }
 
                 // Store local bucket name in encrypted preferences
@@ -139,12 +142,12 @@ class BucketViewModel @Inject constructor(
                 // Generate a random invite token
                 val inviteToken = cryptoManager.generateInviteToken()
 
-                // Register SHA-256 hash of token with server
-                val tokenHash = cryptoManager.sha256Hex(inviteToken)
-                bucketRepository.registerInviteTokenHash(
+                // Register invite with server (createInvite hashes the token internally)
+                val inviteResult = bucketRepository.createInvite(
                     bucketId = currentBucket.bucketId,
-                    tokenHash = tokenHash
+                    inviteToken = inviteToken
                 )
+                inviteResult.getOrThrow()
 
                 // Build QR payload
                 val serverUrl = authRepository.getServerUrl()
@@ -212,30 +215,33 @@ class BucketViewModel @Inject constructor(
                 if (!keyManager.hasExistingKeys()) {
                     _uiState.update { it.copy(joinProgress = "Generating device keys...") }
 
-                    val seed = keyManager.generateSeed()
-                    val signingKeyPair = keyManager.deriveSigningKeyPair(seed)
-                    val encryptionKeyPair = keyManager.deriveEncryptionKeyPair(seed)
-                    keyManager.storeSeed(seed)
+                    val (signingPublicKey, _) = keyManager.getOrCreateSigningKeyPair()
+                    val encryptionKeyPair = keyManager.getEncryptionKeyPair()
 
                     _uiState.update { it.copy(joinProgress = "Registering device...") }
 
-                    authRepository.registerDevice(
-                        signingKey = keyManager.encodePublicKey(signingKeyPair.public),
-                        encryptionKey = keyManager.encodePublicKey(encryptionKeyPair.public)
+                    val signingKeyBase64 = Base64.getEncoder().encodeToString(signingPublicKey)
+                    val encryptionKeyBase64 = Base64.getEncoder().encodeToString(
+                        encryptionKeyPair.public.encoded
                     )
+
+                    val registerResult = authRepository.register(signingKeyBase64, encryptionKeyBase64)
+                    val deviceId = registerResult.getOrThrow()
+                    keyManager.storeDeviceId(deviceId)
                 }
 
                 // Authenticate via challenge-response
                 _uiState.update { it.copy(joinProgress = "Authenticating...") }
-                val signingKeyPair = keyManager.getSigningKeyPair()
-                authRepository.authenticateWithChallenge(signingKeyPair)
+                val authResult = authRepository.authenticate()
+                authResult.getOrThrow()
 
-                // Redeem invite token
+                // Redeem invite token (join bucket)
                 _uiState.update { it.copy(joinProgress = "Joining bucket...") }
-                bucketRepository.redeemInviteToken(
+                val joinResult = bucketRepository.joinBucket(
                     bucketId = payload.b,
                     inviteToken = payload.t
                 )
+                joinResult.getOrThrow()
 
                 // Verify initiator's key fingerprint from QR
                 _uiState.update {
@@ -244,9 +250,10 @@ class BucketViewModel @Inject constructor(
                         peerFingerprint = payload.f
                     )
                 }
-                val peerDevices = bucketRepository.getBucketDevices(payload.b)
+                val peerDevicesResult = bucketRepository.getBucketDevices(payload.b)
+                val peerDevices = peerDevicesResult.getOrThrow()
                 val peerVerified = peerDevices.any { device ->
-                    cryptoManager.computeFingerprint(device.signingKey) == payload.f
+                    cryptoManager.computeKeyFingerprint(device.encryptionKey) == payload.f
                 }
 
                 if (!peerVerified) {
@@ -276,19 +283,22 @@ class BucketViewModel @Inject constructor(
                 cryptoManager.unwrapAndStoreDek(
                     bucketId = payload.b,
                     wrappedDek = wrappedDek.wrappedDek,
-                    senderPublicKey = wrappedDek.wrappedByKey,
+                    senderPublicKey = wrappedDek.wrappedBy,
                     privateKey = encryptionKeyPair.private
                 )
 
                 // Cross-sign the peer's key
                 val peerDevice = peerDevices.first { device ->
-                    cryptoManager.computeFingerprint(device.signingKey) == payload.f
+                    cryptoManager.computeKeyFingerprint(device.encryptionKey) == payload.f
                 }
-                bucketRepository.crossSignKey(
+                val attestation = keyManager.createKeyAttestation(
                     attestedDeviceId = peerDevice.deviceId,
-                    attestedEncryptionKey = peerDevice.encryptionKey,
-                    signingKeyPair = signingKeyPair
+                    attestedEncryptionKey = Base64.getDecoder().decode(peerDevice.encryptionKey)
                 )
+                bucketRepository.uploadKeyAttestation(attestation)
+
+                // Store local name and track accessible bucket
+                bucketRepository.storeLocalBucketName(payload.b, "Shared Bucket")
 
                 val bucketInfo = BucketInfo(
                     bucketId = payload.b,
