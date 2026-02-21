@@ -370,7 +370,6 @@ class E2ETest {
                 targetDevice = deviceB.deviceId,
                 wrappedDek = "wrapped-dek-after-cross-sign",
                 keyEpoch = 1,
-                crossSignature = sigAB,
             ))
         }.also { assertEquals(HttpStatusCode.Created, it.status) }
 

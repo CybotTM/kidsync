@@ -154,7 +154,7 @@ class BucketService(
             }.firstOrNull()
 
             if (existingActive != null) {
-                throw ApiException(409, "CONFLICT", "Device already has access to this bucket")
+                throw ApiException(409, "INVALID_REQUEST", "Device already has access to this bucket")
             }
 
             // Mark invite as used
@@ -244,7 +244,7 @@ class BucketService(
          * Verify that a device has active (non-revoked) access to a bucket.
          * Throws ApiException if not.
          */
-        suspend fun requireBucketAccess(bucketId: String, deviceId: String) {
+        fun requireBucketAccess(bucketId: String, deviceId: String) {
             val access = BucketAccess.selectAll().where {
                 (BucketAccess.bucketId eq bucketId) and
                     (BucketAccess.deviceId eq deviceId) and

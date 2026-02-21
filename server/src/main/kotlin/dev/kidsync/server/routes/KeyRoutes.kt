@@ -4,6 +4,7 @@ import dev.kidsync.server.models.*
 import dev.kidsync.server.plugins.devicePrincipal
 import dev.kidsync.server.services.ApiException
 import dev.kidsync.server.services.KeyService
+import dev.kidsync.server.util.ValidationUtil
 import io.ktor.http.*
 import io.ktor.server.auth.*
 import io.ktor.server.plugins.ratelimit.*
@@ -52,8 +53,7 @@ fun Route.keyRoutes(keyService: KeyService) {
 
                 // GET /keys/attestations/{deviceId}
                 get("/attestations/{deviceId}") {
-                    val deviceId = call.parameters["deviceId"]
-                        ?: throw ApiException(400, "INVALID_REQUEST", "Missing deviceId")
+                    val deviceId = ValidationUtil.requireUuidPathParam(call, "deviceId", "device id")
 
                     val attestations = keyService.getAttestations(deviceId)
                     call.respond(HttpStatusCode.OK, attestations)

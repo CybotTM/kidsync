@@ -40,7 +40,6 @@ class KeyService {
                 it[wrappedDek] = request.wrappedDek
                 it[keyEpoch] = request.keyEpoch
                 it[wrappedBy] = callerDeviceId
-                it[crossSignature] = request.crossSignature
                 it[createdAt] = LocalDateTime.now(ZoneOffset.UTC)
             }
         }
@@ -71,7 +70,6 @@ class KeyService {
             wrappedDek = result[WrappedKeys.wrappedDek],
             keyEpoch = result[WrappedKeys.keyEpoch],
             wrappedBy = result[WrappedKeys.wrappedBy],
-            crossSignature = result[WrappedKeys.crossSignature],
         )
     }
 
@@ -98,7 +96,7 @@ class KeyService {
             }.firstOrNull()
 
             if (existing != null) {
-                throw ApiException(409, "CONFLICT", "Attestation already exists for this signer-attested pair")
+                throw ApiException(409, "INVALID_REQUEST", "Attestation already exists for this signer-attested pair")
             }
 
             KeyAttestations.insert {

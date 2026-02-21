@@ -55,7 +55,7 @@ class SyncService(private val config: AppConfig) {
             for ((index, op) in request.ops.withIndex()) {
                 // Verify the op's deviceId matches the authenticated device
                 if (op.deviceId != deviceId) {
-                    throw ApiException(403, "FORBIDDEN", "Op deviceId does not match authenticated device")
+                    throw ApiException(403, "BUCKET_ACCESS_DENIED", "Op deviceId does not match authenticated device")
                 }
 
                 // Validate key epoch
@@ -149,10 +149,11 @@ class SyncService(private val config: AppConfig) {
 
             val effectiveLimit = limit.coerceIn(1, 1000)
 
+            // Query for effectiveLimit + 1 to accurately determine hasMore
             val ops = Ops.selectAll()
                 .where { (Ops.bucketId eq bucketId) and (Ops.sequence greater since) }
                 .orderBy(Ops.sequence, SortOrder.ASC)
-                .limit(effectiveLimit)
+                .limit(effectiveLimit + 1)
                 .map { row ->
                     OpResponse(
                         globalSequence = row[Ops.sequence],
@@ -166,8 +167,8 @@ class SyncService(private val config: AppConfig) {
                     )
                 }
 
-            // Determine hasMore: if we got exactly effectiveLimit results, there might be more
-            val hasMore = ops.size == effectiveLimit
+            val hasMore = ops.size > effectiveLimit
+            val resultOps = ops.take(effectiveLimit)
 
             // Get the latest sequence for this bucket
             val latestSequence = Ops.selectAll()
@@ -178,7 +179,7 @@ class SyncService(private val config: AppConfig) {
                 ?.get(Ops.sequence) ?: 0L
 
             PullOpsResponse(
-                ops = ops,
+                ops = resultOps,
                 hasMore = hasMore,
                 latestSequence = latestSequence,
             )

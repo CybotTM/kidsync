@@ -3,6 +3,7 @@ package dev.kidsync.server.routes
 import dev.kidsync.server.plugins.devicePrincipal
 import dev.kidsync.server.services.ApiException
 import dev.kidsync.server.services.BlobService
+import dev.kidsync.server.util.ValidationUtil
 import io.ktor.http.*
 import io.ktor.http.content.*
 import io.ktor.server.auth.*
@@ -22,8 +23,7 @@ fun Route.blobRoutes(blobService: BlobService) {
                  */
                 post {
                     val principal = call.devicePrincipal()
-                    val bucketId = call.parameters["id"]
-                        ?: throw ApiException(400, "INVALID_REQUEST", "Missing bucket id")
+                    val bucketId = ValidationUtil.requireUuidPathParam(call, "id", "bucket id")
 
                     val multipart = call.receiveMultipart()
                     var fileBytes: ByteArray? = null
@@ -73,10 +73,8 @@ fun Route.blobRoutes(blobService: BlobService) {
                  */
                 get("/{blobId}") {
                     val principal = call.devicePrincipal()
-                    val bucketId = call.parameters["id"]
-                        ?: throw ApiException(400, "INVALID_REQUEST", "Missing bucket id")
-                    val blobId = call.parameters["blobId"]
-                        ?: throw ApiException(400, "INVALID_REQUEST", "Missing blobId")
+                    val bucketId = ValidationUtil.requireUuidPathParam(call, "id", "bucket id")
+                    val blobId = ValidationUtil.requireUuidPathParam(call, "blobId", "blob id")
 
                     val (bytes, sha256) = blobService.downloadBlob(blobId, principal.deviceId, bucketId)
                     call.response.header("X-Blob-SHA256", sha256)

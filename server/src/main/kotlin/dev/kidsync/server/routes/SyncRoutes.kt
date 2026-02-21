@@ -7,6 +7,7 @@ import dev.kidsync.server.models.*
 import dev.kidsync.server.plugins.devicePrincipal
 import dev.kidsync.server.services.*
 import dev.kidsync.server.util.SessionUtil
+import dev.kidsync.server.util.ValidationUtil
 import io.ktor.http.*
 import io.ktor.http.content.*
 import io.ktor.server.auth.*
@@ -41,8 +42,7 @@ fun Route.syncRoutes(
             rateLimit(RateLimitName("sync-upload")) {
                 post("/ops") {
                     val principal = call.devicePrincipal()
-                    val bucketId = call.parameters["id"]
-                        ?: throw ApiException(400, "INVALID_REQUEST", "Missing bucket id")
+                    val bucketId = ValidationUtil.requireUuidPathParam(call, "id", "bucket id")
 
                     val request = call.receive<OpsBatchRequest>()
                     val (response, checkpoint) = syncService.uploadOps(bucketId, principal.deviceId, request)
@@ -65,8 +65,7 @@ fun Route.syncRoutes(
             rateLimit(RateLimitName("sync-pull")) {
                 get("/ops") {
                     val principal = call.devicePrincipal()
-                    val bucketId = call.parameters["id"]
-                        ?: throw ApiException(400, "INVALID_REQUEST", "Missing bucket id")
+                    val bucketId = ValidationUtil.requireUuidPathParam(call, "id", "bucket id")
 
                     val since = call.request.queryParameters["since"]?.toLongOrNull()
                         ?: throw ApiException(400, "INVALID_REQUEST", "Missing or invalid 'since' parameter")
@@ -81,8 +80,7 @@ fun Route.syncRoutes(
             rateLimit(RateLimitName("general")) {
                 get("/checkpoint") {
                     val principal = call.devicePrincipal()
-                    val bucketId = call.parameters["id"]
-                        ?: throw ApiException(400, "INVALID_REQUEST", "Missing bucket id")
+                    val bucketId = ValidationUtil.requireUuidPathParam(call, "id", "bucket id")
 
                     val checkpoint = syncService.getCheckpoint(bucketId, principal.deviceId)
                     if (checkpoint == null) {
@@ -96,8 +94,7 @@ fun Route.syncRoutes(
             rateLimit(RateLimitName("snapshot")) {
                 post("/snapshots") {
                     val principal = call.devicePrincipal()
-                    val bucketId = call.parameters["id"]
-                        ?: throw ApiException(400, "INVALID_REQUEST", "Missing bucket id")
+                    val bucketId = ValidationUtil.requireUuidPathParam(call, "id", "bucket id")
 
                     // Verify bucket access
                     dbQuery { BucketService.requireBucketAccess(bucketId, principal.deviceId) }
@@ -132,19 +129,6 @@ fun Route.syncRoutes(
                         throw ApiException(413, "SNAPSHOT_TOO_LARGE", "Snapshot exceeds size limit")
                     }
 
-                    // Validate declared sizeBytes matches actual upload size
-                    if (meta.sizeBytes != blob.size.toLong()) {
-                        throw ApiException(
-                            400,
-                            "SIZE_MISMATCH",
-                            "Declared sizeBytes (${meta.sizeBytes}) does not match actual upload size (${blob.size})",
-                            details = kotlinx.serialization.json.buildJsonObject {
-                                put("declared", kotlinx.serialization.json.JsonPrimitive(meta.sizeBytes))
-                                put("actual", kotlinx.serialization.json.JsonPrimitive(blob.size.toLong()))
-                            },
-                        )
-                    }
-
                     // Verify SHA-256 of the uploaded snapshot matches declared hash
                     val computedHash = MessageDigest.getInstance("SHA-256")
                         .digest(blob)
@@ -161,6 +145,10 @@ fun Route.syncRoutes(
                         )
                     }
 
+                    // Derive server-side values
+                    val sizeBytes = blob.size.toLong()
+                    val now = LocalDateTime.now(ZoneOffset.UTC)
+
                     val snapshotId = UUID.randomUUID().toString()
                     val snapshotDir = File(config.snapshotStoragePath)
                     snapshotDir.mkdirs()
@@ -175,11 +163,11 @@ fun Route.syncRoutes(
                                 it[deviceId] = principal.deviceId
                                 it[atSequence] = meta.atSequence
                                 it[keyEpoch] = meta.keyEpoch
-                                it[sizeBytes] = meta.sizeBytes
+                                it[Snapshots.sizeBytes] = sizeBytes
                                 it[sha256Hash] = meta.sha256
                                 it[signature] = meta.signature
                                 it[filePath] = snapshotFile.absolutePath
-                                it[createdAt] = LocalDateTime.now(ZoneOffset.UTC)
+                                it[createdAt] = now
                             }
                         }
                     } catch (e: Exception) {
@@ -192,15 +180,9 @@ fun Route.syncRoutes(
 
                     call.respond(
                         HttpStatusCode.Created,
-                        SnapshotResponse(
+                        UploadSnapshotResponse(
                             snapshotId = snapshotId,
-                            deviceId = principal.deviceId,
                             atSequence = meta.atSequence,
-                            keyEpoch = meta.keyEpoch,
-                            sizeBytes = meta.sizeBytes,
-                            sha256 = meta.sha256,
-                            signature = meta.signature,
-                            createdAt = meta.createdAt,
                         )
                     )
                 }
@@ -210,8 +192,7 @@ fun Route.syncRoutes(
             rateLimit(RateLimitName("general")) {
                 get("/snapshots/latest") {
                     val principal = call.devicePrincipal()
-                    val bucketId = call.parameters["id"]
-                        ?: throw ApiException(400, "INVALID_REQUEST", "Missing bucket id")
+                    val bucketId = ValidationUtil.requireUuidPathParam(call, "id", "bucket id")
 
                     dbQuery { BucketService.requireBucketAccess(bucketId, principal.deviceId) }
 
@@ -251,8 +232,8 @@ fun Route.syncRoutes(
     webSocket("/buckets/{id}/ws") {
         val json = Json { ignoreUnknownKeys = true }
         val bucketId = call.parameters["id"]
-        if (bucketId == null) {
-            close(CloseReason(4000, "Missing bucket id"))
+        if (bucketId == null || !ValidationUtil.isValidUUID(bucketId)) {
+            close(CloseReason(4000, "Missing or invalid bucket id"))
             return@webSocket
         }
 

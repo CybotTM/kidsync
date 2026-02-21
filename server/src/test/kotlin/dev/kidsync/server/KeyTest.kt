@@ -87,34 +87,31 @@ class KeyTest {
     }
 
     @Test
-    fun `upload wrapped DEK with cross-signature`() = testApplication {
+    fun `upload wrapped DEK without cross-signature`() = testApplication {
         application { module(testConfig()) }
         val client = createJsonClient()
 
         val (deviceA, deviceB) = TestHelper.setupTwoDeviceBucket(client)
-
-        // Device A uploads wrapped DEK with cross-signature for verification
-        val crossSig = Base64.getEncoder().encodeToString("cross-signature-data".toByteArray())
 
         val response = client.post("/keys/wrapped") {
             contentType(ContentType.Application.Json)
             header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
             setBody(WrappedKeyRequest(
                 targetDevice = deviceB.deviceId,
-                wrappedDek = "wrapped-dek-with-sig",
+                wrappedDek = "wrapped-dek-no-sig",
                 keyEpoch = 1,
-                crossSignature = crossSig,
             ))
         }
         assertEquals(HttpStatusCode.Created, response.status)
 
-        // Device B retrieves and verifies cross-signature is present
+        // Device B retrieves wrapped DEK
         val getResp = client.get("/keys/wrapped?epoch=1") {
             header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
         }
         assertEquals(HttpStatusCode.OK, getResp.status)
         val body = getResp.body<WrappedKeyResponse>()
-        assertEquals(crossSig, body.crossSignature)
+        assertEquals("wrapped-dek-no-sig", body.wrappedDek)
+        assertEquals(deviceA.deviceId, body.wrappedBy)
     }
 
     @Test
@@ -334,7 +331,7 @@ class KeyTest {
 
         val device = TestHelper.setupDeviceWithBucket(client)
 
-        val response = client.get("/keys/attestations/nonexistent-device-id") {
+        val response = client.get("/keys/attestations/00000000-0000-0000-0000-000000000000") {
             header(HttpHeaders.Authorization, "Bearer ${device.sessionToken}")
         }
 

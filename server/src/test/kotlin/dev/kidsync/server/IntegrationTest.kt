@@ -383,7 +383,7 @@ class IntegrationTest {
         val device = TestHelper.registerDevice(client)
         val authed = TestHelper.authenticateDevice(client, device)
 
-        val response = client.get("/buckets/nonexistent-bucket-id/ops?since=0") {
+        val response = client.get("/buckets/00000000-0000-0000-0000-000000000000/ops?since=0") {
             header(HttpHeaders.Authorization, "Bearer ${authed.sessionToken}")
         }
 

@@ -65,7 +65,6 @@ data class WrappedKeyRequest(
     val targetDevice: String,
     val wrappedDek: String,
     val keyEpoch: Int,
-    val crossSignature: String? = null,
 )
 
 @Serializable
@@ -94,11 +93,8 @@ data class PushTokenRequest(
 
 @Serializable
 data class SnapshotMetadata(
-    val deviceId: String,
     val atSequence: Long,
     val keyEpoch: Int,
-    val sizeBytes: Long,
     val sha256: String,
     val signature: String,
-    val createdAt: String,
 )

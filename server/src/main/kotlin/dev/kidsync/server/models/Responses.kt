@@ -119,7 +119,6 @@ data class WrappedKeyResponse(
     val wrappedDek: String,
     val keyEpoch: Int,
     val wrappedBy: String,
-    val crossSignature: String? = null,
 )
 
 @Serializable
@@ -137,6 +136,12 @@ data class AttestationListResponse(
 )
 
 // ---- Snapshots ----
+
+@Serializable
+data class UploadSnapshotResponse(
+    val snapshotId: String,
+    val atSequence: Long,
+)
 
 @Serializable
 data class SnapshotResponse(

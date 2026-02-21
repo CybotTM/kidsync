@@ -7,6 +7,7 @@ import dev.kidsync.server.plugins.devicePrincipal
 import dev.kidsync.server.services.ApiException
 import dev.kidsync.server.services.BucketService
 import dev.kidsync.server.services.WebSocketManager
+import dev.kidsync.server.util.ValidationUtil
 import io.ktor.http.*
 import io.ktor.server.auth.*
 import io.ktor.server.plugins.ratelimit.*
@@ -36,8 +37,7 @@ fun Route.bucketRoutes(bucketService: BucketService, wsManager: WebSocketManager
                      */
                     delete {
                         val principal = call.devicePrincipal()
-                        val bucketId = call.parameters["id"]
-                            ?: throw ApiException(400, "INVALID_REQUEST", "Missing bucket id")
+                        val bucketId = ValidationUtil.requireUuidPathParam(call, "id", "bucket id")
 
                         bucketService.deleteBucket(bucketId, principal.deviceId)
                         call.respond(HttpStatusCode.NoContent)
@@ -49,8 +49,7 @@ fun Route.bucketRoutes(bucketService: BucketService, wsManager: WebSocketManager
                      */
                     post("/invite") {
                         val principal = call.devicePrincipal()
-                        val bucketId = call.parameters["id"]
-                            ?: throw ApiException(400, "INVALID_REQUEST", "Missing bucket id")
+                        val bucketId = ValidationUtil.requireUuidPathParam(call, "id", "bucket id")
                         val request = call.receive<InviteRequest>()
 
                         if (request.tokenHash.isBlank()) {
@@ -67,8 +66,7 @@ fun Route.bucketRoutes(bucketService: BucketService, wsManager: WebSocketManager
                      */
                     post("/join") {
                         val principal = call.devicePrincipal()
-                        val bucketId = call.parameters["id"]
-                            ?: throw ApiException(400, "INVALID_REQUEST", "Missing bucket id")
+                        val bucketId = ValidationUtil.requireUuidPathParam(call, "id", "bucket id")
                         val request = call.receive<JoinBucketRequest>()
 
                         if (request.inviteToken.isBlank()) {
@@ -97,8 +95,7 @@ fun Route.bucketRoutes(bucketService: BucketService, wsManager: WebSocketManager
                      */
                     get("/devices") {
                         val principal = call.devicePrincipal()
-                        val bucketId = call.parameters["id"]
-                            ?: throw ApiException(400, "INVALID_REQUEST", "Missing bucket id")
+                        val bucketId = ValidationUtil.requireUuidPathParam(call, "id", "bucket id")
 
                         val devices = bucketService.listDevices(bucketId, principal.deviceId)
                         call.respond(HttpStatusCode.OK, devices)
@@ -110,8 +107,7 @@ fun Route.bucketRoutes(bucketService: BucketService, wsManager: WebSocketManager
                      */
                     delete("/devices/me") {
                         val principal = call.devicePrincipal()
-                        val bucketId = call.parameters["id"]
-                            ?: throw ApiException(400, "INVALID_REQUEST", "Missing bucket id")
+                        val bucketId = ValidationUtil.requireUuidPathParam(call, "id", "bucket id")
 
                         bucketService.selfRevoke(bucketId, principal.deviceId)
                         call.respond(HttpStatusCode.NoContent)
