@@ -1,0 +1,205 @@
+#!/usr/bin/env bash
+#
+# KidSync pre-commit hook
+#
+# Install: git config core.hooksPath .githooks
+#
+# This hook runs quick checks before each commit:
+#   1. Server compilation check (if server/ files changed and gradlew is available)
+#   2. Android settings.gradle.kts syntax validation (if android/ files changed)
+#   3. Secrets detection in staged files
+#   4. Large file warning (>1MB)
+#
+# To bypass in emergencies: git commit --no-verify
+
+set -euo pipefail
+
+RED='\033[0;31m'
+YELLOW='\033[0;33m'
+GREEN='\033[0;32m'
+NC='\033[0m' # No Color
+
+ERRORS=0
+WARNINGS=0
+
+error() {
+    echo -e "${RED}ERROR:${NC} $1"
+    ERRORS=$((ERRORS + 1))
+}
+
+warn() {
+    echo -e "${YELLOW}WARNING:${NC} $1"
+    WARNINGS=$((WARNINGS + 1))
+}
+
+info() {
+    echo -e "${GREEN}>>>${NC} $1"
+}
+
+# Get list of staged files (added, copied, modified, renamed)
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACMR 2>/dev/null || true)
+
+if [ -z "$STAGED_FILES" ]; then
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# 1. Server: compile check if server/ files changed
+# ---------------------------------------------------------------------------
+SERVER_FILES=$(echo "$STAGED_FILES" | grep '^server/' || true)
+if [ -n "$SERVER_FILES" ]; then
+    info "Server files changed - checking compilation..."
+    if [ -x "server/gradlew" ]; then
+        if ! (cd server && ./gradlew compileKotlin --no-daemon -q 2>&1); then
+            error "Server compilation failed. Fix errors before committing."
+        else
+            info "Server compilation OK."
+        fi
+    else
+        info "server/gradlew not found or not executable - skipping compilation check."
+        info "(This is fine if you only use Docker for server development.)"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# 2. Android: validate settings.gradle.kts syntax if android/ files changed
+# ---------------------------------------------------------------------------
+ANDROID_FILES=$(echo "$STAGED_FILES" | grep '^android/' || true)
+if [ -n "$ANDROID_FILES" ]; then
+    info "Android files changed - running basic checks..."
+
+    SETTINGS_FILE="android/settings.gradle.kts"
+    if [ -f "$SETTINGS_FILE" ]; then
+        # Check for the known Gradle 9.x incompatibility: dependencyResolution vs dependencyResolutionManagement
+        if grep -q 'dependencyResolution\b' "$SETTINGS_FILE" 2>/dev/null && \
+           ! grep -q 'dependencyResolutionManagement' "$SETTINGS_FILE" 2>/dev/null; then
+            error "$SETTINGS_FILE: Uses 'dependencyResolution' which is removed in Gradle 9.x."
+            error "  Change to 'dependencyResolutionManagement'."
+        fi
+
+        # Check for basic syntax issues: unmatched braces
+        OPEN_BRACES=$(grep -o '{' "$SETTINGS_FILE" | wc -l)
+        CLOSE_BRACES=$(grep -o '}' "$SETTINGS_FILE" | wc -l)
+        if [ "$OPEN_BRACES" -ne "$CLOSE_BRACES" ]; then
+            error "$SETTINGS_FILE: Unmatched braces (open=$OPEN_BRACES, close=$CLOSE_BRACES)."
+        fi
+
+        # Check required elements are present
+        if ! grep -q 'pluginManagement' "$SETTINGS_FILE" 2>/dev/null; then
+            warn "$SETTINGS_FILE: Missing 'pluginManagement' block."
+        fi
+        if ! grep -q "include(" "$SETTINGS_FILE" 2>/dev/null; then
+            warn "$SETTINGS_FILE: No 'include()' directives found."
+        fi
+
+        info "Android settings check OK."
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# 3. Secrets detection in staged files
+# ---------------------------------------------------------------------------
+info "Scanning for potential secrets..."
+
+# Patterns that strongly suggest secrets. We only scan text files via staged content.
+# Using git show :0:file to read staged version (not working tree).
+SECRET_PATTERNS=(
+    # API keys and tokens (generic)
+    'AKIA[0-9A-Z]{16}'                          # AWS Access Key ID
+    '-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----'  # Private keys
+    '-----BEGIN PGP PRIVATE KEY BLOCK-----'      # PGP private keys
+    # Generic high-entropy secret assignments
+    '["\x27]sk-[a-zA-Z0-9]{20,}'                 # OpenAI-style API keys
+    '["\x27]ghp_[a-zA-Z0-9]{36}'                 # GitHub personal access tokens
+    '["\x27]gho_[a-zA-Z0-9]{36}'                 # GitHub OAuth tokens
+    '["\x27]github_pat_[a-zA-Z0-9]{22}_[a-zA-Z0-9]{59}'  # GitHub fine-grained tokens
+    'xox[baprs]-[0-9a-zA-Z\-]+'                  # Slack tokens
+)
+
+# Also check for common secret variable patterns with actual values
+SECRET_VAR_PATTERNS=(
+    '(password|passwd|secret|token|api_key|apikey|api-key|private_key|access_key)\s*[:=]\s*["\x27][^"\x27]{8,}'
+)
+
+SECRETS_FOUND=0
+for file in $STAGED_FILES; do
+    # Skip binary files, lock files, and known safe patterns
+    case "$file" in
+        *.lock|*.png|*.jpg|*.jpeg|*.gif|*.ico|*.woff|*.woff2|*.ttf|*.eot|*.pdf|*.zip|*.jar|*.aar|*.apk)
+            continue
+            ;;
+        *.example|*.template|*.sample|.env.example)
+            continue
+            ;;
+    esac
+
+    # Get staged file content
+    CONTENT=$(git show ":0:$file" 2>/dev/null || true)
+    if [ -z "$CONTENT" ]; then
+        continue
+    fi
+
+    for pattern in "${SECRET_PATTERNS[@]}"; do
+        MATCHES=$(echo "$CONTENT" | grep -nEi "$pattern" 2>/dev/null || true)
+        if [ -n "$MATCHES" ]; then
+            error "Potential secret found in $file:"
+            echo "$MATCHES" | head -3 | while IFS= read -r line; do
+                echo "  $line"
+            done
+            SECRETS_FOUND=1
+        fi
+    done
+
+    for pattern in "${SECRET_VAR_PATTERNS[@]}"; do
+        MATCHES=$(echo "$CONTENT" | grep -nEi "$pattern" 2>/dev/null || true)
+        if [ -n "$MATCHES" ]; then
+            # Exclude common false positives
+            FILTERED=$(echo "$MATCHES" | grep -viE '(placeholder|example|changeme|your[_-]|xxx|todo|fixme|dummy|test|mock|fake|sample)' || true)
+            if [ -n "$FILTERED" ]; then
+                warn "Possible secret assignment in $file:"
+                echo "$FILTERED" | head -3 | while IFS= read -r line; do
+                    echo "  $line"
+                done
+            fi
+        fi
+    done
+done
+
+if [ "$SECRETS_FOUND" -eq 0 ]; then
+    info "No secrets detected."
+fi
+
+# ---------------------------------------------------------------------------
+# 4. Large file warning (>1MB)
+# ---------------------------------------------------------------------------
+info "Checking for large files..."
+LARGE_FILES_FOUND=0
+for file in $STAGED_FILES; do
+    if [ -f "$file" ]; then
+        FILE_SIZE=$(wc -c < "$file" 2>/dev/null || echo 0)
+        if [ "$FILE_SIZE" -gt 1048576 ]; then
+            SIZE_MB=$(echo "scale=1; $FILE_SIZE / 1048576" | bc 2>/dev/null || echo "?")
+            warn "Large file: $file (${SIZE_MB}MB). Consider using Git LFS."
+            LARGE_FILES_FOUND=1
+        fi
+    fi
+done
+if [ "$LARGE_FILES_FOUND" -eq 0 ]; then
+    info "No large files."
+fi
+
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
+echo ""
+if [ "$ERRORS" -gt 0 ]; then
+    echo -e "${RED}Pre-commit check failed with $ERRORS error(s) and $WARNINGS warning(s).${NC}"
+    echo "Fix the errors above or use 'git commit --no-verify' to bypass."
+    exit 1
+fi
+
+if [ "$WARNINGS" -gt 0 ]; then
+    echo -e "${YELLOW}Pre-commit check passed with $WARNINGS warning(s).${NC}"
+fi
+
+exit 0
