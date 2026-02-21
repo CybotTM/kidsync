@@ -44,6 +44,11 @@ class TinkKeyManager @Inject constructor(
 
     // ─── Device Identity ────────────────────────────────────────────────────────
 
+    // SEC3-A-05: The seed is stored as a Base64-encoded JVM String in EncryptedSharedPreferences.
+    // JVM Strings are immutable and cannot be explicitly zeroed from memory. This is a systemic
+    // JVM limitation: the String may persist in the heap until garbage collected. The underlying
+    // ByteArray returned here CAN be zeroed by callers, but the intermediate String representation
+    // in SharedPreferences and Base64 encoding remains outside our control.
     override suspend fun getSigningKeyPair(): Pair<ByteArray, ByteArray>? {
         val seedBase64 = encryptedPrefs.getString(PREF_SIGNING_SEED, null) ?: return null
         val publicKeyBase64 = encryptedPrefs.getString(PREF_SIGNING_PUBLIC_KEY, null) ?: return null
@@ -216,12 +221,13 @@ class TinkKeyManager @Inject constructor(
     }
 
     override suspend fun fetchAndStoreWrappedDeks(bucketId: String) {
+        var dek: ByteArray? = null
         try {
             val wrappedKey = apiService.getWrappedDek()
             val encryptionKeyPair = getEncryptionKeyPair()
             val deviceId = getDeviceId() ?: return
 
-            val dek = cryptoManager.unwrapDek(
+            dek = cryptoManager.unwrapDek(
                 wrappedDek = wrappedKey.wrappedDek,
                 devicePrivateKey = encryptionKeyPair.private,
                 deviceId = deviceId,
@@ -234,6 +240,9 @@ class TinkKeyManager @Inject constructor(
             if (com.kidsync.app.BuildConfig.DEBUG) {
                 android.util.Log.d("TinkKeyManager", "DEK fetch error details", e)
             }
+        } finally {
+            // SEC3-A-13: Zero DEK after storing
+            dek?.zeroOut()
         }
     }
 
@@ -265,9 +274,15 @@ class TinkKeyManager @Inject constructor(
         }
 
         val deksMap = mutableMapOf<String, String>()
+        val dekBytesList = mutableListOf<ByteArray>()
         for (epoch in epochs) {
             val dek = getDek(bucketId, epoch) ?: continue
+            dekBytesList.add(dek)
             deksMap[epoch.toString()] = encoder.encodeToString(dek)
+            // SEC3-A-15: Zero each DEK ByteArray after encoding to Base64.
+            // Note: the Base64-encoded JVM String in deksMap cannot be zeroed due to JVM
+            // String immutability. This is a systemic JVM limitation.
+            dek.zeroOut()
         }
 
         if (deksMap.isEmpty()) {
@@ -329,20 +344,23 @@ class TinkKeyManager @Inject constructor(
         val nonce = data.sliceArray(0 until 12)
         val encrypted = data.sliceArray(12 until data.size)
 
+        var decrypted: ByteArray? = null
+        var seed: ByteArray? = null
+        val dekBytesList = mutableListOf<ByteArray>()
         try {
             val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
             val keySpec = javax.crypto.spec.SecretKeySpec(recoveryKey, "AES")
             val gcmSpec = javax.crypto.spec.GCMParameterSpec(128, nonce)
             cipher.init(javax.crypto.Cipher.DECRYPT_MODE, keySpec, gcmSpec)
             cipher.updateAAD("recovery".toByteArray())
-            val decrypted = cipher.doFinal(encrypted)
+            decrypted = cipher.doFinal(encrypted)
 
             // Parse JSON blob
             val blobJson = org.json.JSONObject(String(decrypted, Charsets.UTF_8))
 
             // Restore device seed
             val seedBase64 = blobJson.getString("seed")
-            val seed = decoder.decode(seedBase64)
+            seed = decoder.decode(seedBase64)
             storeSeed(seed)
 
             // Restore all epoch DEKs
@@ -351,12 +369,16 @@ class TinkKeyManager @Inject constructor(
             for (epochStr in deksObj.keys()) {
                 val epoch = epochStr.toInt()
                 val dekBytes = decoder.decode(deksObj.getString(epochStr))
+                dekBytesList.add(dekBytes)
                 storeDek(bucketId, epoch, dekBytes)
                 if (epoch > maxEpoch) maxEpoch = epoch
             }
         } finally {
-            // SEC-A-02: Zero sensitive key material
+            // SEC3-A-14: Zero all sensitive byte arrays after use
             recoveryKey.zeroOut()
+            decrypted?.zeroOut()
+            seed?.zeroOut()
+            dekBytesList.forEach { it.zeroOut() }
         }
     }
 
@@ -420,16 +442,16 @@ class TinkKeyManager @Inject constructor(
     }
 
     override suspend fun storeSeed(seed: ByteArray) {
-        // Store seed directly
+        // Derive the public key from the seed
+        val (publicKey, _) = deriveSigningKeyPair(seed)
+
+        // SEC3-A-08: Use a single SharedPreferences.Editor with commit() for atomic
+        // seed + public key writes. Two separate apply() calls risk partial writes
+        // if the process is killed between them, leaving inconsistent state.
         encryptedPrefs.edit()
             .putString(PREF_SIGNING_SEED, Base64.getEncoder().encodeToString(seed))
-            .apply()
-
-        // Derive and store the public key
-        val (publicKey, _) = deriveSigningKeyPair(seed)
-        encryptedPrefs.edit()
             .putString(PREF_SIGNING_PUBLIC_KEY, Base64.getEncoder().encodeToString(publicKey))
-            .apply()
+            .commit()
     }
 
     override suspend fun getSeed(): ByteArray {

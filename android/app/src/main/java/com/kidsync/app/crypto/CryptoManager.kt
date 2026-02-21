@@ -62,8 +62,13 @@ interface CryptoManager {
      *
      * Uses the standard crypto_sign_ed25519_sk_to_curve25519 conversion.
      *
+     * **SEC3-A-07: CALLER MUST zero the returned array after use.** The returned ByteArray
+     * contains sensitive X25519 private key material. Callers are responsible for calling
+     * `Arrays.fill(result, 0.toByte())` or `result.zeroOut()` in a finally block once the
+     * key is no longer needed, to minimize the window of key exposure in memory.
+     *
      * @param ed25519PrivateKey The 32-byte Ed25519 private key seed
-     * @return The 32-byte X25519 private key
+     * @return The 32-byte X25519 private key (caller must zero after use)
      */
     fun ed25519PrivateToX25519(ed25519PrivateKey: ByteArray): ByteArray
 

@@ -67,7 +67,7 @@ fun PairingScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val clipboardManager = LocalClipboardManager.current
 
-    // SEC-C1: Prevent screenshots while invite token is visible
+    // SEC-C1, SEC3-A-19: Prevent screenshots while invite token is visible
     val context = LocalContext.current
     DisposableEffect(Unit) {
         val window = (context as? Activity)?.window

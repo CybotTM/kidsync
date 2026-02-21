@@ -19,6 +19,14 @@ import javax.inject.Named
  *
  * Session tokens are stored in EncryptedSharedPreferences to prevent extraction
  * from device backups or root access.
+ *
+ * TODO(SEC3-A-21): Implement an OkHttp Authenticator (TokenAuthenticator) to handle
+ * 401 responses with automatic re-authentication via challenge-response. This would
+ * transparently retry failed requests after obtaining a new session token, avoiding
+ * the need for callers to handle 401s explicitly. Implementation requires injecting
+ * AuthRepository or KeyManager + ApiService (careful to avoid circular dependencies
+ * with Hilt). Consider using OkHttp's `Authenticator` interface which is specifically
+ * designed for this purpose.
  */
 class AuthInterceptor @Inject constructor(
     @Named("encrypted_prefs") private val prefs: SharedPreferences

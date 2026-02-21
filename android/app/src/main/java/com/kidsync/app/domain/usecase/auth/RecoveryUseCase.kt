@@ -3,6 +3,7 @@ package com.kidsync.app.domain.usecase.auth
 import com.kidsync.app.crypto.CryptoManager
 import com.kidsync.app.crypto.KeyManager
 import com.kidsync.app.crypto.RecoveryKeyGenerator
+import java.util.Arrays
 import javax.inject.Inject
 
 /**
@@ -37,12 +38,15 @@ class RecoveryUseCase @Inject constructor(
         bucketId: String,
         passphrase: String = ""
     ): Result<List<String>> {
+        var entropy: ByteArray? = null
+        var recoveryKey: ByteArray? = null
         return try {
-            val (mnemonic, entropy) = recoveryKeyGenerator.generateMnemonic()
+            val (mnemonic, generatedEntropy) = recoveryKeyGenerator.generateMnemonic()
+            entropy = generatedEntropy
 
             // Derive recovery key via HKDF(entropy || passphrase)
-            val recoveryKey = recoveryKeyGenerator.deriveRecoveryKey(
-                entropy = entropy,
+            recoveryKey = recoveryKeyGenerator.deriveRecoveryKey(
+                entropy = generatedEntropy,
                 passphrase = passphrase
             )
 
@@ -52,6 +56,10 @@ class RecoveryUseCase @Inject constructor(
             Result.success(mnemonic)
         } catch (e: Exception) {
             Result.failure(e)
+        } finally {
+            // SEC3-A-06: Zero entropy and recovery key after use
+            entropy?.let { Arrays.fill(it, 0.toByte()) }
+            recoveryKey?.let { Arrays.fill(it, 0.toByte()) }
         }
     }
 
@@ -67,9 +75,11 @@ class RecoveryUseCase @Inject constructor(
         bucketId: String,
         passphrase: String = ""
     ): Result<Unit> {
+        var entropy: ByteArray? = null
+        var recoveryKey: ByteArray? = null
         return try {
-            val entropy = recoveryKeyGenerator.mnemonicToEntropy(mnemonic)
-            val recoveryKey = recoveryKeyGenerator.deriveRecoveryKey(
+            entropy = recoveryKeyGenerator.mnemonicToEntropy(mnemonic)
+            recoveryKey = recoveryKeyGenerator.deriveRecoveryKey(
                 entropy = entropy,
                 passphrase = passphrase
             )
@@ -79,6 +89,10 @@ class RecoveryUseCase @Inject constructor(
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
+        } finally {
+            // SEC3-A-06: Zero entropy and recovery key after use
+            entropy?.let { Arrays.fill(it, 0.toByte()) }
+            recoveryKey?.let { Arrays.fill(it, 0.toByte()) }
         }
     }
 }

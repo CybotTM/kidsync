@@ -11,6 +11,7 @@ import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.security.MessageDigest
 import java.time.Instant
+import java.util.Arrays
 import java.util.UUID
 import javax.inject.Inject
 
@@ -53,52 +54,61 @@ class SnapshotUseCase @Inject constructor(
             val dek = keyManager.getDek(bucketId, currentEpoch)
                 ?: return Result.failure(IllegalStateException("No DEK for epoch $currentEpoch"))
 
-            // 1. Compute state hash from all materialized entities
-            val stateHash = computeStateHash()
+            // SEC3-A-03: Track seed separately so we can zero it in finally
+            var seed: ByteArray? = null
+            try {
+                // 1. Compute state hash from all materialized entities
+                val stateHash = computeStateHash()
 
-            // 2. Build snapshot content as JSON
-            val snapshotId = UUID.randomUUID().toString()
-            val snapshotContent = buildJsonObject {
-                put("snapshotId", JsonPrimitive(snapshotId))
-                put("deviceId", JsonPrimitive(deviceId))
-                put("bucketId", JsonPrimitive(bucketId))
-                put("lastGlobalSequence", JsonPrimitive(syncState.lastGlobalSequence))
-                put("stateHash", JsonPrimitive(stateHash))
-                put("timestamp", JsonPrimitive(Instant.now().toString()))
-            }.toString()
+                // 2. Build snapshot content as JSON
+                val snapshotId = UUID.randomUUID().toString()
+                val snapshotContent = buildJsonObject {
+                    put("snapshotId", JsonPrimitive(snapshotId))
+                    put("deviceId", JsonPrimitive(deviceId))
+                    put("bucketId", JsonPrimitive(bucketId))
+                    put("lastGlobalSequence", JsonPrimitive(syncState.lastGlobalSequence))
+                    put("stateHash", JsonPrimitive(stateHash))
+                    put("timestamp", JsonPrimitive(Instant.now().toString()))
+                }.toString()
 
-            // 3. Encrypt with AES-256-GCM using current DEK
-            val aad = CryptoManager.buildPayloadAad(bucketId = bucketId, deviceId = deviceId)
-            val encryptedBlob = cryptoManager.encryptPayload(
-                plaintext = snapshotContent,
-                dek = dek,
-                aad = aad
-            )
+                // 3. Encrypt with AES-256-GCM using current DEK
+                val aad = CryptoManager.buildPayloadAad(bucketId = bucketId, deviceId = deviceId)
+                val encryptedBlob = cryptoManager.encryptPayload(
+                    plaintext = snapshotContent,
+                    dek = dek,
+                    aad = aad
+                )
 
-            // 4. Sign the encrypted blob with Ed25519
-            val (_, seed) = keyManager.getOrCreateSigningKeyPair()
-            val encryptedBytes = encryptedBlob.toByteArray(Charsets.UTF_8)
-            val signature = cryptoManager.signEd25519(encryptedBytes, seed)
-            val signatureBase64 = java.util.Base64.getEncoder().encodeToString(signature)
+                // 4. Sign the encrypted blob with Ed25519
+                val (_, signingPrivateKey) = keyManager.getOrCreateSigningKeyPair()
+                seed = signingPrivateKey
+                val encryptedBytes = encryptedBlob.toByteArray(Charsets.UTF_8)
+                val signature = cryptoManager.signEd25519(encryptedBytes, signingPrivateKey)
+                val signatureBase64 = java.util.Base64.getEncoder().encodeToString(signature)
 
-            // 5. Build metadata JSON
-            val metadata = buildJsonObject {
-                put("keyEpoch", JsonPrimitive(currentEpoch))
-                put("atSequence", JsonPrimitive(syncState.lastGlobalSequence))
-                put("stateHash", JsonPrimitive(stateHash))
-                put("signature", JsonPrimitive(signatureBase64))
-            }.toString()
+                // 5. Build metadata JSON
+                val metadata = buildJsonObject {
+                    put("keyEpoch", JsonPrimitive(currentEpoch))
+                    put("atSequence", JsonPrimitive(syncState.lastGlobalSequence))
+                    put("stateHash", JsonPrimitive(stateHash))
+                    put("signature", JsonPrimitive(signatureBase64))
+                }.toString()
 
-            // 6. Upload via multipart POST /buckets/{id}/snapshots
-            val metadataBody = metadata.toRequestBody("application/json".toMediaType())
-            val snapshotBody = encryptedBytes.toRequestBody("application/octet-stream".toMediaType())
-            val snapshotPart = MultipartBody.Part.createFormData(
-                "snapshot", "snapshot.bin", snapshotBody
-            )
+                // 6. Upload via multipart POST /buckets/{id}/snapshots
+                val metadataBody = metadata.toRequestBody("application/json".toMediaType())
+                val snapshotBody = encryptedBytes.toRequestBody("application/octet-stream".toMediaType())
+                val snapshotPart = MultipartBody.Part.createFormData(
+                    "snapshot", "snapshot.bin", snapshotBody
+                )
 
-            apiService.uploadSnapshot(bucketId, metadataBody, snapshotPart)
+                apiService.uploadSnapshot(bucketId, metadataBody, snapshotPart)
 
-            Result.success(stateHash)
+                Result.success(stateHash)
+            } finally {
+                // SEC3-A-03: Zero DEK and signing seed after use
+                Arrays.fill(dek, 0.toByte())
+                seed?.let { Arrays.fill(it, 0.toByte()) }
+            }
         } catch (e: Exception) {
             Result.failure(e)
         }

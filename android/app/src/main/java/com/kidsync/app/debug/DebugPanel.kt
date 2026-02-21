@@ -1,5 +1,6 @@
 package com.kidsync.app.debug
 
+import com.kidsync.app.BuildConfig
 import com.kidsync.app.crypto.KeyManager
 import com.kidsync.app.data.local.dao.OpLogDao
 import com.kidsync.app.data.local.dao.SyncStateDao
@@ -9,6 +10,10 @@ import javax.inject.Inject
 /**
  * Debug information provider for development and troubleshooting.
  * Collects diagnostic data without exposing sensitive keys or plaintext.
+ *
+ * SEC3-A-23: All public methods are gated behind BuildConfig.DEBUG to ensure
+ * debug functionality is not available in release builds. The methods return
+ * empty/stub data when called in release mode as a defense-in-depth measure.
  */
 class DebugPanel @Inject constructor(
     private val keyManager: KeyManager,
@@ -45,6 +50,21 @@ class DebugPanel @Inject constructor(
     )
 
     suspend fun collectDebugInfo(bucketId: String): DebugInfo {
+        // SEC3-A-23: Gate debug functionality behind BuildConfig.DEBUG
+        if (!BuildConfig.DEBUG) {
+            return DebugInfo(
+                deviceId = null,
+                currentEpoch = null,
+                availableEpochs = emptyList(),
+                lastSyncTimestamp = null,
+                lastGlobalSequence = null,
+                pendingOpsCount = 0,
+                totalOpsCount = 0,
+                serverCheckpointHash = null,
+                buildInfo = BuildInfo(buildType = "release")
+            )
+        }
+
         val deviceId = try {
             keyManager.getDeviceId()
         } catch (_: Exception) {
@@ -93,6 +113,18 @@ class DebugPanel @Inject constructor(
     }
 
     suspend fun collectSyncDiagnostics(bucketId: String): SyncDiagnostics {
+        // SEC3-A-23: Gate debug functionality behind BuildConfig.DEBUG
+        if (!BuildConfig.DEBUG) {
+            return SyncDiagnostics(
+                bucketId = bucketId,
+                lastSyncTimestamp = null,
+                lastGlobalSequence = null,
+                pendingOpsCount = 0,
+                hashChainIntact = true,
+                serverCheckpointMatch = null
+            )
+        }
+
         val syncState = syncStateDao.getSyncState(bucketId)
         val pendingCount = opLogDao.getPendingOpsCount(bucketId)
 
@@ -109,6 +141,9 @@ class DebugPanel @Inject constructor(
     }
 
     fun formatDebugInfo(info: DebugInfo): String {
+        // SEC3-A-23: Gate debug formatting behind BuildConfig.DEBUG
+        if (!BuildConfig.DEBUG) return "Debug info not available in release builds"
+
         return buildString {
             appendLine("=== KidSync Debug Info ===")
             appendLine("Device ID: ${info.deviceId ?: "NOT SET"}")

@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.Arrays
 import java.util.Base64
 import javax.inject.Inject
 
@@ -91,46 +92,51 @@ class AuthViewModel @Inject constructor(
             try {
                 // Step 1: Generate keypairs via getOrCreateSigningKeyPair
                 val (signingPublicKey, signingPrivateKey) = keyManager.getOrCreateSigningKeyPair()
-                val encryptionKeyPair = keyManager.getEncryptionKeyPair()
+                try {
+                    val encryptionKeyPair = keyManager.getEncryptionKeyPair()
 
-                _uiState.update {
-                    it.copy(
-                        isKeyGenerated = true,
-                        setupProgress = "Registering with server..."
+                    _uiState.update {
+                        it.copy(
+                            isKeyGenerated = true,
+                            setupProgress = "Registering with server..."
+                        )
+                    }
+
+                    // Step 2: Register with server (POST /register)
+                    val signingKeyBase64 = Base64.getEncoder().encodeToString(signingPublicKey)
+                    val encryptionKeyBase64 = Base64.getEncoder().encodeToString(
+                        encryptionKeyPair.public.encoded
                     )
-                }
 
-                // Step 2: Register with server (POST /register)
-                val signingKeyBase64 = Base64.getEncoder().encodeToString(signingPublicKey)
-                val encryptionKeyBase64 = Base64.getEncoder().encodeToString(
-                    encryptionKeyPair.public.encoded
-                )
+                    val registerResult = authRepository.register(signingKeyBase64, encryptionKeyBase64)
+                    val deviceId = registerResult.getOrThrow()
+                    keyManager.storeDeviceId(deviceId)
 
-                val registerResult = authRepository.register(signingKeyBase64, encryptionKeyBase64)
-                val deviceId = registerResult.getOrThrow()
-                keyManager.storeDeviceId(deviceId)
+                    _uiState.update {
+                        it.copy(
+                            isRegisteredWithServer = true,
+                            deviceId = deviceId,
+                            setupProgress = "Authenticating..."
+                        )
+                    }
 
-                _uiState.update {
-                    it.copy(
-                        isRegisteredWithServer = true,
-                        deviceId = deviceId,
-                        setupProgress = "Authenticating..."
-                    )
-                }
+                    // Step 3: Authenticate via challenge-response
+                    val authResult = authRepository.authenticate()
+                    authResult.getOrThrow()
 
-                // Step 3: Authenticate via challenge-response
-                val authResult = authRepository.authenticate()
-                authResult.getOrThrow()
+                    val fingerprint = keyManager.getSigningKeyFingerprint()
 
-                val fingerprint = keyManager.getSigningKeyFingerprint()
-
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        isAuthenticated = true,
-                        keyFingerprint = fingerprint,
-                        setupProgress = ""
-                    )
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            isAuthenticated = true,
+                            keyFingerprint = fingerprint,
+                            setupProgress = ""
+                        )
+                    }
+                } finally {
+                    // SEC3-A-16: Zero signing private key after use
+                    Arrays.fill(signingPrivateKey, 0.toByte())
                 }
             } catch (e: Exception) {
                 _uiState.update {

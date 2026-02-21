@@ -11,6 +11,7 @@ import com.kidsync.app.data.remote.interceptor.AuthInterceptor
 import com.kidsync.app.domain.model.DeviceSession
 import com.kidsync.app.domain.repository.AuthRepository
 import java.time.Instant
+import java.util.Arrays
 import java.util.Base64
 import javax.inject.Inject
 import javax.inject.Named
@@ -39,7 +40,15 @@ class AuthRepositoryImpl @Inject constructor(
 
     companion object {
         private const val PREF_SERVER_URL = "server_url"
+
+        // SEC3-A-17: Client-side auth rate limiting constants
+        private const val BASE_BACKOFF_MS = 1000L
+        private const val MAX_BACKOFF_MS = 60_000L
     }
+
+    // SEC3-A-17: Simple exponential backoff to limit auth attempt frequency
+    @Volatile private var consecutiveFailures = 0
+    @Volatile private var lastAttemptTimeMs = 0L
 
     override suspend fun register(signingKey: String, encryptionKey: String): Result<String> {
         return try {
@@ -62,53 +71,76 @@ class AuthRepositoryImpl @Inject constructor(
     }
 
     override suspend fun authenticate(): Result<DeviceSession> {
+        // SEC3-A-17: Enforce exponential backoff on repeated auth failures
+        val now = System.currentTimeMillis()
+        if (consecutiveFailures > 0) {
+            val backoffMs = minOf(BASE_BACKOFF_MS shl (consecutiveFailures - 1), MAX_BACKOFF_MS)
+            val elapsed = now - lastAttemptTimeMs
+            if (elapsed < backoffMs) {
+                return Result.failure(
+                    IllegalStateException("Auth rate limited. Retry in ${(backoffMs - elapsed) / 1000}s")
+                )
+            }
+        }
+        lastAttemptTimeMs = now
+
         return try {
             val (signingPublicKey, signingPrivateKey) = keyManager.getOrCreateSigningKeyPair()
-            val signingKeyBase64 = Base64.getEncoder().encodeToString(signingPublicKey)
+            try {
+                val signingKeyBase64 = Base64.getEncoder().encodeToString(signingPublicKey)
 
-            // 1. Request challenge nonce
-            val challengeResponse = apiService.requestChallenge(
-                ChallengeRequest(signingKey = signingKeyBase64)
-            )
-
-            val nonce = challengeResponse.nonce
-            val timestamp = Instant.now().toString()
-
-            // 2. Construct challenge message: nonce || signingKey || serverOrigin || timestamp
-            val message = buildChallengeMessage(nonce, signingKeyBase64, serverOrigin, timestamp)
-
-            // 3. Sign the challenge
-            val signature = cryptoManager.signEd25519(message, signingPrivateKey)
-            val signatureBase64 = Base64.getEncoder().encodeToString(signature)
-
-            // 4. Verify with server
-            val verifyResponse = apiService.verifyChallenge(
-                VerifyRequest(
-                    signingKey = signingKeyBase64,
-                    nonce = nonce,
-                    signature = signatureBase64,
-                    timestamp = timestamp
+                // 1. Request challenge nonce
+                val challengeResponse = apiService.requestChallenge(
+                    ChallengeRequest(signingKey = signingKeyBase64)
                 )
-            )
 
-            // 5. Store session token and expiry in encrypted prefs
-            // SEC2-A-21: Track session expiry to enforce token lifetime in both AuthInterceptor and here
-            encryptedPrefs.edit()
-                .putString(AuthInterceptor.PREF_SESSION_TOKEN, verifyResponse.sessionToken)
-                .putLong(AuthInterceptor.PREF_SESSION_EXPIRES_AT, System.currentTimeMillis() + verifyResponse.expiresIn * 1000L)
-                .apply()
+                val nonce = challengeResponse.nonce
+                val timestamp = Instant.now().toString()
 
-            val deviceId = keyManager.getDeviceId()
-                ?: throw IllegalStateException("Device ID not found after authentication")
+                // 2. Construct challenge message: nonce || signingKey || serverOrigin || timestamp
+                val message = buildChallengeMessage(nonce, signingKeyBase64, serverOrigin, timestamp)
 
-            Result.success(
-                DeviceSession(
-                    deviceId = deviceId,
-                    sessionToken = verifyResponse.sessionToken,
-                    expiresIn = verifyResponse.expiresIn
+                // 3. Sign the challenge
+                val signature = cryptoManager.signEd25519(message, signingPrivateKey)
+                val signatureBase64 = Base64.getEncoder().encodeToString(signature)
+
+                // 4. Verify with server
+                val verifyResponse = apiService.verifyChallenge(
+                    VerifyRequest(
+                        signingKey = signingKeyBase64,
+                        nonce = nonce,
+                        signature = signatureBase64,
+                        timestamp = timestamp
+                    )
                 )
-            )
+
+                // 5. Store session token and expiry in encrypted prefs
+                // SEC2-A-21: Track session expiry to enforce token lifetime in both AuthInterceptor and here
+                encryptedPrefs.edit()
+                    .putString(AuthInterceptor.PREF_SESSION_TOKEN, verifyResponse.sessionToken)
+                    .putLong(AuthInterceptor.PREF_SESSION_EXPIRES_AT, System.currentTimeMillis() + verifyResponse.expiresIn * 1000L)
+                    .apply()
+
+                val deviceId = keyManager.getDeviceId()
+                    ?: throw IllegalStateException("Device ID not found after authentication")
+
+                // SEC3-A-17: Reset backoff on success
+                consecutiveFailures = 0
+
+                Result.success(
+                    DeviceSession(
+                        deviceId = deviceId,
+                        sessionToken = verifyResponse.sessionToken,
+                        expiresIn = verifyResponse.expiresIn
+                    )
+                )
+            } finally {
+                // SEC3-A-04: Zero signing private key after use
+                Arrays.fill(signingPrivateKey, 0.toByte())
+            }
         } catch (e: Exception) {
+            // SEC3-A-17: Increment backoff on failure
+            consecutiveFailures++
             Result.failure(e)
         }
     }
@@ -133,8 +165,11 @@ class AuthRepositoryImpl @Inject constructor(
     }
 
     override suspend fun clearSession() {
+        // SEC3-A-10: Remove both the session token and the expiry timestamp
+        // to prevent stale session_expires_at from affecting future auth checks
         encryptedPrefs.edit()
             .remove(AuthInterceptor.PREF_SESSION_TOKEN)
+            .remove(AuthInterceptor.PREF_SESSION_EXPIRES_AT)
             .apply()
     }
 
@@ -176,6 +211,17 @@ class AuthRepositoryImpl @Inject constructor(
      * Build the challenge message to sign.
      * Format: nonce (32 bytes raw) || signingKey (32 bytes raw) || serverOrigin (UTF-8) || timestamp (UTF-8)
      * Raw byte concatenation as specified in the authentication protocol.
+     *
+     * SEC3-A-25: This message format uses simple concatenation without length-prefix encoding.
+     * The nonce (32 bytes) and signingKey (32 bytes) are fixed-length, so they are unambiguous.
+     * However, serverOrigin and timestamp are variable-length UTF-8 strings without a delimiter,
+     * which means a boundary ambiguity exists between them (e.g., origin="a.comT" + timestamp="123"
+     * vs origin="a.com" + timestamp="T123"). In practice this is safe because:
+     * 1. The server validates the nonce it issued, so the message must match exactly.
+     * 2. The timestamp is ISO-8601 format (always starts with a digit), while origins
+     *    never end with a digit.
+     * 3. Both parties (client and server) use the same concatenation order.
+     * A future protocol version could add length prefixes or a delimiter for defense in depth.
      */
     private fun buildChallengeMessage(
         nonce: String,

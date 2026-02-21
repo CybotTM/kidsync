@@ -8,6 +8,7 @@ import com.kidsync.app.domain.repository.SyncRepository
 import com.kidsync.app.domain.usecase.custody.ConflictResolver
 import kotlinx.serialization.json.Json
 import java.time.Instant
+import java.util.Arrays
 import javax.inject.Inject
 
 /**
@@ -51,27 +52,32 @@ class SyncOpsUseCase @Inject constructor(
                 val dek = keyManager.getDek(bucketId, op.keyEpoch)
                     ?: return Result.failure(IllegalStateException("Missing DEK for epoch ${op.keyEpoch}"))
 
-                // Build AAD from the envelope fields
-                val aad = buildPayloadAad(
-                    bucketId = bucketId,
-                    deviceId = op.deviceId
-                )
-                val decryptedJson = cryptoManager.decryptPayload(
-                    encryptedPayload = op.encryptedPayload,
-                    dek = dek,
-                    aad = aad
-                )
+                try {
+                    // Build AAD from the envelope fields
+                    val aad = buildPayloadAad(
+                        bucketId = bucketId,
+                        deviceId = op.deviceId
+                    )
+                    val decryptedJson = cryptoManager.decryptPayload(
+                        encryptedPayload = op.encryptedPayload,
+                        dek = dek,
+                        aad = aad
+                    )
 
-                // Parse the decrypted payload to extract metadata
-                val decryptedPayload = json.decodeFromString<DecryptedPayload>(decryptedJson)
+                    // Parse the decrypted payload to extract metadata
+                    val decryptedPayload = json.decodeFromString<DecryptedPayload>(decryptedJson)
 
-                // Update deviceSequence from decrypted payload (pullOps sets it to 0
-                // because the real value is inside the encrypted payload)
-                val opWithSequence = op.copy(deviceSequence = decryptedPayload.deviceSequence)
+                    // Update deviceSequence from decrypted payload (pullOps sets it to 0
+                    // because the real value is inside the encrypted payload)
+                    val opWithSequence = op.copy(deviceSequence = decryptedPayload.deviceSequence)
 
-                val applyResult = opApplier.apply(opWithSequence, decryptedPayload)
-                if (applyResult.conflictResolved) conflictsResolved++
-                appliedCount++
+                    val applyResult = opApplier.apply(opWithSequence, decryptedPayload)
+                    if (applyResult.conflictResolved) conflictsResolved++
+                    appliedCount++
+                } finally {
+                    // SEC3-A-02: Zero DEK after use in each iteration
+                    Arrays.fill(dek, 0.toByte())
+                }
             }
 
             // 4. Update sync state

@@ -20,9 +20,6 @@
     kotlinx.serialization.KSerializer serializer(...);
 }
 
-# Tink
--keep class com.google.crypto.tink.** { *; }
-
 # SQLCipher
 -keep class net.zetetic.database.** { *; }
 
@@ -52,7 +49,15 @@
 # OkHttp
 -dontwarn okhttp3.internal.platform.**
 -dontwarn org.conscrypt.**
--dontwarn org.bouncycastle.**
+# SEC3-A-24: BouncyCastle dontwarn is required because OkHttp references BouncyCastle's
+# org.bouncycastle.jsse classes for TLS provider detection (BouncyCastleJsseProvider),
+# which are not included in our bcprov-jdk18on dependency (they are in bctls-jdk18on).
+# OkHttp gracefully falls back to the platform TLS provider when these classes are absent.
+# This is safe because we use BouncyCastle only for Ed25519/X25519 primitives, not TLS.
+# Specifically suppressed packages: jsse (TLS provider), est (certificate enrollment),
+# and other optional modules referenced by OkHttp platform detection.
+-dontwarn org.bouncycastle.jsse.**
+-dontwarn org.bouncycastle.est.**
 -dontwarn org.openjsse.**
 -keep class okhttp3.internal.platform.** { *; }
 

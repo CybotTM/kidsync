@@ -8,6 +8,8 @@
     <cloud-backup>
         <exclude domain="sharedpref" path="kidsync_secure_prefs.xml" />
         <exclude domain="sharedpref" path="kidsync_db_key.xml" />
+        <!-- SEC3-A-20: Exclude AndroidX Security Crypto encrypted prefs keyset files -->
+        <exclude domain="sharedpref" path="__androidx_security_crypto_encrypted_prefs__" />
         <exclude domain="database" path="kidsync_db" />
         <exclude domain="database" path="kidsync_db-shm" />
         <exclude domain="database" path="kidsync_db-wal" />
@@ -16,6 +18,8 @@
     <device-transfer>
         <exclude domain="sharedpref" path="kidsync_secure_prefs.xml" />
         <exclude domain="sharedpref" path="kidsync_db_key.xml" />
+        <!-- SEC3-A-20: Exclude AndroidX Security Crypto encrypted prefs keyset files -->
+        <exclude domain="sharedpref" path="__androidx_security_crypto_encrypted_prefs__" />
         <exclude domain="database" path="kidsync_db" />
         <exclude domain="database" path="kidsync_db-shm" />
         <exclude domain="database" path="kidsync_db-wal" />

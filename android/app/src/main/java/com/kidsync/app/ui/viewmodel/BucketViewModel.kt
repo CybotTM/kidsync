@@ -211,7 +211,16 @@ class BucketViewModel @Inject constructor(
                     return@launch
                 }
                 try {
-                    java.net.URL(payload.s)
+                    val parsedUrl = java.net.URL(payload.s)
+                    // SEC3-A-18: Warn when connecting to non-kidsync.app domains.
+                    // TODO: For production, enforce a domain whitelist (e.g., only *.kidsync.app)
+                    // and reject connections to non-whitelisted domains entirely.
+                    if (!parsedUrl.host.endsWith("kidsync.app")) {
+                        android.util.Log.w(
+                            "BucketViewModel",
+                            "SEC3-A-18: QR code contains non-kidsync.app server URL: ${parsedUrl.host}"
+                        )
+                    }
                 } catch (_: Exception) {
                     _uiState.update { it.copy(isLoading = false, error = "Malformed server URL") }
                     return@launch
@@ -328,7 +337,10 @@ class BucketViewModel @Inject constructor(
                         isWaitingForDek = false,
                         currentBucket = bucketInfo,
                         buckets = it.buckets + bucketInfo,
-                        joinProgress = ""
+                        joinProgress = "",
+                        // SEC3-A-11: Clear invite token after pairing completes
+                        inviteToken = null,
+                        qrPayload = null
                     )
                 }
             } catch (e: Exception) {
@@ -405,6 +417,21 @@ class BucketViewModel @Inject constructor(
                     )
                 }
             }
+        }
+    }
+
+    /**
+     * SEC3-A-11: Clear the invite token from ViewModel state after pairing completes.
+     * The invite token is sensitive and should not linger in memory once pairing is done.
+     * Call this after the pairing flow (joinBucket) completes successfully.
+     */
+    fun clearInviteToken() {
+        _uiState.update {
+            it.copy(
+                inviteToken = null,
+                qrPayload = null,
+                isInviteCopied = false
+            )
         }
     }
 

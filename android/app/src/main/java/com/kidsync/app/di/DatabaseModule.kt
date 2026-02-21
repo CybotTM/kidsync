@@ -45,6 +45,10 @@ object DatabaseModule {
         }
         val passphrase = dbPassphrase.toByteArray()
         val factory = SupportOpenHelperFactory(passphrase)
+        // SEC3-A-22: Zero the passphrase ByteArray after creating the factory.
+        // SupportOpenHelperFactory copies the passphrase internally, so our copy
+        // can be safely cleared to reduce the window of exposure in memory.
+        java.util.Arrays.fill(passphrase, 0.toByte())
 
         val builder = Room.databaseBuilder(
             context,
