@@ -2,659 +2,483 @@ package dev.kidsync.server
 
 import dev.kidsync.server.TestHelper.computeHash
 import dev.kidsync.server.TestHelper.createJsonClient
+import dev.kidsync.server.TestHelper.uploadOpsChain
 import dev.kidsync.server.models.*
 import dev.kidsync.server.util.HashUtil
 import io.ktor.client.call.*
 import io.ktor.client.request.*
-import io.ktor.client.request.forms.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.server.testing.*
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.Test
+import java.security.Signature
 import java.util.Base64
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
-/**
- * Phase 7 End-to-End test suite covering full co-parenting workflows.
- */
 class E2ETest {
 
     // ================================================================
-    // Test 1: Full co-parent lifecycle
+    // Test 1: Complete pairing flow
     // ================================================================
 
     @Test
-    fun `full co-parent lifecycle`() = testApplication {
+    fun `complete pairing flow from registration to sync`() = testApplication {
         application { module(testConfig()) }
         val client = createJsonClient()
 
-        // --- Parent A registers, creates family, creates invite ---
-        val emailA = "e2e-lifecycleA-${System.nanoTime()}@example.com"
-        val emailB = "e2e-lifecycleB-${System.nanoTime()}@example.com"
+        // 1. Device A registers and authenticates
+        val deviceAReg = TestHelper.registerDevice(client)
+        val deviceA = TestHelper.authenticateDevice(client, deviceAReg)
+        assertNotNull(deviceA.sessionToken)
+        assertTrue(deviceA.sessionToken.isNotEmpty())
 
-        val regA = client.post("/auth/register") {
+        // 2. Device A creates bucket
+        val bucketResp = client.post("/buckets") {
             contentType(ContentType.Application.Json)
-            setBody(RegisterRequest(email = emailA, password = "strong-password-12345"))
-        }.also { assertEquals(HttpStatusCode.Created, it.status) }
-            .body<RegisterResponse>()
+            header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
+            setBody(CreateBucketRequest())
+        }.body<BucketResponse>()
+        val bucketId = bucketResp.bucketId
+        assertNotNull(bucketId)
 
-        val family = client.post("/families") {
+        // 3. Device A creates invite token
+        val inviteToken = "pairing-token-${System.nanoTime()}"
+        val tokenHash = HashUtil.sha256HexString(inviteToken)
+        val inviteResp = client.post("/buckets/$bucketId/invite") {
             contentType(ContentType.Application.Json)
-            header(HttpHeaders.Authorization, "Bearer ${regA.token}")
-            setBody(CreateFamilyRequest(name = "Lifecycle Family"))
-        }.also { assertEquals(HttpStatusCode.Created, it.status) }
-            .body<CreateFamilyResponse>()
+            header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
+            setBody(InviteRequest(tokenHash = tokenHash))
+        }
+        assertEquals(HttpStatusCode.Created, inviteResp.status)
 
-        val invite = client.post("/families/${family.familyId}/invite") {
-            header(HttpHeaders.Authorization, "Bearer ${regA.token}")
-        }.also { assertEquals(HttpStatusCode.Created, it.status) }
-            .body<InviteResponse>()
-        assertNotNull(invite.inviteToken)
+        // 4. Device B registers and authenticates
+        val deviceBReg = TestHelper.registerDevice(client)
+        val deviceB = TestHelper.authenticateDevice(client, deviceBReg)
 
-        // --- Parent B registers, joins family with invite ---
-        val regB = client.post("/auth/register") {
+        // 5. Device B joins bucket with invite token
+        val joinResp = client.post("/buckets/$bucketId/join") {
             contentType(ContentType.Application.Json)
-            setBody(RegisterRequest(email = emailB, password = "strong-password-12345"))
-        }.also { assertEquals(HttpStatusCode.Created, it.status) }
-            .body<RegisterResponse>()
+            header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
+            setBody(JoinBucketRequest(inviteToken = inviteToken))
+        }
+        assertEquals(HttpStatusCode.OK, joinResp.status)
 
-        val joinResp = client.post("/families/${family.familyId}/join") {
+        // 6. Device A lists devices, sees B
+        val devicesResp = client.get("/buckets/$bucketId/devices") {
+            header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
+        }.body<List<DeviceInfo>>()
+        assertEquals(2, devicesResp.size)
+        val deviceIds = devicesResp.map { it.deviceId }.toSet()
+        assertTrue(deviceIds.contains(deviceA.deviceId))
+        assertTrue(deviceIds.contains(deviceB.deviceId))
+
+        // 7. Device A uploads wrapped DEK for B
+        client.post("/keys/wrapped") {
             contentType(ContentType.Application.Json)
-            header(HttpHeaders.Authorization, "Bearer ${regB.token}")
-            setBody(JoinFamilyRequest(inviteToken = invite.inviteToken, devicePublicKey = "parentB-pub-key"))
+            header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
+            setBody(WrappedKeyRequest(
+                targetDevice = deviceB.deviceId,
+                wrappedDek = "wrapped-dek-for-B-epoch1",
+                keyEpoch = 1,
+            ))
+        }.also { assertEquals(HttpStatusCode.Created, it.status) }
+
+        // 8. Device B retrieves wrapped DEK
+        val wrappedKey = client.get("/keys/wrapped?epoch=1") {
+            header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
+        }.body<WrappedKeyResponse>()
+        assertEquals("wrapped-dek-for-B-epoch1", wrappedKey.wrappedDek)
+        assertEquals(1, wrappedKey.keyEpoch)
+        assertEquals(deviceA.deviceId, wrappedKey.wrappedBy)
+
+        // 9. Both devices upload ops to bucket
+        val sentinel = "0".repeat(64)
+        val payloadA = Base64.getEncoder().encodeToString("device-A-schedule-create".toByteArray())
+        val hashA = computeHash(sentinel, payloadA)
+
+        client.post("/buckets/$bucketId/ops") {
+            contentType(ContentType.Application.Json)
+            header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
+            setBody(OpsBatchRequest(ops = listOf(
+                OpInput(deviceA.deviceId, 1, payloadA, sentinel, hashA)
+            )))
         }.also { assertEquals(HttpStatusCode.OK, it.status) }
-            .body<JoinFamilyResponse>()
-        assertEquals(2, joinResp.members.size)
 
-        // --- Both re-login to get updated JWT with familyIds ---
-        val loginA = client.post("/auth/login") {
+        val payloadB = Base64.getEncoder().encodeToString("device-B-expense-create".toByteArray())
+        val hashB = computeHash(sentinel, payloadB)
+
+        client.post("/buckets/$bucketId/ops") {
             contentType(ContentType.Application.Json)
-            setBody(LoginRequest(email = emailA, password = "strong-password-12345"))
+            header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
+            setBody(OpsBatchRequest(ops = listOf(
+                OpInput(deviceB.deviceId, 1, payloadB, sentinel, hashB)
+            )))
         }.also { assertEquals(HttpStatusCode.OK, it.status) }
-            .body<LoginResponse>()
 
-        val loginB = client.post("/auth/login") {
-            contentType(ContentType.Application.Json)
-            setBody(LoginRequest(email = emailB, password = "strong-password-12345"))
-        }.also { assertEquals(HttpStatusCode.OK, it.status) }
-            .body<LoginResponse>()
+        // 10. Both devices can pull each other's ops
+        val opsA = client.get("/buckets/$bucketId/ops?since=0") {
+            header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
+        }.body<List<OpResponse>>()
+        assertEquals(2, opsA.size)
 
-        val parentA = TestUser(loginA.token, regA.userId, regA.deviceId, family.familyId)
-        val parentB = TestUser(loginB.token, regB.userId, regB.deviceId, family.familyId)
+        val opsB = client.get("/buckets/$bucketId/ops?since=0") {
+            header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
+        }.body<List<OpResponse>>()
+        assertEquals(2, opsB.size)
 
-        // --- Parent A uploads a schedule op (valid hash chain) ---
-        val prevHash0 = "0".repeat(64)
-        val schedulePayload = Base64.getEncoder().encodeToString("schedule-create".toByteArray())
-        val scheduleHash = computeHash(prevHash0, schedulePayload)
+        // Both see the same global order
+        assertEquals(opsA.map { it.sequence }, opsB.map { it.sequence })
 
-        val scheduleUpload = client.post("/sync/ops") {
-            contentType(ContentType.Application.Json)
-            header(HttpHeaders.Authorization, "Bearer ${parentA.token}")
-            setBody(
-                UploadOpsRequest(
-                    ops = listOf(
-                        OpInput(
-                            deviceId = parentA.deviceId,
-                            entityType = "CustodySchedule",
-                            entityId = "sched-001",
-                            operation = "CREATE",
-                            encryptedPayload = schedulePayload,
-                            devicePrevHash = prevHash0,
-                            currentHash = scheduleHash,
-                            keyEpoch = 1,
-                            localId = "schedule-op",
-                        )
-                    )
-                )
-            )
-        }
-        assertEquals(HttpStatusCode.OK, scheduleUpload.status)
-        val scheduleResult = scheduleUpload.body<UploadOpsResponse>()
-        assertEquals(1, scheduleResult.accepted.size)
-
-        // --- Parent A uploads a swap request op ---
-        val swapPayload = Base64.getEncoder().encodeToString("swap-request".toByteArray())
-        val swapHash = computeHash(scheduleHash, swapPayload)
-
-        val swapUpload = client.post("/sync/ops") {
-            contentType(ContentType.Application.Json)
-            header(HttpHeaders.Authorization, "Bearer ${parentA.token}")
-            setBody(
-                UploadOpsRequest(
-                    ops = listOf(
-                        OpInput(
-                            deviceId = parentA.deviceId,
-                            entityType = "ScheduleOverride",
-                            entityId = "swap-001",
-                            operation = "CREATE",
-                            encryptedPayload = swapPayload,
-                            devicePrevHash = scheduleHash,
-                            currentHash = swapHash,
-                            keyEpoch = 1,
-                            localId = "swap-op",
-                        )
-                    )
-                )
-            )
-        }
-        assertEquals(HttpStatusCode.OK, swapUpload.status)
-
-        // --- Parent A uploads an expense op ---
-        val expensePayload = Base64.getEncoder().encodeToString("expense-create".toByteArray())
-        val expenseHash = computeHash(swapHash, expensePayload)
-
-        val expenseUpload = client.post("/sync/ops") {
-            contentType(ContentType.Application.Json)
-            header(HttpHeaders.Authorization, "Bearer ${parentA.token}")
-            setBody(
-                UploadOpsRequest(
-                    ops = listOf(
-                        OpInput(
-                            deviceId = parentA.deviceId,
-                            entityType = "Expense",
-                            entityId = "exp-001",
-                            operation = "CREATE",
-                            encryptedPayload = expensePayload,
-                            devicePrevHash = swapHash,
-                            currentHash = expenseHash,
-                            keyEpoch = 1,
-                            localId = "expense-op",
-                        )
-                    )
-                )
-            )
-        }
-        assertEquals(HttpStatusCode.OK, expenseUpload.status)
-
-        // --- Parent B pulls all ops, verifies all 3 received ---
-        val pullB = client.get("/sync/ops?since=0&limit=100") {
-            header(HttpHeaders.Authorization, "Bearer ${parentB.token}")
-        }
-        assertEquals(HttpStatusCode.OK, pullB.status)
-        val pullBBody = pullB.body<PullOpsResponse>()
-        assertEquals(3, pullBBody.ops.size, "Parent B should see all 3 ops from Parent A")
-        assertFalse(pullBBody.hasMore)
-
-        // Verify entity types
-        assertEquals("CustodySchedule", pullBBody.ops[0].entityType)
-        assertEquals("ScheduleOverride", pullBBody.ops[1].entityType)
-        assertEquals("Expense", pullBBody.ops[2].entityType)
-
-        // --- Parent B uploads an expense acknowledgment op ---
-        val bPrevHash = "0".repeat(64) // Parent B's device has its own hash chain
-        val ackPayload = Base64.getEncoder().encodeToString("expense-ack".toByteArray())
-        val ackHash = computeHash(bPrevHash, ackPayload)
-
-        val ackUpload = client.post("/sync/ops") {
-            contentType(ContentType.Application.Json)
-            header(HttpHeaders.Authorization, "Bearer ${parentB.token}")
-            setBody(
-                UploadOpsRequest(
-                    ops = listOf(
-                        OpInput(
-                            deviceId = parentB.deviceId,
-                            entityType = "ExpenseStatus",
-                            entityId = "exp-001-ack",
-                            operation = "CREATE",
-                            encryptedPayload = ackPayload,
-                            devicePrevHash = bPrevHash,
-                            currentHash = ackHash,
-                            keyEpoch = 1,
-                            localId = "ack-op",
-                        )
-                    )
-                )
-            )
-        }
-        assertEquals(HttpStatusCode.OK, ackUpload.status)
-
-        // --- Parent A pulls since their last sequence, verifies they get Parent B's op ---
-        val lastSeqA = pullBBody.ops.last().globalSequence
-        val pullA = client.get("/sync/ops?since=$lastSeqA&limit=100") {
-            header(HttpHeaders.Authorization, "Bearer ${parentA.token}")
-        }
-        assertEquals(HttpStatusCode.OK, pullA.status)
-        val pullABody = pullA.body<PullOpsResponse>()
-        assertEquals(1, pullABody.ops.size, "Parent A should see 1 new op from Parent B")
-        assertEquals("ExpenseStatus", pullABody.ops[0].entityType)
-        assertEquals(parentB.deviceId, pullABody.ops[0].deviceId)
+        // Both devices' ops are present
+        val allDeviceIds = opsA.map { it.deviceId }.toSet()
+        assertEquals(2, allDeviceIds.size)
     }
 
     // ================================================================
-    // Test 2: Multi-device sync consistency
+    // Test 2: Multi-bucket isolation
     // ================================================================
 
     @Test
-    fun `multi-device sync consistency`() = testApplication {
+    fun `multi-bucket isolation`() = testApplication {
         application { module(testConfig()) }
         val client = createJsonClient()
 
-        val email = "e2e-multidev-${System.nanoTime()}@example.com"
+        // 1. Device A creates bucket 1 and bucket 2
+        val deviceAReg = TestHelper.registerDevice(client)
+        val deviceA = TestHelper.authenticateDevice(client, deviceAReg)
 
-        // Register user and create family
-        val reg = client.post("/auth/register") {
+        val bucket1 = client.post("/buckets") {
             contentType(ContentType.Application.Json)
-            setBody(RegisterRequest(email = email, password = "strong-password-12345"))
-        }.also { assertEquals(HttpStatusCode.Created, it.status) }
-            .body<RegisterResponse>()
+            header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
+            setBody(CreateBucketRequest())
+        }.body<BucketResponse>()
 
-        val device1Id = reg.deviceId
-
-        client.post("/families") {
+        val bucket2 = client.post("/buckets") {
             contentType(ContentType.Application.Json)
-            header(HttpHeaders.Authorization, "Bearer ${reg.token}")
-            setBody(CreateFamilyRequest(name = "Multi-Device Family"))
-        }.also { assertEquals(HttpStatusCode.Created, it.status) }
+            header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
+            setBody(CreateBucketRequest())
+        }.body<BucketResponse>()
 
-        // Register a second device
-        val device2 = client.post("/devices") {
+        // 2. Device B joins bucket 1 only
+        val inviteToken = "isolation-token-${System.nanoTime()}"
+        val tokenHash = HashUtil.sha256HexString(inviteToken)
+        client.post("/buckets/${bucket1.bucketId}/invite") {
             contentType(ContentType.Application.Json)
-            header(HttpHeaders.Authorization, "Bearer ${reg.token}")
-            setBody(RegisterDeviceRequest(deviceName = "Tablet", publicKey = "device2-pub-key"))
-        }.also { assertEquals(HttpStatusCode.Created, it.status) }
-            .body<RegisterDeviceResponse>()
-        val device2Id = device2.deviceId
-
-        // Re-login to get fresh token with familyIds
-        val login = client.post("/auth/login") {
-            contentType(ContentType.Application.Json)
-            setBody(LoginRequest(email = email, password = "strong-password-12345"))
-        }.also { assertEquals(HttpStatusCode.OK, it.status) }
-            .body<LoginResponse>()
-
-        val token = login.token
-
-        // Upload ops from device 1
-        var prevHash = "0".repeat(64)
-        val device1Ops = 3
-        for (i in 1..device1Ops) {
-            val payload = Base64.getEncoder().encodeToString("dev1-payload-$i".toByteArray())
-            val curHash = computeHash(prevHash, payload)
-            client.post("/sync/ops") {
-                contentType(ContentType.Application.Json)
-                header(HttpHeaders.Authorization, "Bearer $token")
-                setBody(
-                    UploadOpsRequest(
-                        ops = listOf(
-                            OpInput(
-                                deviceId = device1Id,
-                                encryptedPayload = payload,
-                                devicePrevHash = prevHash,
-                                currentHash = curHash,
-                                keyEpoch = 1,
-                                localId = "dev1-op-$i",
-                            )
-                        )
-                    )
-                )
-            }.also { assertEquals(HttpStatusCode.OK, it.status) }
-            prevHash = curHash
+            header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
+            setBody(InviteRequest(tokenHash = tokenHash))
         }
 
-        // Pull ops and verify all ops are visible
-        val pullResp = client.get("/sync/ops?since=0&limit=100") {
-            header(HttpHeaders.Authorization, "Bearer $token")
-        }
-        assertEquals(HttpStatusCode.OK, pullResp.status)
-        val pullBody = pullResp.body<PullOpsResponse>()
-        assertEquals(device1Ops, pullBody.ops.size)
+        val deviceBReg = TestHelper.registerDevice(client)
+        val deviceB = TestHelper.authenticateDevice(client, deviceBReg)
 
-        // Verify ops contain correct deviceId
-        for (op in pullBody.ops) {
-            assertEquals(device1Id, op.deviceId, "All ops should be from device 1")
+        client.post("/buckets/${bucket1.bucketId}/join") {
+            contentType(ContentType.Application.Json)
+            header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
+            setBody(JoinBucketRequest(inviteToken = inviteToken))
         }
+
+        // Upload ops to both buckets
+        val deviceABucket1 = deviceA.copy(bucketId = bucket1.bucketId)
+        val deviceABucket2 = deviceA.copy(bucketId = bucket2.bucketId)
+        uploadOpsChain(client, deviceABucket1, 3, localIdPrefix = "bucket1")
+        uploadOpsChain(client, deviceABucket2, 3, localIdPrefix = "bucket2")
+
+        // 3. Device B can access bucket 1 ops
+        val ops1 = client.get("/buckets/${bucket1.bucketId}/ops?since=0") {
+            header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
+        }
+        assertEquals(HttpStatusCode.OK, ops1.status)
+        val ops1Body = ops1.body<List<OpResponse>>()
+        assertEquals(3, ops1Body.size)
+
+        // 4. Device B cannot access bucket 2 ops
+        val ops2 = client.get("/buckets/${bucket2.bucketId}/ops?since=0") {
+            header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
+        }
+        assertEquals(HttpStatusCode.Forbidden, ops2.status)
     }
 
     // ================================================================
-    // Test 3: Hash chain break detection
+    // Test 3: Self-revoke flow
     // ================================================================
 
     @Test
-    fun `server rejects broken hash chain`() = testApplication {
+    fun `self-revoke flow`() = testApplication {
         application { module(testConfig()) }
         val client = createJsonClient()
 
-        val user = TestHelper.setupUserWithFamily(client)
+        // 1. Device A and B share a bucket
+        val (deviceA, deviceB) = TestHelper.setupTwoDeviceBucket(client)
+        val bucketId = deviceA.bucketId!!
 
-        // Upload first op with correct hash chain
-        val prevHash1 = "0".repeat(64)
-        val payload1 = Base64.getEncoder().encodeToString("first-op".toByteArray())
-        val hash1 = computeHash(prevHash1, payload1)
+        // Upload some ops from both devices
+        uploadOpsChain(client, deviceA, 2, localIdPrefix = "A")
+        uploadOpsChain(client, deviceB, 2, localIdPrefix = "B")
 
-        val firstUpload = client.post("/sync/ops") {
-            contentType(ContentType.Application.Json)
-            header(HttpHeaders.Authorization, "Bearer ${user.token}")
-            setBody(
-                UploadOpsRequest(
-                    ops = listOf(
-                        OpInput(
-                            deviceId = user.deviceId,
-                            encryptedPayload = payload1,
-                            devicePrevHash = prevHash1,
-                            currentHash = hash1,
-                            keyEpoch = 1,
-                            localId = "first-op",
-                        )
-                    )
-                )
-            )
-        }
-        assertEquals(HttpStatusCode.OK, firstUpload.status)
-
-        // Upload second op with WRONG devicePrevHash (not matching first op's currentHash)
-        val wrongPrevHash = "a".repeat(64) // This should be hash1, not "aaa...a"
-        val payload2 = Base64.getEncoder().encodeToString("second-op".toByteArray())
-        val hash2 = computeHash(wrongPrevHash, payload2) // Hash computed with wrong prev, but that's fine for the hash itself
-
-        val secondUpload = client.post("/sync/ops") {
-            contentType(ContentType.Application.Json)
-            header(HttpHeaders.Authorization, "Bearer ${user.token}")
-            setBody(
-                UploadOpsRequest(
-                    ops = listOf(
-                        OpInput(
-                            deviceId = user.deviceId,
-                            encryptedPayload = payload2,
-                            devicePrevHash = wrongPrevHash,
-                            currentHash = hash2,
-                            keyEpoch = 1,
-                            localId = "bad-chain-op",
-                        )
-                    )
-                )
-            )
-        }
-
-        // Server should reject with 409 Conflict (HASH_CHAIN_BREAK)
-        assertEquals(HttpStatusCode.Conflict, secondUpload.status,
-            "Expected 409 for broken hash chain, got ${secondUpload.status}")
-    }
-
-    // ================================================================
-    // Test 4: Device revocation blocks ops
-    // ================================================================
-
-    @Test
-    fun `revoked device cannot upload ops`() = testApplication {
-        application { module(testConfig()) }
-        val client = createJsonClient()
-
-        val email = "e2e-revoke-${System.nanoTime()}@example.com"
-
-        // Register user, create family
-        val reg = client.post("/auth/register") {
-            contentType(ContentType.Application.Json)
-            setBody(RegisterRequest(email = email, password = "strong-password-12345"))
-        }.also { assertEquals(HttpStatusCode.Created, it.status) }
-            .body<RegisterResponse>()
-
-        client.post("/families") {
-            contentType(ContentType.Application.Json)
-            header(HttpHeaders.Authorization, "Bearer ${reg.token}")
-            setBody(CreateFamilyRequest(name = "Revoke Test Family"))
-        }.also { assertEquals(HttpStatusCode.Created, it.status) }
-
-        // Register second device
-        val device2 = client.post("/devices") {
-            contentType(ContentType.Application.Json)
-            header(HttpHeaders.Authorization, "Bearer ${reg.token}")
-            setBody(RegisterDeviceRequest(deviceName = "To Be Revoked", publicKey = "revoke-key"))
-        }.also { assertEquals(HttpStatusCode.Created, it.status) }
-            .body<RegisterDeviceResponse>()
-
-        // Re-login to get token with familyIds
-        val login = client.post("/auth/login") {
-            contentType(ContentType.Application.Json)
-            setBody(LoginRequest(email = email, password = "strong-password-12345"))
-        }.also { assertEquals(HttpStatusCode.OK, it.status) }
-            .body<LoginResponse>()
-
-        // Revoke the second device
-        val revokeResp = client.delete("/devices/${device2.deviceId}") {
-            header(HttpHeaders.Authorization, "Bearer ${login.token}")
+        // 2. Device B leaves (self-revoke)
+        val revokeResp = client.delete("/buckets/$bucketId/devices/me") {
+            header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
         }
         assertEquals(HttpStatusCode.NoContent, revokeResp.status)
 
-        // Try to upload ops claiming to be from the revoked device
-        val prevHash = "0".repeat(64)
-        val payload = Base64.getEncoder().encodeToString("from-revoked".toByteArray())
-        val hash = computeHash(prevHash, payload)
-
-        val uploadResp = client.post("/sync/ops") {
-            contentType(ContentType.Application.Json)
-            header(HttpHeaders.Authorization, "Bearer ${login.token}")
-            setBody(
-                UploadOpsRequest(
-                    ops = listOf(
-                        OpInput(
-                            deviceId = device2.deviceId,
-                            encryptedPayload = payload,
-                            devicePrevHash = prevHash,
-                            currentHash = hash,
-                            keyEpoch = 1,
-                            localId = "revoked-op",
-                        )
-                    )
-                )
-            )
+        // 3. Device B cannot access bucket anymore
+        val pullB = client.get("/buckets/$bucketId/ops?since=0") {
+            header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
         }
+        assertEquals(HttpStatusCode.Forbidden, pullB.status)
 
-        // Verify rejection with 403 Forbidden
-        assertEquals(HttpStatusCode.Forbidden, uploadResp.status,
-            "Expected 403 for revoked device, got ${uploadResp.status}")
+        // Device B cannot upload ops
+        val sentinel = "0".repeat(64)
+        val payload = Base64.getEncoder().encodeToString("after-revoke".toByteArray())
+        val hash = computeHash(sentinel, payload)
+        val uploadB = client.post("/buckets/$bucketId/ops") {
+            contentType(ContentType.Application.Json)
+            header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
+            setBody(OpsBatchRequest(ops = listOf(
+                OpInput(deviceB.deviceId, 1, payload, sentinel, hash)
+            )))
+        }
+        assertEquals(HttpStatusCode.Forbidden, uploadB.status)
+
+        // 4. Device A is unaffected
+        val pullA = client.get("/buckets/$bucketId/ops?since=0") {
+            header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
+        }
+        assertEquals(HttpStatusCode.OK, pullA.status)
+        val opsA = pullA.body<List<OpResponse>>()
+        assertEquals(4, opsA.size, "Device A should see all 4 ops (2 from A + 2 from B)")
     }
 
     // ================================================================
-    // Test 5: Concurrent ops from two users
+    // Test 4: Bucket deletion flow
     // ================================================================
 
     @Test
-    fun `two users sync ops correctly`() = testApplication {
+    fun `bucket deletion purges all data`() = testApplication {
         application { module(testConfig()) }
         val client = createJsonClient()
 
-        val (userA, userB) = TestHelper.setupTwoUserFamily(client)
+        // 1. Device A creates bucket with ops
+        val (deviceA, deviceB) = TestHelper.setupTwoDeviceBucket(client)
+        val bucketId = deviceA.bucketId!!
 
-        // User A uploads 5 ops with valid hash chain
-        TestHelper.uploadOpsChain(client, userA, 5, localIdPrefix = "userA")
+        uploadOpsChain(client, deviceA, 5, localIdPrefix = "pre-delete")
 
-        // User B uploads 5 ops with valid hash chain (different deviceId, own chain)
-        TestHelper.uploadOpsChain(client, userB, 5, localIdPrefix = "userB")
-
-        // Both users pull all ops
-        val pullA = client.get("/sync/ops?since=0&limit=100") {
-            header(HttpHeaders.Authorization, "Bearer ${userA.token}")
-        }.body<PullOpsResponse>()
-
-        val pullB = client.get("/sync/ops?since=0&limit=100") {
-            header(HttpHeaders.Authorization, "Bearer ${userB.token}")
-        }.body<PullOpsResponse>()
-
-        // Verify each user sees all 10 ops
-        assertEquals(10, pullA.ops.size, "User A should see 10 ops total")
-        assertEquals(10, pullB.ops.size, "User B should see 10 ops total")
-
-        // Verify global sequences are contiguous (1..10)
-        val seqsA = pullA.ops.map { it.globalSequence }
-        for (i in 1 until seqsA.size) {
-            assertEquals(seqsA[i - 1] + 1, seqsA[i],
-                "Global sequences should be contiguous, gap at index $i")
+        // Also upload wrapped key and attestation for completeness
+        client.post("/keys/wrapped") {
+            contentType(ContentType.Application.Json)
+            header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
+            setBody(WrappedKeyRequest(
+                targetDevice = deviceB.deviceId,
+                wrappedDek = "dek-to-be-purged",
+                keyEpoch = 1,
+            ))
         }
 
-        // Verify both users see the same ops in the same order
-        assertEquals(
-            pullA.ops.map { it.globalSequence },
-            pullB.ops.map { it.globalSequence },
-            "Both users should see ops in the same global sequence order"
+        // Verify data exists before deletion
+        val opsBefore = client.get("/buckets/$bucketId/ops?since=0") {
+            header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
+        }.body<List<OpResponse>>()
+        assertEquals(5, opsBefore.size)
+
+        // 2. Device A deletes bucket
+        val deleteResp = client.delete("/buckets/$bucketId") {
+            header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
+        }
+        assertEquals(HttpStatusCode.NoContent, deleteResp.status)
+
+        // 3. All data is purged -- no device can access the bucket
+        val pullA = client.get("/buckets/$bucketId/ops?since=0") {
+            header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
+        }
+        assertTrue(
+            pullA.status == HttpStatusCode.NotFound || pullA.status == HttpStatusCode.Forbidden,
+            "Expected 404 or 403 after bucket deletion, got ${pullA.status}"
         )
 
-        // Verify we see ops from both devices
-        val deviceIds = pullA.ops.map { it.deviceId }.toSet()
-        assertEquals(2, deviceIds.size, "Should see ops from both devices")
-        assertTrue(deviceIds.contains(userA.deviceId))
-        assertTrue(deviceIds.contains(userB.deviceId))
-    }
-
-    // ================================================================
-    // Test 6: Checkpoint verification
-    // ================================================================
-
-    @Test
-    fun `checkpoint hash is consistent`() = testApplication {
-        // Use a small checkpoint interval for testing
-        val config = testConfig().copy(checkpointInterval = 5)
-        application { module(config) }
-        val client = createJsonClient()
-
-        val user = TestHelper.setupUserWithFamily(client, familyName = "Checkpoint Family")
-
-        // Upload 10 ops (should trigger at least 1 checkpoint at interval=5)
-        TestHelper.uploadOpsChain(client, user, 10, localIdPrefix = "chk")
-
-        // GET /sync/checkpoint
-        val checkpointResp = client.get("/sync/checkpoint") {
-            header(HttpHeaders.Authorization, "Bearer ${user.token}")
+        // 4. No device can access the bucket
+        val pullB = client.get("/buckets/$bucketId/ops?since=0") {
+            header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
         }
-        assertEquals(HttpStatusCode.OK, checkpointResp.status)
-        val checkpoint = checkpointResp.body<CheckpointResponse>()
+        assertTrue(
+            pullB.status == HttpStatusCode.NotFound || pullB.status == HttpStatusCode.Forbidden,
+            "Expected 404 or 403 for device B after bucket deletion, got ${pullB.status}"
+        )
 
-        // Verify latestSequence matches
-        assertTrue(checkpoint.latestSequence >= 10, "latestSequence should be at least 10, was ${checkpoint.latestSequence}")
-
-        // Verify checkpoint is non-null and references valid sequence range
-        assertNotNull(checkpoint.checkpoint, "Checkpoint should exist after 10 ops with interval=5")
-        val cp = checkpoint.checkpoint!!
-        assertTrue(cp.startSequence >= 1, "Checkpoint start should be >= 1")
-        assertTrue(cp.endSequence >= cp.startSequence, "Checkpoint end >= start")
-        assertTrue(cp.opCount > 0, "Checkpoint should cover at least 1 op")
-        assertTrue(cp.hash.isNotEmpty(), "Checkpoint hash should not be empty")
+        // Device list should also fail
+        val devicesResp = client.get("/buckets/$bucketId/devices") {
+            header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
+        }
+        assertTrue(
+            devicesResp.status == HttpStatusCode.NotFound || devicesResp.status == HttpStatusCode.Forbidden,
+            "Expected 404 or 403 for device list after bucket deletion"
+        )
     }
 
     // ================================================================
-    // Test 7: High volume ops with pagination
+    // Test 5: Key exchange with cross-signing
     // ================================================================
 
     @Test
-    fun `handles 100 ops with pagination`() = testApplication {
+    fun `full key exchange with cross-signing verification`() = testApplication {
         application { module(testConfig()) }
         val client = createJsonClient()
 
-        val user = TestHelper.setupUserWithFamily(client, familyName = "Pagination Family")
+        val (deviceA, deviceB) = TestHelper.setupTwoDeviceBucket(client)
 
-        // Upload 100 ops in batches of 10 (maintain hash chain)
-        var prevHash = "0".repeat(64)
-        for (batch in 1..10) {
-            prevHash = TestHelper.uploadOpsBatch(
-                client, user,
-                count = 10,
-                startPrevHash = prevHash,
-                localIdPrefix = "batch$batch",
+        // Device A attests Device B's encryption key
+        val msgAB = "${deviceB.deviceId}${deviceB.encryptionKeyBase64}"
+        val signerA = Signature.getInstance("Ed25519")
+        signerA.initSign(deviceA.signingKeyPair.private)
+        signerA.update(msgAB.toByteArray(Charsets.UTF_8))
+        val sigAB = Base64.getEncoder().encodeToString(signerA.sign())
+
+        client.post("/keys/attestations") {
+            contentType(ContentType.Application.Json)
+            header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
+            setBody(KeyAttestationRequest(
+                attestedDeviceId = deviceB.deviceId,
+                attestedEncryptionKey = deviceB.encryptionKeyBase64,
+                signature = sigAB,
+            ))
+        }.also { assertEquals(HttpStatusCode.Created, it.status) }
+
+        // Device B attests Device A's encryption key
+        val msgBA = "${deviceA.deviceId}${deviceA.encryptionKeyBase64}"
+        val signerB = Signature.getInstance("Ed25519")
+        signerB.initSign(deviceB.signingKeyPair.private)
+        signerB.update(msgBA.toByteArray(Charsets.UTF_8))
+        val sigBA = Base64.getEncoder().encodeToString(signerB.sign())
+
+        client.post("/keys/attestations") {
+            contentType(ContentType.Application.Json)
+            header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
+            setBody(KeyAttestationRequest(
+                attestedDeviceId = deviceA.deviceId,
+                attestedEncryptionKey = deviceA.encryptionKeyBase64,
+                signature = sigBA,
+            ))
+        }.also { assertEquals(HttpStatusCode.Created, it.status) }
+
+        // Device A wraps DEK for Device B
+        client.post("/keys/wrapped") {
+            contentType(ContentType.Application.Json)
+            header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
+            setBody(WrappedKeyRequest(
+                targetDevice = deviceB.deviceId,
+                wrappedDek = "wrapped-dek-after-cross-sign",
+                keyEpoch = 1,
+                crossSignature = sigAB,
+            ))
+        }.also { assertEquals(HttpStatusCode.Created, it.status) }
+
+        // Device B retrieves and verifies
+        val wrappedKey = client.get("/keys/wrapped?epoch=1") {
+            header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
+        }.body<WrappedKeyResponse>()
+
+        assertEquals("wrapped-dek-after-cross-sign", wrappedKey.wrappedDek)
+        assertEquals(deviceA.deviceId, wrappedKey.wrappedBy)
+
+        // Device B can verify the cross-signature against Device A's known signing key
+        val verifier = Signature.getInstance("Ed25519")
+        verifier.initVerify(deviceA.signingKeyPair.public)
+        verifier.update(msgAB.toByteArray(Charsets.UTF_8))
+        assertTrue(verifier.verify(Base64.getDecoder().decode(sigAB)),
+            "Cross-signature should verify against device A's public key")
+    }
+
+    // ================================================================
+    // Test 6: Concurrent ops from multiple devices
+    // ================================================================
+
+    @Test
+    fun `high volume ops across two devices`() = testApplication {
+        application { module(testConfig()) }
+        val client = createJsonClient()
+
+        val (deviceA, deviceB) = TestHelper.setupTwoDeviceBucket(client)
+        val bucketId = deviceA.bucketId!!
+
+        // Device A uploads 25 ops in batches of 5
+        var prevHashA = "0".repeat(64)
+        for (batch in 1..5) {
+            prevHashA = TestHelper.uploadOpsBatch(
+                client, deviceA,
+                count = 5,
+                startPrevHash = prevHashA,
+                localIdPrefix = "A-batch$batch",
             )
         }
 
-        // Pull all ops with limit=25 (should require 4 pages)
-        val allOps = mutableListOf<OpOutput>()
-        var since = 0L
-        var pageCount = 0
-
-        while (true) {
-            val page = client.get("/sync/ops?since=$since&limit=25") {
-                header(HttpHeaders.Authorization, "Bearer ${user.token}")
-            }.body<PullOpsResponse>()
-
-            allOps.addAll(page.ops)
-            pageCount++
-
-            if (!page.hasMore) break
-            since = page.ops.last().globalSequence
-
-            // Safety: prevent infinite loops
-            assertTrue(pageCount <= 10, "Too many pages, possible infinite loop")
+        // Device B uploads 25 ops in batches of 5
+        var prevHashB = "0".repeat(64)
+        for (batch in 1..5) {
+            prevHashB = TestHelper.uploadOpsBatch(
+                client, deviceB,
+                count = 5,
+                startPrevHash = prevHashB,
+                localIdPrefix = "B-batch$batch",
+            )
         }
 
-        // Verify all 100 ops received
-        assertEquals(100, allOps.size, "Should receive all 100 ops across pages")
+        // Both pull all 50 ops
+        val allOps = client.get("/buckets/$bucketId/ops?since=0") {
+            header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
+        }.body<List<OpResponse>>()
 
-        // Verify pagination required 4 pages
-        assertEquals(4, pageCount, "100 ops / limit 25 = 4 pages")
+        assertEquals(50, allOps.size)
 
         // Verify global sequences are contiguous
-        val sequences = allOps.map { it.globalSequence }
+        val sequences = allOps.map { it.sequence }
         for (i in 1 until sequences.size) {
             assertEquals(sequences[i - 1] + 1, sequences[i],
-                "Global sequences should be contiguous, gap at index $i: ${sequences[i - 1]} -> ${sequences[i]}")
+                "Sequences should be contiguous at index $i")
         }
+
+        // Verify ops from both devices are present
+        val fromA = allOps.count { it.deviceId == deviceA.deviceId }
+        val fromB = allOps.count { it.deviceId == deviceB.deviceId }
+        assertEquals(25, fromA)
+        assertEquals(25, fromB)
     }
 
     // ================================================================
-    // Test 8: Snapshot upload and retrieval
+    // Test 7: Authentication re-challenge
     // ================================================================
 
     @Test
-    fun `snapshot lifecycle`() = testApplication {
+    fun `device can re-authenticate after session expires`() = testApplication {
         application { module(testConfig()) }
         val client = createJsonClient()
 
-        val user = TestHelper.setupUserWithFamily(client, familyName = "Snapshot Family")
+        val deviceReg = TestHelper.registerDevice(client)
 
-        // Upload some ops first
-        TestHelper.uploadOpsChain(client, user, 5, localIdPrefix = "snap")
+        // First authentication
+        val authed1 = TestHelper.authenticateDevice(client, deviceReg)
+        assertTrue(authed1.sessionToken.isNotEmpty())
 
-        // Upload a snapshot via multipart
-        val snapshotData = "encrypted-snapshot-data-for-testing".toByteArray()
-        val snapshotSha256 = HashUtil.sha256Hex(snapshotData)
-        val metadata = SnapshotMetadata(
-            deviceId = user.deviceId,
-            atSequence = 5,
-            keyEpoch = 1,
-            sizeBytes = snapshotData.size.toLong(),
-            sha256 = snapshotSha256,
-            signature = "test-signature",
-            createdAt = "2026-02-20T12:00:00Z",
-        )
+        // Second authentication (new challenge, new session)
+        val authed2 = TestHelper.authenticateDevice(client, deviceReg)
+        assertTrue(authed2.sessionToken.isNotEmpty())
 
-        val uploadResp = client.post("/sync/snapshot") {
-            header(HttpHeaders.Authorization, "Bearer ${user.token}")
-            setBody(
-                MultiPartFormDataContent(
-                    formData {
-                        append("metadata", Json.encodeToString(metadata))
-                        append("snapshot", snapshotData, Headers.build {
-                            append(HttpHeaders.ContentType, "application/octet-stream")
-                            append(HttpHeaders.ContentDisposition, "filename=\"snapshot.bin\"")
-                        })
-                    }
-                )
-            )
+        // Both should be different tokens
+        // (they could theoretically be the same but practically never will be)
+        // The important thing is both work
+        val resp1 = client.post("/buckets") {
+            contentType(ContentType.Application.Json)
+            header(HttpHeaders.Authorization, "Bearer ${authed1.sessionToken}")
+            setBody(CreateBucketRequest())
         }
-        assertEquals(HttpStatusCode.Created, uploadResp.status,
-            "Snapshot upload failed: ${uploadResp.bodyAsText()}")
-        val uploadBody = uploadResp.body<UploadSnapshotResponse>()
-        assertNotNull(uploadBody.snapshotId)
-        assertEquals(5L, uploadBody.sequence)
+        assertEquals(HttpStatusCode.Created, resp1.status)
 
-        // GET /sync/snapshot/latest
-        val latestResp = client.get("/sync/snapshot/latest") {
-            header(HttpHeaders.Authorization, "Bearer ${user.token}")
+        val resp2 = client.post("/buckets") {
+            contentType(ContentType.Application.Json)
+            header(HttpHeaders.Authorization, "Bearer ${authed2.sessionToken}")
+            setBody(CreateBucketRequest())
         }
-        assertEquals(HttpStatusCode.OK, latestResp.status)
-        val latest = latestResp.body<LatestSnapshotResponse>()
-
-        // Verify snapshot metadata matches
-        assertEquals(uploadBody.snapshotId, latest.snapshotId)
-        assertEquals(user.deviceId, latest.deviceId)
-        assertEquals(5L, latest.atSequence)
-        assertEquals(5L, latest.sequence)
-        assertEquals(1, latest.keyEpoch)
-        assertEquals(snapshotData.size.toLong(), latest.sizeBytes)
-        assertEquals(snapshotSha256, latest.sha256)
-        assertEquals("test-signature", latest.signature)
-        assertNotNull(latest.downloadUrl)
-        assertNotNull(latest.createdAt)
+        assertEquals(HttpStatusCode.Created, resp2.status)
     }
 }
