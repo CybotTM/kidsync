@@ -69,7 +69,7 @@ interface ApiService {
     suspend fun pullOps(
         @Path("bucketId") bucketId: String,
         @Query("since") since: Long
-    ): List<OpResponse>
+    ): PullOpsResponse
 
     @GET("buckets/{bucketId}/checkpoint")
     suspend fun getCheckpoint(@Path("bucketId") bucketId: String): CheckpointResponse
@@ -80,7 +80,8 @@ interface ApiService {
     @POST("buckets/{bucketId}/blobs")
     suspend fun uploadBlob(
         @Path("bucketId") bucketId: String,
-        @Part file: MultipartBody.Part
+        @Part file: MultipartBody.Part,
+        @Part("sha256") sha256Hash: RequestBody
     ): UploadBlobResponse
 
     @GET("buckets/{bucketId}/blobs/{blobId}")

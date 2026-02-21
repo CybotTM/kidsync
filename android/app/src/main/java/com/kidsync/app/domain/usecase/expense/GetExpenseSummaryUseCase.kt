@@ -18,8 +18,8 @@ class GetExpenseSummaryUseCase @Inject constructor(
 ) {
     suspend operator fun invoke(
         childId: UUID,
-        parentAId: UUID,
-        parentBId: UUID
+        parentAId: String,
+        parentBId: String
     ): Result<ExpenseSummary> {
         return try {
             val expenses = expenseDao.getExpensesForChild(childId)
@@ -34,7 +34,7 @@ class GetExpenseSummaryUseCase @Inject constructor(
                 totalCents += expense.amountCents
                 val ratio = expense.payerResponsibilityRatio
 
-                if (expense.paidByUserId == parentAId) {
+                if (expense.paidByDeviceId == parentAId) {
                     parentAPaid += expense.amountCents
                     // Parent A's responsibility portion
                     parentAResponsible += (expense.amountCents * ratio).toLong()

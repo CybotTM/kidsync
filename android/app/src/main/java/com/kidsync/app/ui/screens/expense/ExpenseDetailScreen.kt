@@ -220,7 +220,7 @@ fun ExpenseDetailScreen(
             DetailRow(
                 icon = Icons.Filled.Person,
                 label = stringResource(R.string.expense_detail_paid_by),
-                value = entity.paidByUserId.toString().take(8) + "..."
+                value = entity.paidByDeviceId.take(8) + "..."
             )
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
@@ -279,7 +279,7 @@ fun ExpenseDetailScreen(
 
             if (selected.statusHistory.isEmpty()) {
                 StatusTimelineEntry(
-                    status = ExpenseStatusType.PENDING,
+                    status = ExpenseStatusType.LOGGED,
                     timestamp = entity.clientTimestamp ?: "",
                     note = null,
                     isLast = true
@@ -288,7 +288,7 @@ fun ExpenseDetailScreen(
                 selected.statusHistory.forEachIndexed { index, statusEntity ->
                     StatusTimelineEntry(
                         status = try { ExpenseStatusType.valueOf(statusEntity.status) }
-                        catch (_: IllegalArgumentException) { ExpenseStatusType.PENDING },
+                        catch (_: IllegalArgumentException) { ExpenseStatusType.LOGGED },
                         timestamp = statusEntity.clientTimestamp,
                         note = statusEntity.note,
                         isLast = index == selected.statusHistory.lastIndex
@@ -299,7 +299,7 @@ fun ExpenseDetailScreen(
             Spacer(modifier = Modifier.height(24.dp))
 
             // Action buttons (only for PENDING status)
-            if (selected.latestStatus == ExpenseStatusType.PENDING) {
+            if (selected.latestStatus == ExpenseStatusType.LOGGED) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -410,7 +410,7 @@ private fun StatusTimelineEntry(
     modifier: Modifier = Modifier
 ) {
     val icon = when (status) {
-        ExpenseStatusType.PENDING -> Icons.Filled.HourglassBottom
+        ExpenseStatusType.LOGGED -> Icons.Filled.HourglassBottom
         ExpenseStatusType.ACKNOWLEDGED -> Icons.Filled.CheckCircle
         ExpenseStatusType.DISPUTED -> Icons.Filled.Report
         ExpenseStatusType.RESOLVED -> Icons.Filled.TaskAlt

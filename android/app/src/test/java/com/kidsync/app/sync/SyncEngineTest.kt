@@ -9,8 +9,8 @@ import com.kidsync.app.domain.usecase.sync.*
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.*
+import kotlinx.serialization.json.Json
 import java.time.Instant
-import java.util.UUID
 
 /**
  * Tests for the SyncOpsUseCase (sync engine).
@@ -30,9 +30,10 @@ class SyncEngineTest : FunSpec({
     val hashChainVerifier = mockk<HashChainVerifier>()
     val conflictResolver = mockk<ConflictResolver>()
     val opApplier = mockk<OpApplier>()
+    val json = Json { ignoreUnknownKeys = true }
 
-    val familyId = UUID.fromString("fam00001-aaaa-bbbb-cccc-dddddddddddd")
-    val deviceId = UUID.fromString("aaaaaaaa-1111-2222-3333-444444444444")
+    val bucketId = "bucket-aaaa-bbbb-cccc-dddddddddddd"
+    val deviceId = "aaaaaaaa-1111-2222-3333-444444444444"
 
     beforeEach {
         clearAllMocks()
@@ -44,20 +45,21 @@ class SyncEngineTest : FunSpec({
         keyManager = keyManager,
         hashChainVerifier = hashChainVerifier,
         conflictResolver = conflictResolver,
-        opApplier = opApplier
+        opApplier = opApplier,
+        json = json
     )
 
     test("sync with no new ops succeeds with zero counts") {
-        coEvery { syncRepository.getSyncState(familyId) } returns SyncState(
-            familyId = familyId,
+        coEvery { syncRepository.getSyncState(bucketId) } returns SyncState(
+            bucketId = bucketId,
             lastGlobalSequence = 10,
             lastSyncTimestamp = Instant.now()
         )
-        coEvery { syncRepository.pullOps(familyId, afterSequence = 10) } returns Result.success(emptyList())
-        coEvery { opApplier.getPendingOps(familyId) } returns emptyList()
+        coEvery { syncRepository.pullOps(bucketId, afterSequence = 10) } returns Result.success(emptyList())
+        coEvery { opApplier.getPendingOps(bucketId) } returns emptyList()
 
         val useCase = createSyncUseCase()
-        val result = useCase(familyId)
+        val result = useCase(bucketId)
 
         result.isSuccess shouldBe true
         val syncResult = result.getOrThrow()
@@ -68,24 +70,24 @@ class SyncEngineTest : FunSpec({
     }
 
     test("sync from scratch (no sync state) starts from sequence 0") {
-        coEvery { syncRepository.getSyncState(familyId) } returns null
-        coEvery { syncRepository.pullOps(familyId, afterSequence = 0) } returns Result.success(emptyList())
-        coEvery { opApplier.getPendingOps(familyId) } returns emptyList()
+        coEvery { syncRepository.getSyncState(bucketId) } returns null
+        coEvery { syncRepository.pullOps(bucketId, afterSequence = 0) } returns Result.success(emptyList())
+        coEvery { opApplier.getPendingOps(bucketId) } returns emptyList()
 
         val useCase = createSyncUseCase()
-        val result = useCase(familyId)
+        val result = useCase(bucketId)
 
         result.isSuccess shouldBe true
-        coVerify { syncRepository.pullOps(familyId, afterSequence = 0) }
+        coVerify { syncRepository.pullOps(bucketId, afterSequence = 0) }
     }
 
     test("sync fails when pull fails") {
-        coEvery { syncRepository.getSyncState(familyId) } returns null
-        coEvery { syncRepository.pullOps(familyId, afterSequence = 0) } returns
+        coEvery { syncRepository.getSyncState(bucketId) } returns null
+        coEvery { syncRepository.pullOps(bucketId, afterSequence = 0) } returns
                 Result.failure(RuntimeException("Network error"))
 
         val useCase = createSyncUseCase()
-        val result = useCase(familyId)
+        val result = useCase(bucketId)
 
         result.isFailure shouldBe true
     }
@@ -94,27 +96,24 @@ class SyncEngineTest : FunSpec({
         val ops = listOf(
             OpLogEntry(
                 globalSequence = 1,
-                familyId = familyId,
+                bucketId = bucketId,
                 deviceId = deviceId,
                 deviceSequence = 1,
-                entityType = EntityType.CustodySchedule,
-                entityId = UUID.randomUUID(),
-                operation = OperationType.CREATE,
                 keyEpoch = 1,
                 encryptedPayload = "dGVzdA==",
                 devicePrevHash = HashChainVerifier.GENESIS_HASH,
                 currentHash = "invalid-hash",
-                clientTimestamp = Instant.now()
+                serverTimestamp = Instant.now()
             )
         )
 
-        coEvery { syncRepository.getSyncState(familyId) } returns null
-        coEvery { syncRepository.pullOps(familyId, afterSequence = 0) } returns Result.success(ops)
+        coEvery { syncRepository.getSyncState(bucketId) } returns null
+        coEvery { syncRepository.pullOps(bucketId, afterSequence = 0) } returns Result.success(ops)
         every { hashChainVerifier.verifyChains(ops) } returns
                 Result.failure(HashChainBreakException("device", 1, "expected", "actual"))
 
         val useCase = createSyncUseCase()
-        val result = useCase(familyId)
+        val result = useCase(bucketId)
 
         result.isFailure shouldBe true
         result.exceptionOrNull() shouldBe instanceOf(HashChainBreakException::class)
@@ -124,63 +123,56 @@ class SyncEngineTest : FunSpec({
         val ops = listOf(
             OpLogEntry(
                 globalSequence = 1,
-                familyId = familyId,
+                bucketId = bucketId,
                 deviceId = deviceId,
                 deviceSequence = 1,
-                entityType = EntityType.CustodySchedule,
-                entityId = UUID.randomUUID(),
-                operation = OperationType.CREATE,
                 keyEpoch = 5,
                 encryptedPayload = "dGVzdA==",
                 devicePrevHash = HashChainVerifier.GENESIS_HASH,
                 currentHash = "some-hash",
-                clientTimestamp = Instant.now()
+                serverTimestamp = Instant.now()
             )
         )
 
-        coEvery { syncRepository.getSyncState(familyId) } returns null
-        coEvery { syncRepository.pullOps(familyId, afterSequence = 0) } returns Result.success(ops)
+        coEvery { syncRepository.getSyncState(bucketId) } returns null
+        coEvery { syncRepository.pullOps(bucketId, afterSequence = 0) } returns Result.success(ops)
         every { hashChainVerifier.verifyChains(ops) } returns Result.success(Unit)
-        coEvery { keyManager.getDek(familyId, 5) } returns null
+        coEvery { keyManager.getDek(bucketId, 5) } returns null
 
         val useCase = createSyncUseCase()
-        val result = useCase(familyId)
+        val result = useCase(bucketId)
 
         result.isFailure shouldBe true
     }
 
     test("sync with new ops decrypts, applies, and updates sync state") {
         val dek = ByteArray(32) { 1 }
-        val entityId = UUID.randomUUID()
         val ops = listOf(
             OpLogEntry(
                 globalSequence = 5,
-                familyId = familyId,
+                bucketId = bucketId,
                 deviceId = deviceId,
                 deviceSequence = 1,
-                entityType = EntityType.CustodySchedule,
-                entityId = entityId,
-                operation = OperationType.CREATE,
                 keyEpoch = 1,
                 encryptedPayload = "encrypted-data",
                 devicePrevHash = HashChainVerifier.GENESIS_HASH,
                 currentHash = "hash-1",
-                clientTimestamp = Instant.parse("2026-03-28T10:00:00Z")
+                serverTimestamp = Instant.parse("2026-03-28T10:00:00Z")
             )
         )
 
-        coEvery { syncRepository.getSyncState(familyId) } returns null
-        coEvery { syncRepository.pullOps(familyId, afterSequence = 0) } returns Result.success(ops)
+        coEvery { syncRepository.getSyncState(bucketId) } returns null
+        coEvery { syncRepository.pullOps(bucketId, afterSequence = 0) } returns Result.success(ops)
         every { hashChainVerifier.verifyChains(ops) } returns Result.success(Unit)
-        coEvery { keyManager.getDek(familyId, 1) } returns dek
-        every { cryptoManager.decryptPayload("encrypted-data", dek, deviceId.toString()) } returns
-                """{"payloadType":"SetCustodySchedule"}"""
+        coEvery { keyManager.getDek(bucketId, 1) } returns dek
+        every { cryptoManager.decryptPayload("encrypted-data", dek, any()) } returns
+                """{"deviceSequence":1,"entityType":"CustodySchedule","entityId":"test","operation":"CREATE","clientTimestamp":"2026-03-28T10:00:00Z","protocolVersion":2,"data":{}}"""
         coEvery { opApplier.apply(any(), any()) } returns OpApplier.ApplyResult(conflictResolved = false)
         coEvery { syncRepository.updateSyncState(any()) } just Runs
-        coEvery { opApplier.getPendingOps(familyId) } returns emptyList()
+        coEvery { opApplier.getPendingOps(bucketId) } returns emptyList()
 
         val useCase = createSyncUseCase()
-        val result = useCase(familyId)
+        val result = useCase(bucketId)
 
         result.isSuccess shouldBe true
         val syncResult = result.getOrThrow()
@@ -190,7 +182,7 @@ class SyncEngineTest : FunSpec({
 
         coVerify {
             syncRepository.updateSyncState(match {
-                it.lastGlobalSequence == 5L && it.familyId == familyId
+                it.lastGlobalSequence == 5L && it.bucketId == bucketId
             })
         }
     }
@@ -199,32 +191,29 @@ class SyncEngineTest : FunSpec({
         val pendingOps = listOf(
             OpLogEntry(
                 globalSequence = 0,
-                familyId = familyId,
+                bucketId = bucketId,
                 deviceId = deviceId,
                 deviceSequence = 1,
-                entityType = EntityType.Expense,
-                entityId = UUID.randomUUID(),
-                operation = OperationType.CREATE,
                 keyEpoch = 1,
                 encryptedPayload = "local-encrypted",
                 devicePrevHash = HashChainVerifier.GENESIS_HASH,
                 currentHash = "local-hash",
-                clientTimestamp = Instant.now()
+                serverTimestamp = null
             )
         )
 
-        coEvery { syncRepository.getSyncState(familyId) } returns null
-        coEvery { syncRepository.pullOps(familyId, afterSequence = 0) } returns Result.success(emptyList())
-        coEvery { opApplier.getPendingOps(familyId) } returns pendingOps
-        coEvery { syncRepository.pushOps(familyId, pendingOps) } returns Result.success(pendingOps)
+        coEvery { syncRepository.getSyncState(bucketId) } returns null
+        coEvery { syncRepository.pullOps(bucketId, afterSequence = 0) } returns Result.success(emptyList())
+        coEvery { opApplier.getPendingOps(bucketId) } returns pendingOps
+        coEvery { syncRepository.pushOps(bucketId, pendingOps) } returns Result.success(pendingOps)
 
         val useCase = createSyncUseCase()
-        val result = useCase(familyId)
+        val result = useCase(bucketId)
 
         result.isSuccess shouldBe true
         result.getOrThrow().pushed shouldBe 1
 
-        coVerify { syncRepository.pushOps(familyId, pendingOps) }
+        coVerify { syncRepository.pushOps(bucketId, pendingOps) }
     }
 
     test("sync counts conflicts resolved during apply") {
@@ -232,48 +221,43 @@ class SyncEngineTest : FunSpec({
         val ops = listOf(
             OpLogEntry(
                 globalSequence = 1,
-                familyId = familyId,
+                bucketId = bucketId,
                 deviceId = deviceId,
                 deviceSequence = 1,
-                entityType = EntityType.CustodySchedule,
-                entityId = UUID.randomUUID(),
-                operation = OperationType.CREATE,
                 keyEpoch = 1,
                 encryptedPayload = "enc1",
                 devicePrevHash = HashChainVerifier.GENESIS_HASH,
                 currentHash = "h1",
-                clientTimestamp = Instant.now()
+                serverTimestamp = Instant.now()
             ),
             OpLogEntry(
                 globalSequence = 2,
-                familyId = familyId,
-                deviceId = UUID.fromString("bbbbbbbb-1111-2222-3333-444444444444"),
+                bucketId = bucketId,
+                deviceId = "bbbbbbbb-1111-2222-3333-444444444444",
                 deviceSequence = 1,
-                entityType = EntityType.CustodySchedule,
-                entityId = UUID.randomUUID(),
-                operation = OperationType.CREATE,
                 keyEpoch = 1,
                 encryptedPayload = "enc2",
                 devicePrevHash = HashChainVerifier.GENESIS_HASH,
                 currentHash = "h2",
-                clientTimestamp = Instant.now()
+                serverTimestamp = Instant.now()
             )
         )
 
-        coEvery { syncRepository.getSyncState(familyId) } returns null
-        coEvery { syncRepository.pullOps(familyId, afterSequence = 0) } returns Result.success(ops)
+        coEvery { syncRepository.getSyncState(bucketId) } returns null
+        coEvery { syncRepository.pullOps(bucketId, afterSequence = 0) } returns Result.success(ops)
         every { hashChainVerifier.verifyChains(ops) } returns Result.success(Unit)
-        coEvery { keyManager.getDek(familyId, 1) } returns dek
-        every { cryptoManager.decryptPayload(any(), dek, any()) } returns "{}"
+        coEvery { keyManager.getDek(bucketId, 1) } returns dek
+        every { cryptoManager.decryptPayload(any(), dek, any()) } returns
+                """{"deviceSequence":1,"entityType":"CustodySchedule","entityId":"test","operation":"CREATE","clientTimestamp":"2026-03-28T10:00:00Z","protocolVersion":2,"data":{}}"""
         coEvery { opApplier.apply(match { it.globalSequence == 1L }, any()) } returns
                 OpApplier.ApplyResult(conflictResolved = false)
         coEvery { opApplier.apply(match { it.globalSequence == 2L }, any()) } returns
                 OpApplier.ApplyResult(conflictResolved = true)
         coEvery { syncRepository.updateSyncState(any()) } just Runs
-        coEvery { opApplier.getPendingOps(familyId) } returns emptyList()
+        coEvery { opApplier.getPendingOps(bucketId) } returns emptyList()
 
         val useCase = createSyncUseCase()
-        val result = useCase(familyId)
+        val result = useCase(bucketId)
 
         result.isSuccess shouldBe true
         result.getOrThrow().conflictsResolved shouldBe 1
@@ -289,42 +273,40 @@ class SyncEngineTest : FunSpec({
             createOp(globalSequence = 2)
         )
 
-        coEvery { syncRepository.getSyncState(familyId) } returns null
-        coEvery { syncRepository.pullOps(familyId, afterSequence = 0) } returns Result.success(ops)
+        coEvery { syncRepository.getSyncState(bucketId) } returns null
+        coEvery { syncRepository.pullOps(bucketId, afterSequence = 0) } returns Result.success(ops)
         every { hashChainVerifier.verifyChains(ops) } returns Result.success(Unit)
-        coEvery { keyManager.getDek(familyId, 1) } returns dek
-        every { cryptoManager.decryptPayload(any(), dek, any()) } returns "{}"
+        coEvery { keyManager.getDek(bucketId, 1) } returns dek
+        every { cryptoManager.decryptPayload(any(), dek, any()) } returns
+                """{"deviceSequence":1,"entityType":"CustodySchedule","entityId":"test","operation":"CREATE","clientTimestamp":"2026-03-28T10:00:00Z","protocolVersion":2,"data":{}}"""
         coEvery { opApplier.apply(any(), any()) } answers {
             val op = firstArg<OpLogEntry>()
             appliedSequences.add(op.globalSequence)
             OpApplier.ApplyResult()
         }
         coEvery { syncRepository.updateSyncState(any()) } just Runs
-        coEvery { opApplier.getPendingOps(familyId) } returns emptyList()
+        coEvery { opApplier.getPendingOps(bucketId) } returns emptyList()
 
         val useCase = createSyncUseCase()
-        useCase(familyId)
+        useCase(bucketId)
 
         appliedSequences shouldBe listOf(1L, 2L, 3L)
     }
 }) {
     companion object {
-        private val familyId = UUID.fromString("fam00001-aaaa-bbbb-cccc-dddddddddddd")
-        private val deviceId = UUID.fromString("aaaaaaaa-1111-2222-3333-444444444444")
+        private const val bucketId = "bucket-aaaa-bbbb-cccc-dddddddddddd"
+        private const val deviceId = "aaaaaaaa-1111-2222-3333-444444444444"
 
         fun createOp(globalSequence: Long) = OpLogEntry(
             globalSequence = globalSequence,
-            familyId = familyId,
+            bucketId = bucketId,
             deviceId = deviceId,
             deviceSequence = globalSequence,
-            entityType = EntityType.CustodySchedule,
-            entityId = UUID.randomUUID(),
-            operation = OperationType.CREATE,
             keyEpoch = 1,
             encryptedPayload = "enc-$globalSequence",
             devicePrevHash = "prev",
             currentHash = "curr-$globalSequence",
-            clientTimestamp = Instant.now()
+            serverTimestamp = Instant.now()
         )
     }
 }

@@ -41,28 +41,25 @@ class SyncRepositoryImpl @Inject constructor(
 
             val response = apiService.uploadOps(bucketId, request)
 
-            // Server returns accepted count and latest sequence.
-            // Assign sequences starting from (latestSequence - accepted + 1).
-            val now = Instant.now().toString()
-            val baseSequence = response.latestSequence - response.accepted + 1
+            // Server returns per-op details with assigned sequences.
+            val acceptedByIndex = response.accepted.associateBy { it.index }
 
             val updatedOps = ops.mapIndexed { index, op ->
-                if (index < response.accepted) {
-                    val assignedSequence = baseSequence + index
-
+                val acceptedOp = acceptedByIndex[index]
+                if (acceptedOp != null) {
                     // Find and mark the local entity as synced
                     val pendingEntities = opLogDao.getPendingOps(bucketId)
                     val entity = pendingEntities.firstOrNull { it.currentHash == op.currentHash }
                     if (entity != null) {
                         opLogDao.markAsSynced(
                             id = entity.id,
-                            globalSequence = assignedSequence,
-                            serverTimestamp = now
+                            globalSequence = acceptedOp.globalSequence,
+                            serverTimestamp = acceptedOp.serverTimestamp
                         )
                     }
                     op.copy(
-                        globalSequence = assignedSequence,
-                        serverTimestamp = Instant.parse(now)
+                        globalSequence = acceptedOp.globalSequence,
+                        serverTimestamp = Instant.parse(acceptedOp.serverTimestamp)
                     )
                 } else {
                     op
@@ -81,11 +78,11 @@ class SyncRepositoryImpl @Inject constructor(
         limit: Int
     ): Result<List<OpLogEntry>> {
         return try {
-            val opsResponse = apiService.pullOps(bucketId, since = afterSequence)
+            val pullResponse = apiService.pullOps(bucketId, since = afterSequence)
 
-            val ops = opsResponse.map { dto ->
+            val ops = pullResponse.ops.map { dto ->
                 OpLogEntry(
-                    globalSequence = dto.sequence,
+                    globalSequence = dto.globalSequence,
                     bucketId = bucketId,
                     deviceId = dto.deviceId,
                     deviceSequence = 0, // Extracted from decrypted payload during apply
@@ -93,7 +90,7 @@ class SyncRepositoryImpl @Inject constructor(
                     encryptedPayload = dto.encryptedPayload,
                     devicePrevHash = dto.prevHash,
                     currentHash = dto.currentHash,
-                    serverTimestamp = Instant.parse(dto.createdAt)
+                    serverTimestamp = Instant.parse(dto.serverTimestamp)
                 )
             }
 

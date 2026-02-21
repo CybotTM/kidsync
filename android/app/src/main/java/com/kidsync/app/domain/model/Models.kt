@@ -15,22 +15,24 @@ enum class EntityType {
     ScheduleOverride,
     Expense,
     ExpenseStatus,
-    Event,
-    InfoBank,
-    DeviceSnapshot
+    CalendarEvent,
+    InfoBankEntry,
+    DeviceSnapshot,
+    DeviceRevocation,
+    KeyRotation
 }
 
 enum class OverrideType {
-    MANUAL,
+    MANUAL_OVERRIDE,
     SWAP_REQUEST,
-    HOLIDAY,
+    HOLIDAY_RULE,
     COURT_ORDER;
 
     val precedence: Int
         get() = when (this) {
-            MANUAL -> 1
+            MANUAL_OVERRIDE -> 1
             SWAP_REQUEST -> 2
-            HOLIDAY -> 3
+            HOLIDAY_RULE -> 3
             COURT_ORDER -> 4
         }
 }
@@ -58,7 +60,7 @@ enum class ExpenseCategory {
 }
 
 enum class ExpenseStatusType {
-    PENDING,
+    LOGGED,
     ACKNOWLEDGED,
     DISPUTED,
     RESOLVED
@@ -153,7 +155,8 @@ data class Expense(
     val incurredAt: LocalDate,
     val payerResponsibilityRatio: Double,
     val receiptBlobId: String? = null,
-    val receiptDecryptionKey: String? = null,
+    val receiptBlobKey: String? = null,
+    val receiptBlobNonce: String? = null,
     val createdAt: Instant? = null
 )
 

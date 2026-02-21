@@ -44,8 +44,8 @@ class OpApplier @Inject constructor(
             "ScheduleOverride" -> applyOverride(decryptedPayload)
             "Expense" -> applyExpense(decryptedPayload)
             "ExpenseStatus" -> applyExpenseStatus(decryptedPayload)
-            "Event" -> applyEvent(decryptedPayload)
-            "InfoBank" -> applyInfoBankEntry(decryptedPayload)
+            "CalendarEvent" -> applyEvent(decryptedPayload)
+            "InfoBankEntry" -> applyInfoBankEntry(decryptedPayload)
             else -> ApplyResult()
         }
     }
@@ -153,7 +153,8 @@ class OpApplier @Inject constructor(
             incurredAt = data["incurredAt"]!!.jsonPrimitive.content,
             payerResponsibilityRatio = data["payerResponsibilityRatio"]!!.jsonPrimitive.double,
             receiptBlobId = data["receiptBlobId"]?.jsonPrimitive?.content,
-            receiptDecryptionKey = data["receiptDecryptionKey"]?.jsonPrimitive?.content,
+            receiptBlobKey = data["receiptBlobKey"]?.jsonPrimitive?.content,
+            receiptBlobNonce = data["receiptBlobNonce"]?.jsonPrimitive?.content,
             clientTimestamp = payload.clientTimestamp
         )
 

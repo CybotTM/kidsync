@@ -7,7 +7,6 @@ import com.kidsync.app.domain.usecase.custody.OverrideStateMachine
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import java.time.Instant
-import java.util.UUID
 
 /**
  * Tests for conflict resolution using tv02 (concurrent merge) and tv06 (clock skew) vectors.
@@ -26,8 +25,8 @@ class ConflictResolutionTest : FunSpec({
 
     test("TV02: same effectiveFrom, later clientTimestamp wins") {
         val scheduleA = CustodyScheduleEntity(
-            scheduleId = UUID.fromString("aaaa1111-2222-3333-4444-555566667777"),
-            childId = UUID.fromString("c1d2e3f4-5678-9abc-def0-123456789012"),
+            scheduleId = "aaaa1111-2222-3333-4444-555566667777",
+            childId = "c1d2e3f4-5678-9abc-def0-123456789012",
             anchorDate = "2026-04-01",
             cycleLengthDays = 14,
             patternJson = "[]",
@@ -37,8 +36,8 @@ class ConflictResolutionTest : FunSpec({
         )
 
         val scheduleB = CustodyScheduleEntity(
-            scheduleId = UUID.fromString("bbbb1111-2222-3333-4444-555566667777"),
-            childId = UUID.fromString("c1d2e3f4-5678-9abc-def0-123456789012"),
+            scheduleId = "bbbb1111-2222-3333-4444-555566667777",
+            childId = "c1d2e3f4-5678-9abc-def0-123456789012",
             anchorDate = "2026-04-01",
             cycleLengthDays = 14,
             patternJson = "[]",
@@ -54,7 +53,7 @@ class ConflictResolutionTest : FunSpec({
             incomingClientTimestamp = Instant.parse("2026-03-28T10:05:00.000Z")
         )
 
-        winner.scheduleId shouldBe UUID.fromString("bbbb1111-2222-3333-4444-555566667777")
+        winner.scheduleId shouldBe "bbbb1111-2222-3333-4444-555566667777"
     }
 
     test("TV02: applying in globalSequence order yields deterministic result") {
@@ -63,8 +62,8 @@ class ConflictResolutionTest : FunSpec({
         // Device B wins because of later clientTimestamp
 
         val scheduleA = CustodyScheduleEntity(
-            scheduleId = UUID.fromString("aaaa1111-2222-3333-4444-555566667777"),
-            childId = UUID.fromString("c1d2e3f4-5678-9abc-def0-123456789012"),
+            scheduleId = "aaaa1111-2222-3333-4444-555566667777",
+            childId = "c1d2e3f4-5678-9abc-def0-123456789012",
             anchorDate = "2026-04-01",
             cycleLengthDays = 14,
             patternJson = "[]",
@@ -74,8 +73,8 @@ class ConflictResolutionTest : FunSpec({
         )
 
         val scheduleB = CustodyScheduleEntity(
-            scheduleId = UUID.fromString("bbbb1111-2222-3333-4444-555566667777"),
-            childId = UUID.fromString("c1d2e3f4-5678-9abc-def0-123456789012"),
+            scheduleId = "bbbb1111-2222-3333-4444-555566667777",
+            childId = "c1d2e3f4-5678-9abc-def0-123456789012",
             anchorDate = "2026-04-01",
             cycleLengthDays = 14,
             patternJson = "[]",
@@ -103,8 +102,8 @@ class ConflictResolutionTest : FunSpec({
         // Both have same effectiveFrom -> tie-break by clientTimestamp -> B wins
 
         val scheduleA = CustodyScheduleEntity(
-            scheduleId = UUID.fromString("sched-aa-1111-2222-3333-444444444444"),
-            childId = UUID.fromString("c1d2e3f4-5678-9abc-def0-123456789012"),
+            scheduleId = "sched-aa-1111-2222-3333-444444444444",
+            childId = "c1d2e3f4-5678-9abc-def0-123456789012",
             anchorDate = "2026-04-06",
             cycleLengthDays = 14,
             patternJson = "[]",
@@ -114,8 +113,8 @@ class ConflictResolutionTest : FunSpec({
         )
 
         val scheduleB = CustodyScheduleEntity(
-            scheduleId = UUID.fromString("sched-bb-1111-2222-3333-444444444444"),
-            childId = UUID.fromString("c1d2e3f4-5678-9abc-def0-123456789012"),
+            scheduleId = "sched-bb-1111-2222-3333-444444444444",
+            childId = "c1d2e3f4-5678-9abc-def0-123456789012",
             anchorDate = "2026-04-06",
             cycleLengthDays = 14,
             patternJson = "[]",
@@ -132,7 +131,7 @@ class ConflictResolutionTest : FunSpec({
         )
 
         // B has later clientTimestamp (12:00:30 > 10:00:00) -> B wins
-        winner.scheduleId shouldBe UUID.fromString("sched-bb-1111-2222-3333-444444444444")
+        winner.scheduleId shouldBe "sched-bb-1111-2222-3333-444444444444"
     }
 
     test("TV06: server ordering does not affect conflict resolution outcome") {
@@ -140,8 +139,8 @@ class ConflictResolutionTest : FunSpec({
         // But conflict resolution uses clientTimestamp, not globalSequence
 
         val scheduleB = CustodyScheduleEntity(
-            scheduleId = UUID.fromString("sched-bb-1111-2222-3333-444444444444"),
-            childId = UUID.fromString("c1d2e3f4-5678-9abc-def0-123456789012"),
+            scheduleId = "sched-bb-1111-2222-3333-444444444444",
+            childId = "c1d2e3f4-5678-9abc-def0-123456789012",
             anchorDate = "2026-04-06",
             cycleLengthDays = 14,
             patternJson = "[]",
@@ -151,8 +150,8 @@ class ConflictResolutionTest : FunSpec({
         )
 
         val scheduleA = CustodyScheduleEntity(
-            scheduleId = UUID.fromString("sched-aa-1111-2222-3333-444444444444"),
-            childId = UUID.fromString("c1d2e3f4-5678-9abc-def0-123456789012"),
+            scheduleId = "sched-aa-1111-2222-3333-444444444444",
+            childId = "c1d2e3f4-5678-9abc-def0-123456789012",
             anchorDate = "2026-04-06",
             cycleLengthDays = 14,
             patternJson = "[]",
@@ -183,8 +182,8 @@ class ConflictResolutionTest : FunSpec({
         val timestamp = "2026-03-28T10:00:00.000Z"
 
         val scheduleSmall = CustodyScheduleEntity(
-            scheduleId = UUID.fromString("11111111-0000-0000-0000-000000000000"),
-            childId = UUID.fromString("c1d2e3f4-5678-9abc-def0-123456789012"),
+            scheduleId = "11111111-0000-0000-0000-000000000000",
+            childId = "c1d2e3f4-5678-9abc-def0-123456789012",
             anchorDate = "2026-04-01",
             cycleLengthDays = 14,
             patternJson = "[]",
@@ -194,8 +193,8 @@ class ConflictResolutionTest : FunSpec({
         )
 
         val scheduleLarge = CustodyScheduleEntity(
-            scheduleId = UUID.fromString("ffffffff-0000-0000-0000-000000000000"),
-            childId = UUID.fromString("c1d2e3f4-5678-9abc-def0-123456789012"),
+            scheduleId = "ffffffff-0000-0000-0000-000000000000",
+            childId = "c1d2e3f4-5678-9abc-def0-123456789012",
             anchorDate = "2026-04-01",
             cycleLengthDays = 14,
             patternJson = "[]",
@@ -218,8 +217,8 @@ class ConflictResolutionTest : FunSpec({
 
     test("different effectiveFrom: later effectiveFrom wins") {
         val scheduleEarly = CustodyScheduleEntity(
-            scheduleId = UUID.randomUUID(),
-            childId = UUID.randomUUID(),
+            scheduleId = "early-id-1111-2222-3333-444444444444",
+            childId = "c1d2e3f4-5678-9abc-def0-123456789012",
             anchorDate = "2026-04-01",
             cycleLengthDays = 14,
             patternJson = "[]",
@@ -229,8 +228,8 @@ class ConflictResolutionTest : FunSpec({
         )
 
         val scheduleLate = CustodyScheduleEntity(
-            scheduleId = UUID.randomUUID(),
-            childId = UUID.randomUUID(),
+            scheduleId = "late0-id-1111-2222-3333-444444444444",
+            childId = "c1d2e3f4-5678-9abc-def0-123456789012",
             anchorDate = "2026-04-15",
             cycleLengthDays = 14,
             patternJson = "[]",

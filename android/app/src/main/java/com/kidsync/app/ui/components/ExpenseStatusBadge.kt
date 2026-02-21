@@ -77,7 +77,7 @@ private data class StatusAttributes(
 @Composable
 private fun statusAttributes(status: ExpenseStatusType): StatusAttributes {
     return when (status) {
-        ExpenseStatusType.PENDING -> StatusAttributes(
+        ExpenseStatusType.LOGGED -> StatusAttributes(
             label = stringResource(R.string.expense_status_pending),
             icon = Icons.Filled.HourglassBottom,
             containerColor = MaterialTheme.colorScheme.primaryContainer,

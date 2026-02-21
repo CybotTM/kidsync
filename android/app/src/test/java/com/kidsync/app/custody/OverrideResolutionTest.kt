@@ -170,7 +170,7 @@ class OverrideResolutionTest : FunSpec({
     test("HOLIDAY beats MANUAL on same dates") {
         val manual = ScheduleOverride(
             overrideId = UUID.randomUUID(),
-            type = OverrideType.MANUAL,
+            type = OverrideType.MANUAL_OVERRIDE,
             childId = childId,
             startDate = LocalDate.of(2026, 4, 5),
             endDate = LocalDate.of(2026, 4, 5),
@@ -182,7 +182,7 @@ class OverrideResolutionTest : FunSpec({
 
         val holiday = ScheduleOverride(
             overrideId = UUID.randomUUID(),
-            type = OverrideType.HOLIDAY,
+            type = OverrideType.HOLIDAY_RULE,
             childId = childId,
             startDate = LocalDate.of(2026, 4, 5),
             endDate = LocalDate.of(2026, 4, 5),
@@ -207,7 +207,7 @@ class OverrideResolutionTest : FunSpec({
     test("multi-day override covers all days in range") {
         val override = ScheduleOverride(
             overrideId = UUID.randomUUID(),
-            type = OverrideType.HOLIDAY,
+            type = OverrideType.HOLIDAY_RULE,
             childId = childId,
             startDate = LocalDate.of(2026, 4, 1),
             endDate = LocalDate.of(2026, 4, 4),
@@ -260,12 +260,12 @@ class OverrideResolutionTest : FunSpec({
 
     test("precedence order: COURT_ORDER > HOLIDAY > SWAP_REQUEST > MANUAL") {
         OverrideType.COURT_ORDER.precedence shouldBe 4
-        OverrideType.HOLIDAY.precedence shouldBe 3
+        OverrideType.HOLIDAY_RULE.precedence shouldBe 3
         OverrideType.SWAP_REQUEST.precedence shouldBe 2
-        OverrideType.MANUAL.precedence shouldBe 1
+        OverrideType.MANUAL_OVERRIDE.precedence shouldBe 1
 
-        (OverrideType.COURT_ORDER.precedence > OverrideType.HOLIDAY.precedence) shouldBe true
-        (OverrideType.HOLIDAY.precedence > OverrideType.SWAP_REQUEST.precedence) shouldBe true
-        (OverrideType.SWAP_REQUEST.precedence > OverrideType.MANUAL.precedence) shouldBe true
+        (OverrideType.COURT_ORDER.precedence > OverrideType.HOLIDAY_RULE.precedence) shouldBe true
+        (OverrideType.HOLIDAY_RULE.precedence > OverrideType.SWAP_REQUEST.precedence) shouldBe true
+        (OverrideType.SWAP_REQUEST.precedence > OverrideType.MANUAL_OVERRIDE.precedence) shouldBe true
     }
 })

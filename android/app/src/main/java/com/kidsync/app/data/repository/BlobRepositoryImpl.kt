@@ -6,6 +6,7 @@ import com.kidsync.app.domain.repository.BlobUploadResult
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.security.MessageDigest
 import javax.inject.Inject
 
 class BlobRepositoryImpl @Inject constructor(
@@ -26,7 +27,13 @@ class BlobRepositoryImpl @Inject constructor(
                 requestBody
             )
 
-            val body = apiService.uploadBlob(bucketId, part)
+            // Compute SHA-256 hash of the encrypted data
+            val digest = MessageDigest.getInstance("SHA-256")
+            val hashBytes = digest.digest(encryptedData)
+            val sha256Hex = hashBytes.joinToString("") { "%02x".format(it) }
+            val sha256Part = sha256Hex.toRequestBody("text/plain".toMediaType())
+
+            val body = apiService.uploadBlob(bucketId, part, sha256Part)
 
             Result.success(
                 BlobUploadResult(

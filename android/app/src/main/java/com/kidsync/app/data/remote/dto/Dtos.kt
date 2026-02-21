@@ -62,6 +62,7 @@ data class JoinBucketRequest(
 @Serializable
 data class DeviceInfo(
     val deviceId: String,
+    val signingKey: String,
     val encryptionKey: String,
     val grantedAt: String
 )
@@ -83,21 +84,35 @@ data class OpInputDto(
 )
 
 @Serializable
+data class AcceptedOp(
+    val index: Int,
+    val globalSequence: Long,
+    val serverTimestamp: String
+)
+
+@Serializable
 data class OpsBatchResponse(
-    val accepted: Int,
+    val accepted: List<AcceptedOp>,
     val latestSequence: Long
 )
 
 @Serializable
 data class OpResponse(
-    val sequence: Long,
+    val globalSequence: Long,
     val bucketId: String,
     val deviceId: String,
     val encryptedPayload: String,
     val prevHash: String,
     val currentHash: String,
     val keyEpoch: Int,
-    val createdAt: String
+    val serverTimestamp: String
+)
+
+@Serializable
+data class PullOpsResponse(
+    val ops: List<OpResponse>,
+    val hasMore: Boolean,
+    val latestSequence: Long
 )
 
 @Serializable

@@ -1,15 +1,12 @@
 package com.kidsync.app.sync
 
-import com.kidsync.app.domain.model.EntityType
 import com.kidsync.app.domain.model.OpLogEntry
-import com.kidsync.app.domain.model.OperationType
 import com.kidsync.app.domain.usecase.sync.HashChainBreakException
 import com.kidsync.app.domain.usecase.sync.HashChainVerifier
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
 import java.time.Instant
-import java.util.UUID
 
 /**
  * Tests for HashChainVerifier using tv03 conformance vectors.
@@ -19,8 +16,8 @@ import java.util.UUID
 class HashChainTest : FunSpec({
 
     val verifier = HashChainVerifier()
-    val deviceId = UUID.fromString("cc001122-3344-5566-7788-99aabbccddee")
-    val familyId = UUID.fromString("fam00001-aaaa-bbbb-cccc-dddddddddddd")
+    val deviceId = "cc001122-3344-5566-7788-99aabbccddee"
+    val bucketId = "bucket-aaaa-bbbb-cccc-dddddddddddd"
 
     fun makeOp(
         seq: Long,
@@ -29,17 +26,14 @@ class HashChainTest : FunSpec({
         currentHash: String
     ): OpLogEntry = OpLogEntry(
         globalSequence = seq,
-        familyId = familyId,
+        bucketId = bucketId,
         deviceId = deviceId,
         deviceSequence = seq,
-        entityType = EntityType.CustodySchedule,
-        entityId = UUID.randomUUID(),
-        operation = OperationType.CREATE,
         keyEpoch = 1,
         encryptedPayload = payload,
         devicePrevHash = prevHash,
         currentHash = currentHash,
-        clientTimestamp = Instant.now()
+        serverTimestamp = Instant.now()
     )
 
     test("computeHash: first op using genesis hash") {
@@ -111,19 +105,35 @@ class HashChainTest : FunSpec({
     }
 
     test("verifyChains: multiple devices verified independently") {
-        val deviceA = UUID.fromString("aaaaaaaa-1111-2222-3333-444444444444")
-        val deviceB = UUID.fromString("bbbbbbbb-1111-2222-3333-444444444444")
+        val deviceA = "aaaaaaaa-1111-2222-3333-444444444444"
+        val deviceB = "bbbbbbbb-1111-2222-3333-444444444444"
 
         val hashA = verifier.computeHash(HashChainVerifier.GENESIS_HASH, "dGVzdC1wYXlsb2FkLTE=")
         val hashB = verifier.computeHash(HashChainVerifier.GENESIS_HASH, "dGVzdC1wYXlsb2FkLTI=")
 
         val ops = listOf(
-            OpLogEntry(1, familyId, deviceA, 1, EntityType.CustodySchedule, UUID.randomUUID(),
-                OperationType.CREATE, 1, "dGVzdC1wYXlsb2FkLTE=", HashChainVerifier.GENESIS_HASH,
-                hashA, Instant.now()),
-            OpLogEntry(2, familyId, deviceB, 1, EntityType.CustodySchedule, UUID.randomUUID(),
-                OperationType.CREATE, 1, "dGVzdC1wYXlsb2FkLTI=", HashChainVerifier.GENESIS_HASH,
-                hashB, Instant.now())
+            OpLogEntry(
+                globalSequence = 1,
+                bucketId = bucketId,
+                deviceId = deviceA,
+                deviceSequence = 1,
+                keyEpoch = 1,
+                encryptedPayload = "dGVzdC1wYXlsb2FkLTE=",
+                devicePrevHash = HashChainVerifier.GENESIS_HASH,
+                currentHash = hashA,
+                serverTimestamp = Instant.now()
+            ),
+            OpLogEntry(
+                globalSequence = 2,
+                bucketId = bucketId,
+                deviceId = deviceB,
+                deviceSequence = 1,
+                keyEpoch = 1,
+                encryptedPayload = "dGVzdC1wYXlsb2FkLTI=",
+                devicePrevHash = HashChainVerifier.GENESIS_HASH,
+                currentHash = hashB,
+                serverTimestamp = Instant.now()
+            )
         )
 
         val result = verifier.verifyChains(ops)

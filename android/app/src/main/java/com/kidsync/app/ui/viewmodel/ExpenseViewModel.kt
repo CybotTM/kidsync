@@ -151,8 +151,8 @@ class ExpenseViewModel @Inject constructor(
                     val statusHistory = expenseRepository.getStatusHistoryForExpense(entity.expenseId)
                     val statusType = latestStatus?.let {
                         try { ExpenseStatusType.valueOf(it.status) }
-                        catch (_: IllegalArgumentException) { ExpenseStatusType.PENDING }
-                    } ?: ExpenseStatusType.PENDING
+                        catch (_: IllegalArgumentException) { ExpenseStatusType.LOGGED }
+                    } ?: ExpenseStatusType.LOGGED
 
                     ExpenseWithStatus(
                         expense = entity,
@@ -242,8 +242,8 @@ class ExpenseViewModel @Inject constructor(
             val statusHistory = expenseRepository.getStatusHistoryForExpense(uuid)
             val statusType = latestStatus?.let {
                 try { ExpenseStatusType.valueOf(it.status) }
-                catch (_: IllegalArgumentException) { ExpenseStatusType.PENDING }
-            } ?: ExpenseStatusType.PENDING
+                catch (_: IllegalArgumentException) { ExpenseStatusType.LOGGED }
+            } ?: ExpenseStatusType.LOGGED
 
             _uiState.update {
                 it.copy(
@@ -492,7 +492,7 @@ class ExpenseViewModel @Inject constructor(
                 var theirShare = 0L
                 for (expense in periodExpenses) {
                     val ratio = expense.payerResponsibilityRatio
-                    if (deviceId != null && expense.paidByUserId.toString() == deviceId) {
+                    if (deviceId != null && expense.paidByDeviceId == deviceId) {
                         yourShare += (expense.amountCents * ratio).toLong()
                         theirShare += (expense.amountCents * (1 - ratio)).toLong()
                     } else {
@@ -576,7 +576,7 @@ class ExpenseViewModel @Inject constructor(
 
         for (expense in expenses) {
             val ratio = expense.payerResponsibilityRatio
-            if (expense.paidByUserId.toString() == deviceId) {
+            if (expense.paidByDeviceId == deviceId) {
                 youPaid += expense.amountCents
                 yourResponsibility += (expense.amountCents * ratio).toLong()
             } else {

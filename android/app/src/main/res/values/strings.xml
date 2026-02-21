@@ -203,7 +203,7 @@
     <string name="expense_balance_you_owe">You owe %1$s</string>
     <string name="expense_balance_settled">All settled up</string>
 
-    <string name="expense_status_pending">Pending</string>
+    <string name="expense_status_pending">Logged</string>
     <string name="expense_status_acknowledged">Acknowledged</string>
     <string name="expense_status_disputed">Disputed</string>
     <string name="expense_status_resolved">Resolved</string>

@@ -19,6 +19,7 @@ data class ExpenseEntity(
     val incurredAt: String,
     val payerResponsibilityRatio: Double,
     val receiptBlobId: String? = null,
-    val receiptDecryptionKey: String? = null,
+    val receiptBlobKey: String? = null,
+    val receiptBlobNonce: String? = null,
     val clientTimestamp: String? = null
 )

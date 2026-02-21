@@ -204,7 +204,7 @@
     <string name="expense_balance_you_owe">Sie schulden %1$s</string>
     <string name="expense_balance_settled">Alles ausgeglichen</string>
 
-    <string name="expense_status_pending">Ausstehend</string>
+    <string name="expense_status_pending">Erfasst</string>
     <string name="expense_status_acknowledged">Best\u00e4tigt</string>
     <string name="expense_status_disputed">Angefochten</string>
     <string name="expense_status_resolved">Gel\u00f6st</string>

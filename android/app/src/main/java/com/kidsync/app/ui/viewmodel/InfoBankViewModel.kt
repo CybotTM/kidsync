@@ -387,7 +387,7 @@ class InfoBankViewModel @Inject constructor(
 
             val result = createOperationUseCase(
                 bucketId = bucketId,
-                entityType = EntityType.InfoBank,
+                entityType = EntityType.InfoBankEntry,
                 entityId = entryId.toString(),
                 operationType = operationType,
                 contentData = contentData
@@ -469,7 +469,7 @@ class InfoBankViewModel @Inject constructor(
 
             val result = createOperationUseCase(
                 bucketId = bucketId,
-                entityType = EntityType.InfoBank,
+                entityType = EntityType.InfoBankEntry,
                 entityId = entryId.toString(),
                 operationType = OperationType.DELETE,
                 contentData = contentData

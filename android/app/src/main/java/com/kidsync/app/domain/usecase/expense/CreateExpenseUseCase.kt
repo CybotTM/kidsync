@@ -27,7 +27,8 @@ class CreateExpenseUseCase @Inject constructor(
             put("incurredAt", JsonPrimitive(expense.incurredAt.toString()))
             put("payerResponsibilityRatio", JsonPrimitive(expense.payerResponsibilityRatio))
             expense.receiptBlobId?.let { put("receiptBlobId", JsonPrimitive(it)) }
-            expense.receiptDecryptionKey?.let { put("receiptDecryptionKey", JsonPrimitive(it)) }
+            expense.receiptBlobKey?.let { put("receiptBlobKey", JsonPrimitive(it)) }
+            expense.receiptBlobNonce?.let { put("receiptBlobNonce", JsonPrimitive(it)) }
         })
 
         return createOperationUseCase(

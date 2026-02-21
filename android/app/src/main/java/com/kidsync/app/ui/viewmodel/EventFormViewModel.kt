@@ -171,7 +171,7 @@ class EventFormViewModel @Inject constructor(
 
                 val result = createOperationUseCase(
                     bucketId = bucketId,
-                    entityType = EntityType.Event,
+                    entityType = EntityType.CalendarEvent,
                     entityId = eventId.toString(),
                     operationType = operationType,
                     contentData = contentData
@@ -222,7 +222,7 @@ class EventFormViewModel @Inject constructor(
 
                 val result = createOperationUseCase(
                     bucketId = bucketId,
-                    entityType = EntityType.Event,
+                    entityType = EntityType.CalendarEvent,
                     entityId = eventId.toString(),
                     operationType = OperationType.UPDATE,
                     contentData = contentData
