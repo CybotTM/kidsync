@@ -10,7 +10,7 @@ import retrofit2.http.*
 /**
  * Retrofit interface for the KidSync zero-knowledge server API.
  *
- * All endpoints except /register, /auth/*, and /health require a valid
+ * All endpoints except /register, /auth/challenge, /auth/verify, and /health require a valid
  * session token (added by AuthInterceptor).
  *
  * The server stores only opaque encrypted blobs and has no visibility

@@ -12,7 +12,7 @@ import okhttp3.Response
  * (not JWT) after successful verification. There is no refresh flow;
  * when the session expires, the client re-authenticates via challenge-response.
  *
- * Requests to unauthenticated endpoints (/register, /auth/*, /health) skip
+ * Requests to unauthenticated endpoints (/register, /auth/challenge, /auth/verify, /health) skip
  * the Authorization header entirely, even when a token is available.
  *
  * Session tokens are stored in EncryptedSharedPreferences to prevent extraction
