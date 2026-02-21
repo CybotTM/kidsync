@@ -28,8 +28,6 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@f29f5a9d7b09a7c6b29859002d29d24e1674c884 # v5.0.1
-        with:
-          build-root-directory: server/
 
       - name: Run tests
         run: ./gradlew test --no-daemon
@@ -63,8 +61,6 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@f29f5a9d7b09a7c6b29859002d29d24e1674c884 # v5.0.1
-        with:
-          build-root-directory: android/
 
       - name: Run lint
         run: ./gradlew lint --no-daemon
