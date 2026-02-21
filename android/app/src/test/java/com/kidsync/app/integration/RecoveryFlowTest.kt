@@ -1,10 +1,12 @@
 package com.kidsync.app.integration
 
+import com.kidsync.app.crypto.KeyManager
 import com.kidsync.app.crypto.RecoveryKeyGeneratorImpl
 import com.kidsync.app.crypto.TinkCryptoManager
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
+import io.mockk.mockk
 
 /**
  * Integration tests for the recovery flow:
@@ -14,7 +16,8 @@ import io.kotest.matchers.shouldNotBe
  */
 class RecoveryFlowTest : FunSpec({
 
-    val cryptoManager = TinkCryptoManager()
+    val lazyKeyManager = dagger.Lazy<KeyManager> { mockk(relaxed = true) }
+    val cryptoManager = TinkCryptoManager(lazyKeyManager)
     val recoveryKeyGenerator = RecoveryKeyGeneratorImpl()
 
     test("generate mnemonic -> derive recovery key -> wrap and unwrap single DEK") {

@@ -6,8 +6,6 @@ import com.kidsync.app.domain.usecase.custody.OverrideStateMachine
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
-import java.util.UUID
-
 /**
  * Tests for OverrideStateMachine using tv05 conformance vectors.
  *
@@ -20,8 +18,8 @@ import java.util.UUID
 class OverrideStateMachineTest : FunSpec({
 
     val stateMachine = OverrideStateMachine()
-    val parentA = UUID.fromString("d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa")
-    val parentB = UUID.fromString("e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb")
+    val parentA = "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa"
+    val parentB = "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb"
 
     // ---- Valid Transitions (from tv05) ----
 
@@ -158,8 +156,8 @@ class OverrideStateMachineTest : FunSpec({
         val result = stateMachine.validateAuthority(
             from = OverrideStatus.PROPOSED,
             to = OverrideStatus.APPROVED,
-            actorUserId = parentA,
-            proposerId = parentA
+            actorDeviceId = parentA,
+            proposerDeviceId = parentA
         )
         result.shouldBeInstanceOf<AuthorityResult.Forbidden>()
     }
@@ -168,8 +166,8 @@ class OverrideStateMachineTest : FunSpec({
         val result = stateMachine.validateAuthority(
             from = OverrideStatus.PROPOSED,
             to = OverrideStatus.DECLINED,
-            actorUserId = parentA,
-            proposerId = parentA
+            actorDeviceId = parentA,
+            proposerDeviceId = parentA
         )
         result.shouldBeInstanceOf<AuthorityResult.Forbidden>()
     }
@@ -178,8 +176,8 @@ class OverrideStateMachineTest : FunSpec({
         val result = stateMachine.validateAuthority(
             from = OverrideStatus.PROPOSED,
             to = OverrideStatus.CANCELLED,
-            actorUserId = parentB,
-            proposerId = parentA
+            actorDeviceId = parentB,
+            proposerDeviceId = parentA
         )
         result.shouldBeInstanceOf<AuthorityResult.Forbidden>()
     }
@@ -188,8 +186,8 @@ class OverrideStateMachineTest : FunSpec({
         val result = stateMachine.validateAuthority(
             from = OverrideStatus.PROPOSED,
             to = OverrideStatus.APPROVED,
-            actorUserId = parentB,
-            proposerId = parentA
+            actorDeviceId = parentB,
+            proposerDeviceId = parentA
         )
         result shouldBe AuthorityResult.Permitted
     }
@@ -198,8 +196,8 @@ class OverrideStateMachineTest : FunSpec({
         val result = stateMachine.validateAuthority(
             from = OverrideStatus.PROPOSED,
             to = OverrideStatus.CANCELLED,
-            actorUserId = parentA,
-            proposerId = parentA
+            actorDeviceId = parentA,
+            proposerDeviceId = parentA
         )
         result shouldBe AuthorityResult.Permitted
     }
@@ -209,8 +207,8 @@ class OverrideStateMachineTest : FunSpec({
         val result = stateMachine.validateAuthority(
             from = OverrideStatus.APPROVED,
             to = OverrideStatus.SUPERSEDED,
-            actorUserId = parentA,
-            proposerId = parentA,
+            actorDeviceId = parentA,
+            proposerDeviceId = parentA,
             isSystem = false
         )
         result.shouldBeInstanceOf<AuthorityResult.Forbidden>()
@@ -219,8 +217,8 @@ class OverrideStateMachineTest : FunSpec({
         val systemResult = stateMachine.validateAuthority(
             from = OverrideStatus.APPROVED,
             to = OverrideStatus.SUPERSEDED,
-            actorUserId = parentA,
-            proposerId = parentA,
+            actorDeviceId = parentA,
+            proposerDeviceId = parentA,
             isSystem = true
         )
         systemResult shouldBe AuthorityResult.Permitted
@@ -230,8 +228,8 @@ class OverrideStateMachineTest : FunSpec({
         val result = stateMachine.validateAuthority(
             from = OverrideStatus.APPROVED,
             to = OverrideStatus.EXPIRED,
-            actorUserId = parentB,
-            proposerId = parentA,
+            actorDeviceId = parentB,
+            proposerDeviceId = parentA,
             isSystem = false
         )
         result.shouldBeInstanceOf<AuthorityResult.Forbidden>()
@@ -239,8 +237,8 @@ class OverrideStateMachineTest : FunSpec({
         val systemResult = stateMachine.validateAuthority(
             from = OverrideStatus.APPROVED,
             to = OverrideStatus.EXPIRED,
-            actorUserId = parentB,
-            proposerId = parentA,
+            actorDeviceId = parentB,
+            proposerDeviceId = parentA,
             isSystem = true
         )
         systemResult shouldBe AuthorityResult.Permitted
@@ -250,8 +248,8 @@ class OverrideStateMachineTest : FunSpec({
         val result = stateMachine.validateAuthority(
             from = OverrideStatus.DECLINED,
             to = OverrideStatus.APPROVED,
-            actorUserId = parentB,
-            proposerId = parentA
+            actorDeviceId = parentB,
+            proposerDeviceId = parentA
         )
         result.shouldBeInstanceOf<AuthorityResult.InvalidTransition>()
     }
@@ -260,8 +258,8 @@ class OverrideStateMachineTest : FunSpec({
         val result = stateMachine.validateAuthority(
             from = OverrideStatus.PROPOSED,
             to = OverrideStatus.PROPOSED,
-            actorUserId = parentA,
-            proposerId = parentA
+            actorDeviceId = parentA,
+            proposerDeviceId = parentA
         )
         result.shouldBeInstanceOf<AuthorityResult.InvalidTransition>()
     }

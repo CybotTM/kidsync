@@ -23,12 +23,12 @@ class OverrideResolutionTest : FunSpec({
 
     val patternGenerator = PatternGenerator()
     val resolver = OverrideResolver(patternGenerator)
-    val parentA = UUID.fromString("d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa")
-    val parentB = UUID.fromString("e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb")
-    val childId = UUID.fromString("c1d2e3f4-5678-9abc-def0-123456789012")
+    val parentA = "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa"
+    val parentB = "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb"
+    val childId = "c1d2e3f4-5678-9abc-def0-123456789012"
 
     val baseSchedule = CustodySchedule(
-        scheduleId = UUID.randomUUID(),
+        scheduleId = UUID.randomUUID().toString(),
         childId = childId,
         anchorDate = LocalDate.of(2026, 4, 1),
         cycleLengthDays = 2,
@@ -55,7 +55,7 @@ class OverrideResolutionTest : FunSpec({
 
     test("single day APPROVED override replaces base schedule") {
         val override = ScheduleOverride(
-            overrideId = UUID.randomUUID(),
+            overrideId = UUID.randomUUID().toString(),
             type = OverrideType.SWAP_REQUEST,
             childId = childId,
             startDate = LocalDate.of(2026, 4, 2), // Normally parentB
@@ -84,7 +84,7 @@ class OverrideResolutionTest : FunSpec({
 
     test("PROPOSED override is NOT applied") {
         val override = ScheduleOverride(
-            overrideId = UUID.randomUUID(),
+            overrideId = UUID.randomUUID().toString(),
             type = OverrideType.SWAP_REQUEST,
             childId = childId,
             startDate = LocalDate.of(2026, 4, 2),
@@ -109,7 +109,7 @@ class OverrideResolutionTest : FunSpec({
 
     test("DECLINED override is NOT applied") {
         val override = ScheduleOverride(
-            overrideId = UUID.randomUUID(),
+            overrideId = UUID.randomUUID().toString(),
             type = OverrideType.SWAP_REQUEST,
             childId = childId,
             startDate = LocalDate.of(2026, 4, 2),
@@ -132,7 +132,7 @@ class OverrideResolutionTest : FunSpec({
 
     test("COURT_ORDER beats SWAP_REQUEST on same dates") {
         val swapRequest = ScheduleOverride(
-            overrideId = UUID.randomUUID(),
+            overrideId = UUID.randomUUID().toString(),
             type = OverrideType.SWAP_REQUEST,
             childId = childId,
             startDate = LocalDate.of(2026, 4, 5),
@@ -144,7 +144,7 @@ class OverrideResolutionTest : FunSpec({
         )
 
         val courtOrder = ScheduleOverride(
-            overrideId = UUID.randomUUID(),
+            overrideId = UUID.randomUUID().toString(),
             type = OverrideType.COURT_ORDER,
             childId = childId,
             startDate = LocalDate.of(2026, 4, 5),
@@ -169,7 +169,7 @@ class OverrideResolutionTest : FunSpec({
 
     test("HOLIDAY beats MANUAL on same dates") {
         val manual = ScheduleOverride(
-            overrideId = UUID.randomUUID(),
+            overrideId = UUID.randomUUID().toString(),
             type = OverrideType.MANUAL_OVERRIDE,
             childId = childId,
             startDate = LocalDate.of(2026, 4, 5),
@@ -181,7 +181,7 @@ class OverrideResolutionTest : FunSpec({
         )
 
         val holiday = ScheduleOverride(
-            overrideId = UUID.randomUUID(),
+            overrideId = UUID.randomUUID().toString(),
             type = OverrideType.HOLIDAY_RULE,
             childId = childId,
             startDate = LocalDate.of(2026, 4, 5),
@@ -206,7 +206,7 @@ class OverrideResolutionTest : FunSpec({
 
     test("multi-day override covers all days in range") {
         val override = ScheduleOverride(
-            overrideId = UUID.randomUUID(),
+            overrideId = UUID.randomUUID().toString(),
             type = OverrideType.HOLIDAY_RULE,
             childId = childId,
             startDate = LocalDate.of(2026, 4, 1),
@@ -233,7 +233,7 @@ class OverrideResolutionTest : FunSpec({
 
     test("override only applies within its date range") {
         val override = ScheduleOverride(
-            overrideId = UUID.randomUUID(),
+            overrideId = UUID.randomUUID().toString(),
             type = OverrideType.SWAP_REQUEST,
             childId = childId,
             startDate = LocalDate.of(2026, 4, 2),

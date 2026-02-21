@@ -1,12 +1,14 @@
 package com.kidsync.app.integration
 
 import com.kidsync.app.crypto.CanonicalJsonSerializer
+import com.kidsync.app.crypto.KeyManager
 import com.kidsync.app.crypto.TinkCryptoManager
 import com.kidsync.app.domain.model.OpLogEntry
 import com.kidsync.app.domain.usecase.sync.HashChainVerifier
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
+import io.mockk.mockk
 import java.time.Instant
 import java.util.Base64
 
@@ -18,7 +20,8 @@ import java.util.Base64
  */
 class SyncRoundtripTest : FunSpec({
 
-    val cryptoManager = TinkCryptoManager()
+    val lazyKeyManager = dagger.Lazy<KeyManager> { mockk(relaxed = true) }
+    val cryptoManager = TinkCryptoManager(lazyKeyManager)
     val hashChainVerifier = HashChainVerifier()
     val canonicalSerializer = CanonicalJsonSerializer()
     val bucketId = "bucket-roundtrip-test"

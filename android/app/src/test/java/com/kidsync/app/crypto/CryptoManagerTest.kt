@@ -1,10 +1,12 @@
 package com.kidsync.app.crypto
 
+import com.kidsync.app.crypto.KeyManager
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import io.kotest.matchers.string.shouldHaveLength
 import io.kotest.matchers.string.shouldMatch
+import io.mockk.mockk
 import java.util.Base64
 
 /**
@@ -14,7 +16,8 @@ import java.util.Base64
  */
 class CryptoManagerTest : FunSpec({
 
-    val cryptoManager = TinkCryptoManager()
+    val lazyKeyManager = dagger.Lazy<KeyManager> { mockk(relaxed = true) }
+    val cryptoManager = TinkCryptoManager(lazyKeyManager)
 
     test("generateDek produces 32-byte key") {
         val dek = cryptoManager.generateDek()

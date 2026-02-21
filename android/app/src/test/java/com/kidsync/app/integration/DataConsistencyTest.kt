@@ -1,11 +1,13 @@
 package com.kidsync.app.integration
 
 import com.kidsync.app.crypto.CanonicalJsonSerializer
+import com.kidsync.app.crypto.KeyManager
 import com.kidsync.app.crypto.TinkCryptoManager
 import com.kidsync.app.domain.model.DecryptedPayload
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
+import io.mockk.mockk
 import kotlinx.serialization.json.*
 
 /**
@@ -19,7 +21,8 @@ import kotlinx.serialization.json.*
  */
 class DataConsistencyTest : FunSpec({
 
-    val cryptoManager = TinkCryptoManager()
+    val lazyKeyManager = dagger.Lazy<KeyManager> { mockk(relaxed = true) }
+    val cryptoManager = TinkCryptoManager(lazyKeyManager)
     val canonicalSerializer = CanonicalJsonSerializer()
 
     val bucketId = "bucket-consistency"

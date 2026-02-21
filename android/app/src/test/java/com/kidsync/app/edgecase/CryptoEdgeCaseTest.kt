@@ -1,6 +1,7 @@
 package com.kidsync.app.edgecase
 
 import com.kidsync.app.crypto.CanonicalJsonSerializer
+import com.kidsync.app.crypto.KeyManager
 import com.kidsync.app.crypto.TinkCryptoManager
 import com.kidsync.app.domain.model.OverrideStatus
 import com.kidsync.app.domain.usecase.sync.HashChainVerifier
@@ -13,6 +14,7 @@ import io.kotest.property.Arb
 import io.kotest.property.arbitrary.string
 import io.kotest.property.arbitrary.int
 import io.kotest.property.checkAll
+import io.mockk.mockk
 import kotlinx.coroutines.*
 import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
@@ -45,7 +47,8 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class CryptoEdgeCaseTest : FunSpec({
 
-    val cryptoManager = TinkCryptoManager()
+    val lazyKeyManager = dagger.Lazy<KeyManager> { mockk(relaxed = true) }
+    val cryptoManager = TinkCryptoManager(lazyKeyManager)
     val hashChainVerifier = HashChainVerifier()
     val canonicalSerializer = CanonicalJsonSerializer()
 

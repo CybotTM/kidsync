@@ -22,16 +22,16 @@ import java.util.UUID
 class PatternGeneratorTest : FunSpec({
 
     val generator = PatternGenerator()
-    val parentA = UUID.fromString("d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa")
-    val parentB = UUID.fromString("e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb")
+    val parentA = "d1e2f3a4-5678-9abc-def0-aaaaaaaaaaaa"
+    val parentB = "e2f3a4b5-6789-abcd-ef01-bbbbbbbbbbbb"
 
     fun schedule(
         anchorDate: LocalDate,
         cycleLengthDays: Int,
-        pattern: List<UUID>
+        pattern: List<String>
     ) = CustodySchedule(
-        scheduleId = UUID.randomUUID(),
-        childId = UUID.randomUUID(),
+        scheduleId = UUID.randomUUID().toString(),
+        childId = UUID.randomUUID().toString(),
         anchorDate = anchorDate,
         cycleLengthDays = cycleLengthDays,
         pattern = pattern,
