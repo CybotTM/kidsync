@@ -3,17 +3,24 @@ package dev.kidsync.server.services
 import dev.kidsync.server.db.*
 import dev.kidsync.server.db.DatabaseFactory.dbQuery
 import dev.kidsync.server.models.*
+import dev.kidsync.server.util.ValidationUtil
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.slf4j.LoggerFactory
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
 class KeyService {
 
+    private val logger = LoggerFactory.getLogger(KeyService::class.java)
+
     private val isoFormatter = DateTimeFormatter.ISO_INSTANT
 
     // ---- Wrapped Keys ----
+    // SEC3-S-17: TODO - No key rotation mechanism exists. When a device is revoked from a
+    // bucket, the remaining devices should rotate to a new key epoch and re-wrap the DEK
+    // for each remaining device. This is a planned feature for a future version.
 
     /**
      * Upload a wrapped DEK for a target device.
@@ -22,6 +29,11 @@ class KeyService {
     suspend fun uploadWrappedKey(callerDeviceId: String, request: WrappedKeyRequest) {
         if (request.wrappedDek.length > 8192) {
             throw ApiException(413, "PAYLOAD_TOO_LARGE", "Wrapped key exceeds maximum size of 8KB")
+        }
+
+        // SEC3-S-23: Validate keyEpoch >= 1
+        if (request.keyEpoch < 1) {
+            throw ApiException(400, "INVALID_REQUEST", "keyEpoch must be >= 1")
         }
 
         dbQuery {
@@ -45,6 +57,10 @@ class KeyService {
             if (sharedBucket == null) {
                 throw ApiException(403, "BUCKET_ACCESS_DENIED", "Devices must share a bucket")
             }
+
+            // SEC3-S-22: wrappedDek max length is validated above (8192 bytes).
+            // Note: base64 format validation is intentionally not enforced here because
+            // wrappedDek is opaque encrypted data whose encoding is determined by the client.
 
             // SEC2-S-23: Check if a wrapped key already exists for this target + epoch.
             // Return 409 Conflict instead of silently overwriting, so clients are aware
@@ -121,6 +137,29 @@ class KeyService {
             Devices.selectAll().where { Devices.id eq request.attestedDevice }.firstOrNull()
                 ?: throw ApiException(404, "NOT_FOUND", "Attested device not found")
 
+            // SEC3-S-22: Validate attestedKey max length (checked after device existence for
+            // backward compatibility - nonexistent device should still return 404)
+            if (request.attestedKey.length > 8192) {
+                throw ApiException(413, "PAYLOAD_TOO_LARGE", "attestedKey exceeds maximum size")
+            }
+
+            // SEC3-S-07: Verify signer and attested device share at least one active bucket
+            val signerBuckets = BucketAccess.selectAll()
+                .where { (BucketAccess.deviceId eq signerDeviceId) and BucketAccess.revokedAt.isNull() }
+                .map { it[BucketAccess.bucketId] }
+
+            val sharedBucket = BucketAccess.selectAll()
+                .where {
+                    (BucketAccess.deviceId eq request.attestedDevice) and
+                        BucketAccess.revokedAt.isNull() and
+                        (BucketAccess.bucketId inList signerBuckets)
+                }
+                .firstOrNull()
+
+            if (sharedBucket == null) {
+                throw ApiException(403, "BUCKET_ACCESS_DENIED", "Devices must share a bucket to create attestations")
+            }
+
             // Check if attestation already exists for this signer+attested pair
             val existing = KeyAttestations.selectAll().where {
                 (KeyAttestations.signerDevice eq signerDeviceId) and
@@ -168,6 +207,9 @@ class KeyService {
 
     /**
      * Upload an encrypted recovery blob for the authenticated device.
+     * SEC3-S-12: Tracks version counter for overwrites and logs changes.
+     * TODO: In production, re-authentication should be required before allowing
+     * recovery blob overwrites to prevent unauthorized replacement.
      */
     suspend fun uploadRecoveryBlob(deviceId: String, request: RecoveryBlobRequest) {
         if (request.encryptedBlob.length > 1_048_576) {
@@ -175,12 +217,24 @@ class KeyService {
         }
 
         dbQuery {
-            // Upsert: replace existing recovery blob
-            RecoveryBlobs.deleteWhere { RecoveryBlobs.deviceId eq deviceId }
+            // SEC3-S-12: Check existing version before replacing
+            val existing = RecoveryBlobs.selectAll()
+                .where { RecoveryBlobs.deviceId eq deviceId }
+                .firstOrNull()
+
+            val newVersion = if (existing != null) {
+                val oldVersion = existing[RecoveryBlobs.version]
+                RecoveryBlobs.deleteWhere { RecoveryBlobs.deviceId eq deviceId }
+                logger.info("Recovery blob overwritten: device={} oldVersion={} newVersion={}", deviceId, oldVersion, oldVersion + 1)
+                oldVersion + 1
+            } else {
+                1
+            }
 
             RecoveryBlobs.insert {
                 it[RecoveryBlobs.deviceId] = deviceId
                 it[encryptedBlob] = request.encryptedBlob
+                it[version] = newVersion
                 it[createdAt] = LocalDateTime.now(ZoneOffset.UTC)
             }
         }

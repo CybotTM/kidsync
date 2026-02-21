@@ -5,6 +5,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Manages WebSocket connections grouped by bucket.
@@ -23,9 +24,13 @@ class WebSocketManager {
     companion object {
         const val MAX_CONNECTIONS_PER_DEVICE = 2
         const val MAX_CONNECTIONS_PER_BUCKET = 50
+        // SEC3-S-14: Global connection limit to prevent server-wide resource exhaustion
+        const val MAX_GLOBAL_CONNECTIONS = 10_000
     }
 
     private val connections = ConcurrentHashMap<String, MutableSet<WsConnection>>()
+    // SEC3-S-14: Atomic counter for total connections across all buckets
+    private val globalConnectionCount = AtomicInteger(0)
     private val json = Json { encodeDefaults = true }
 
     /**
@@ -36,6 +41,12 @@ class WebSocketManager {
      * limit check before either is added.
      */
     fun addConnection(bucketId: String, connection: WsConnection): Boolean {
+        // SEC3-S-14: Check global connection limit first
+        if (globalConnectionCount.get() >= MAX_GLOBAL_CONNECTIONS) {
+            logger.warn("WebSocket global connection limit reached: {}", MAX_GLOBAL_CONNECTIONS)
+            return false
+        }
+
         val bucketConnections = connections.computeIfAbsent(bucketId) { ConcurrentHashMap.newKeySet() }
 
         synchronized(bucketConnections) {
@@ -53,14 +64,46 @@ class WebSocketManager {
             }
 
             bucketConnections.add(connection)
+            globalConnectionCount.incrementAndGet()
         }
         logger.info("WebSocket connected: device={} bucket={}", connection.deviceId, bucketId)
         return true
     }
 
     fun removeConnection(bucketId: String, connection: WsConnection) {
-        connections[bucketId]?.remove(connection)
+        val bucketConnections = connections[bucketId]
+        val removed = bucketConnections?.remove(connection) ?: false
+        if (removed) {
+            globalConnectionCount.decrementAndGet()
+        }
+        // SEC3-S-14: Clean up empty bucket entries to prevent unbounded map growth
+        if (bucketConnections != null && bucketConnections.isEmpty()) {
+            connections.remove(bucketId, bucketConnections)
+        }
         logger.info("WebSocket disconnected: device={} bucket={}", connection.deviceId, bucketId)
+    }
+
+    /**
+     * SEC3-S-05: Disconnect all WebSocket connections for a specific device in a specific bucket.
+     * Used when a device's access is revoked (self-revoke or bucket deletion).
+     */
+    suspend fun disconnectDevice(bucketId: String, deviceId: String) {
+        val bucketConnections = connections[bucketId] ?: return
+        val toDisconnect = bucketConnections.filter { it.deviceId == deviceId }
+        for (conn in toDisconnect) {
+            try {
+                conn.session.close(CloseReason(CloseReason.Codes.VIOLATED_POLICY.code, "Access revoked"))
+            } catch (e: Exception) {
+                logger.warn("Failed to close WS for revoked device={}: {}", deviceId, e.message)
+            }
+            if (bucketConnections.remove(conn)) {
+                globalConnectionCount.decrementAndGet()
+            }
+        }
+        // SEC3-S-14: Clean up empty bucket entries
+        if (bucketConnections.isEmpty()) {
+            connections.remove(bucketId, bucketConnections)
+        }
     }
 
     /**

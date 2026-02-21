@@ -23,6 +23,8 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * SEC2-S-11: Per-signing-key rate limiter for challenge requests.
  * Limits each signing key to MAX_CHALLENGES_PER_KEY_PER_MINUTE requests per minute.
+ * SEC3-S-02: Only tracks registered signing keys (called after device existence check).
+ * Includes periodic eviction of stale entries to prevent unbounded memory growth.
  */
 private object ChallengeKeyRateLimiter {
     private const val MAX_CHALLENGES_PER_KEY_PER_MINUTE = 5
@@ -32,19 +34,36 @@ private object ChallengeKeyRateLimiter {
     private val windows = ConcurrentHashMap<String, KeyWindow>()
 
     fun checkAndIncrement(signingKey: String): Boolean {
+        // SEC3-S-02: Evict stale entries older than 2x the window period
+        cleanup()
+
         val now = System.currentTimeMillis()
         val window = windows.computeIfAbsent(signingKey) { KeyWindow() }
 
-        // Reset window if expired
-        val start = window.windowStart.get()
-        if (now - start > WINDOW_MS) {
-            window.windowStart.set(now)
-            window.count.set(1)
-            return true
-        }
+        // SEC3-S-03: Synchronized block to prevent TOCTOU race on window reset-or-increment
+        synchronized(window) {
+            val start = window.windowStart.get()
+            if (now - start > WINDOW_MS) {
+                window.windowStart.set(now)
+                window.count.set(1)
+                return true
+            }
 
-        val current = window.count.incrementAndGet()
-        return current <= MAX_CHALLENGES_PER_KEY_PER_MINUTE
+            val current = window.count.incrementAndGet()
+            return current <= MAX_CHALLENGES_PER_KEY_PER_MINUTE
+        }
+    }
+
+    /**
+     * SEC3-S-02: Remove entries where windowStart is older than 2x the window period
+     * to prevent unbounded memory growth from accumulated signing keys.
+     */
+    fun cleanup() {
+        val now = System.currentTimeMillis()
+        val threshold = now - (2 * WINDOW_MS)
+        windows.entries.removeIf { (_, window) ->
+            window.windowStart.get() < threshold
+        }
     }
 }
 
@@ -62,12 +81,9 @@ fun Route.authRoutes(config: AppConfig, sessionUtil: SessionUtil) {
                     throw ApiException(400, "INVALID_REQUEST", "signingKey is required")
                 }
 
-                // SEC2-S-11: Per-signing-key rate limit to prevent challenge DoS
-                if (!ChallengeKeyRateLimiter.checkAndIncrement(request.signingKey)) {
-                    throw ApiException(429, "RATE_LIMITED", "Too many challenge requests for this key")
-                }
-
-                // Verify the signing key is registered
+                // Verify the signing key is registered BEFORE rate limiting
+                // SEC3-S-02: Only track registered keys to prevent unbounded memory growth
+                // from unregistered/random signing keys.
                 val device = dbQuery {
                     Devices.selectAll()
                         .where { Devices.signingKey eq request.signingKey }
@@ -76,6 +92,11 @@ fun Route.authRoutes(config: AppConfig, sessionUtil: SessionUtil) {
 
                 if (device == null) {
                     throw ApiException(404, "UNKNOWN_SIGNING_KEY", "Device not registered")
+                }
+
+                // SEC2-S-11: Per-signing-key rate limit to prevent challenge DoS
+                if (!ChallengeKeyRateLimiter.checkAndIncrement(request.signingKey)) {
+                    throw ApiException(429, "RATE_LIMITED", "Too many challenge requests for this key")
                 }
 
                 val challenge = sessionUtil.createChallenge(request.signingKey)

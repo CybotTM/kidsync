@@ -83,6 +83,11 @@ fun Route.bucketRoutes(bucketService: BucketService, wsManager: WebSocketManager
                             throw ApiException(400, "INVALID_REQUEST", "inviteToken is required")
                         }
 
+                        // SEC3-S-13: Max length check on inviteToken before hashing
+                        if (request.inviteToken.length > 256) {
+                            throw ApiException(400, "INVALID_REQUEST", "inviteToken exceeds maximum length")
+                        }
+
                         val response = bucketService.joinBucket(bucketId, principal.deviceId, request.inviteToken)
 
                         // Look up the joining device's encryption key for the WS notification

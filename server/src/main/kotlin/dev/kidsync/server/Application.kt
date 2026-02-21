@@ -52,12 +52,12 @@ fun Application.module(config: AppConfig = AppConfig()) {
 
     // Initialize utilities and services
     val sessionUtil = SessionUtil(config)
-    val bucketService = BucketService(config.blobStoragePath, config.snapshotStoragePath)
+    val wsManager = WebSocketManager()
+    val bucketService = BucketService(config.blobStoragePath, config.snapshotStoragePath, wsManager)
     val keyService = KeyService()
     val syncService = SyncService(config)
     val blobService = BlobService(config)
     val pushService = PushService()
-    val wsManager = WebSocketManager()
 
     // Periodic cleanup of expired sessions and challenges (every 5 minutes)
     // SEC-S-02: Sessions are now DB-backed; cleanup requires suspend context
@@ -108,12 +108,29 @@ fun Application.module(config: AppConfig = AppConfig()) {
     }
 
     // SEC-S-04: Request body size limit for JSON endpoints (10 MB max)
+    // SEC3-S-11: Also reject POST/PUT/PATCH requests without Content-Length header
+    // (except multipart, which uses chunked encoding by design) to prevent chunked
+    // transfer encoding from bypassing the Content-Length size check.
     intercept(ApplicationCallPipeline.Plugins) {
         val contentLength = call.request.header(HttpHeaders.ContentLength)?.toLongOrNull()
         if (contentLength != null && contentLength > 10 * 1024 * 1024) {
             call.respond(HttpStatusCode.PayloadTooLarge)
             finish()
             return@intercept
+        }
+
+        val method = call.request.httpMethod
+        val isModifying = method == HttpMethod.Post || method == HttpMethod.Put || method == HttpMethod.Patch
+        val contentType = call.request.contentType()
+        val isMultipart = contentType.match(ContentType.MultiPart.FormData)
+        if (isModifying && !isMultipart && contentLength == null) {
+            // Require Content-Length for non-multipart modifying requests
+            val transferEncoding = call.request.header(HttpHeaders.TransferEncoding)
+            if (transferEncoding != null) {
+                call.respond(HttpStatusCode.LengthRequired)
+                finish()
+                return@intercept
+            }
         }
     }
 

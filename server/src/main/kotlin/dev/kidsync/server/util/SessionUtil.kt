@@ -11,6 +11,9 @@ import java.security.SecureRandom
 import java.time.Instant
 import java.util.*
 
+// SEC3-S-01: Session tokens are hashed with SHA-256 before storage.
+// The raw token is returned to the client; only the hash is persisted in the DB.
+
 /** SEC2-S-07: Maximum number of concurrent sessions per device */
 private const val MAX_SESSIONS_PER_DEVICE = 5
 
@@ -120,6 +123,9 @@ class SessionUtil(private val config: AppConfig) {
             expiresAt = now.plusSeconds(config.sessionTtlSeconds),
         )
 
+        // SEC3-S-01: Hash the token before storing in the database
+        val hashedToken = HashUtil.sha256HexString(token)
+
         dbQuery {
             // SEC2-S-07: Enforce max sessions per device (limit 5).
             // Delete oldest sessions if limit would be exceeded.
@@ -130,19 +136,19 @@ class SessionUtil(private val config: AppConfig) {
             if (existingCount >= MAX_SESSIONS_PER_DEVICE) {
                 // Find the oldest sessions to delete
                 val sessionsToKeep = MAX_SESSIONS_PER_DEVICE - 1
-                val oldestTokens = Sessions.selectAll()
+                val oldestTokenHashes = Sessions.selectAll()
                     .where { Sessions.deviceId eq deviceId }
                     .orderBy(Sessions.createdAt, SortOrder.ASC)
                     .limit((existingCount - sessionsToKeep).toInt())
-                    .map { it[Sessions.token] }
+                    .map { it[Sessions.tokenHash] }
 
-                for (oldToken in oldestTokens) {
-                    Sessions.deleteWhere { Sessions.token eq oldToken }
+                for (oldTokenHash in oldestTokenHashes) {
+                    Sessions.deleteWhere { Sessions.tokenHash eq oldTokenHash }
                 }
             }
 
             Sessions.insert {
-                it[Sessions.token] = token
+                it[Sessions.tokenHash] = hashedToken
                 it[Sessions.deviceId] = deviceId
                 it[Sessions.signingKey] = signingKey
                 it[createdAt] = now.epochSecond
@@ -155,16 +161,18 @@ class SessionUtil(private val config: AppConfig) {
 
     /**
      * Validate a session token. Returns the session if valid, null otherwise.
+     * SEC3-S-01: Hashes the input token with SHA-256 and queries against the stored hash.
      */
     suspend fun validateSession(token: String): Session? {
+        val hashedToken = HashUtil.sha256HexString(token)
         return dbQuery {
             val row = Sessions.selectAll()
-                .where { Sessions.token eq token }
+                .where { Sessions.tokenHash eq hashedToken }
                 .firstOrNull() ?: return@dbQuery null
 
             val expiresAt = Instant.ofEpochSecond(row[Sessions.expiresAt])
             if (Instant.now().isAfter(expiresAt)) {
-                Sessions.deleteWhere { Sessions.token eq token }
+                Sessions.deleteWhere { Sessions.tokenHash eq hashedToken }
                 return@dbQuery null
             }
 
@@ -183,7 +191,7 @@ class SessionUtil(private val config: AppConfig) {
     suspend fun cleanup() {
         val nowEpoch = Instant.now().epochSecond
         dbQuery {
-            Sessions.deleteWhere { Sessions.expiresAt less nowEpoch }
+            Sessions.deleteWhere { expiresAt less nowEpoch }
             Challenges.deleteWhere { Challenges.expiresAt less nowEpoch }
         }
     }

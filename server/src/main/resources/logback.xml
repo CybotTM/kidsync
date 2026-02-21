@@ -17,6 +17,9 @@
     </root>
 
     <logger name="io.ktor" level="INFO" />
+    <!-- SEC3-S-21: SECURITY WARNING - Setting Exposed to DEBUG will log full SQL statements
+         including parameter values, which may contain session tokens, encrypted payloads,
+         signing keys, and other sensitive data. NEVER set to DEBUG in production. -->
     <logger name="org.jetbrains.exposed" level="INFO" />
     <!-- SEC2-S-21: Default to INFO in production. Override via KIDSYNC_LOG_LEVEL env var
          or -Dlogback.configurationFile=/path/to/custom-logback.xml for DEBUG in development. -->

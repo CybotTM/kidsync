@@ -15,16 +15,51 @@ import java.util.*
 class BucketService(
     private val blobStoragePath: String,
     private val snapshotStoragePath: String,
+    // SEC3-S-05: Reference to WebSocketManager to disconnect devices on revocation
+    private val wsManager: WebSocketManager? = null,
 ) {
+
+    companion object {
+        // SEC3-S-15: Maximum number of buckets a single device can create
+        const val MAX_BUCKETS_PER_DEVICE = 10
+
+        /**
+         * Verify that a device has active (non-revoked) access to a bucket.
+         * Throws ApiException if not.
+         */
+        fun requireBucketAccess(bucketId: String, deviceId: String) {
+            val access = BucketAccess.selectAll().where {
+                (BucketAccess.bucketId eq bucketId) and
+                    (BucketAccess.deviceId eq deviceId) and
+                    BucketAccess.revokedAt.isNull()
+            }.firstOrNull()
+
+            if (access == null) {
+                throw ApiException(403, "BUCKET_ACCESS_DENIED", "Device does not have access to this bucket")
+            }
+        }
+    }
 
     /**
      * Create a new anonymous bucket. The creator device automatically gets access.
+     *
+     * SEC3-S-08: TODO - The bucket creator role cannot be transferred to another device.
+     * If the creator device is lost, the bucket cannot be deleted by any other device.
+     * Consider adding a creator transfer mechanism or multi-admin support in a future version.
      */
     suspend fun createBucket(deviceId: String): BucketResponse {
         val bucketId = UUID.randomUUID().toString()
         val now = LocalDateTime.now(ZoneOffset.UTC)
 
         dbQuery {
+            // SEC3-S-15: Enforce per-device bucket creation limit
+            val bucketCount = Buckets.selectAll()
+                .where { Buckets.createdBy eq deviceId }
+                .count()
+            if (bucketCount >= MAX_BUCKETS_PER_DEVICE) {
+                throw ApiException(429, "RATE_LIMITED", "Maximum number of buckets ($MAX_BUCKETS_PER_DEVICE) per device reached")
+            }
+
             Buckets.insert {
                 it[id] = bucketId
                 it[createdBy] = deviceId
@@ -45,6 +80,9 @@ class BucketService(
      * Delete a bucket. Only the creator device can delete. Cascading delete of all related data.
      */
     suspend fun deleteBucket(bucketId: String, deviceId: String) {
+        // SEC3-S-05: Collect device IDs before deletion to disconnect their WebSocket connections
+        val deviceIdsInBucket = mutableListOf<String>()
+
         dbQuery {
             val bucket = Buckets.selectAll().where { Buckets.id eq bucketId }.firstOrNull()
                 ?: throw ApiException(404, "NOT_FOUND", "Bucket not found")
@@ -53,9 +91,19 @@ class BucketService(
                 throw ApiException(403, "NOT_BUCKET_CREATOR", "Only the bucket creator can delete it")
             }
 
+            // SEC3-S-05: Collect all active device IDs for WS disconnection
+            BucketAccess.selectAll().where {
+                (BucketAccess.bucketId eq bucketId) and BucketAccess.revokedAt.isNull()
+            }.forEach { row ->
+                deviceIdsInBucket.add(row[BucketAccess.deviceId])
+            }
+
             // Wrapped keys for devices in this bucket are intentionally NOT deleted here.
             // They are harmless since the bucket's data is already deleted, and deleting
             // them would over-delete keys for devices that have access to other buckets.
+            // SEC3-S-24: TODO - Bucket deletion doesn't clean up orphaned wrapped keys or
+            // attestations that reference only this bucket's devices. Consider a background
+            // cleanup job for production deployments.
 
             // Delete all related data
             Ops.deleteWhere { Ops.bucketId eq bucketId }
@@ -88,6 +136,11 @@ class BucketService(
             InviteTokens.deleteWhere { InviteTokens.bucketId eq bucketId }
             BucketAccess.deleteWhere { BucketAccess.bucketId eq bucketId }
             Buckets.deleteWhere { Buckets.id eq bucketId }
+        }
+
+        // SEC3-S-05: Terminate WebSocket connections for all devices in the deleted bucket
+        for (devId in deviceIdsInBucket) {
+            wsManager?.disconnectDevice(bucketId, devId)
         }
     }
 
@@ -284,23 +337,8 @@ class BucketService(
                 it[revokedAt] = LocalDateTime.now(ZoneOffset.UTC)
             }
         }
-    }
 
-    companion object {
-        /**
-         * Verify that a device has active (non-revoked) access to a bucket.
-         * Throws ApiException if not.
-         */
-        fun requireBucketAccess(bucketId: String, deviceId: String) {
-            val access = BucketAccess.selectAll().where {
-                (BucketAccess.bucketId eq bucketId) and
-                    (BucketAccess.deviceId eq deviceId) and
-                    BucketAccess.revokedAt.isNull()
-            }.firstOrNull()
-
-            if (access == null) {
-                throw ApiException(403, "BUCKET_ACCESS_DENIED", "Device does not have access to this bucket")
-            }
-        }
+        // SEC3-S-05: Terminate WebSocket connections for the revoked device
+        wsManager?.disconnectDevice(bucketId, deviceId)
     }
 }

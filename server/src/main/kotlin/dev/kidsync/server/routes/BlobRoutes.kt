@@ -75,10 +75,11 @@ fun Route.blobRoutes(blobService: BlobService) {
                         .digest(bytes)
                         .joinToString("") { "%02x".format(it) }
                     if (!java.security.MessageDigest.isEqual(computedHash.toByteArray(), declaredHash.toByteArray())) {
+                        // SEC3-S-09: Generic error without revealing server-computed hash
                         throw ApiException(
                             400,
                             "HASH_MISMATCH",
-                            "Blob SHA-256 mismatch: expected $declaredHash, got $computedHash"
+                            "SHA-256 mismatch"
                         )
                     }
 

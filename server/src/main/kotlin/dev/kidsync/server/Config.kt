@@ -1,5 +1,8 @@
 package dev.kidsync.server
 
+// SEC3-S-16: TODO - Storage paths (blobStoragePath, snapshotStoragePath) should be validated
+// in production deployments to ensure they resolve to intended directories and are not
+// symlinks or mount points that could lead to path traversal outside the data directory.
 data class AppConfig(
     val dbPath: String = System.getenv("KIDSYNC_DB_PATH") ?: "data/kidsync.db",
     val serverOrigin: String = System.getenv("KIDSYNC_SERVER_ORIGIN") ?: "https://api.kidsync.app",

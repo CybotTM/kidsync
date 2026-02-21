@@ -91,10 +91,13 @@ object WrappedKeys : Table("wrapped_keys") {
 }
 
 // ---- Recovery Blobs ----
+// SEC3-S-12: Includes version counter to track overwrites. In production, re-authentication
+// should be required before allowing recovery blob overwrites.
 
 object RecoveryBlobs : Table("recovery_blobs") {
     val deviceId = varchar("device_id", 36).references(Devices.id)
     val encryptedBlob = text("encrypted_blob")
+    val version = integer("version").default(1)
     val createdAt = datetime("created_at")
 
     override val primaryKey = PrimaryKey(deviceId)
@@ -155,14 +158,16 @@ object InviteTokens : Table("invite_tokens") {
 }
 
 // ---- Sessions ----
+// SEC3-S-01: Session tokens are stored as SHA-256 hashes, not plaintext.
+// The raw token is returned to the client; only the hash is persisted.
 
 object Sessions : Table("sessions") {
-    val token = varchar("token", 64)
+    val tokenHash = varchar("token_hash", 64)
     val deviceId = varchar("device_id", 36)
     val signingKey = text("signing_key")
     val createdAt = long("created_at")
     val expiresAt = long("expires_at")
-    override val primaryKey = PrimaryKey(token)
+    override val primaryKey = PrimaryKey(tokenHash)
 }
 
 // ---- Challenges ----

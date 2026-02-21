@@ -53,7 +53,8 @@ fun Route.deviceRoutes() {
                     .firstOrNull()
 
                 if (existing != null) {
-                    throw ApiException(409, "SIGNING_KEY_EXISTS", "Signing key already registered")
+                    // SEC3-S-04: Use generic error code to avoid revealing signing key existence
+                    throw ApiException(409, "REGISTRATION_FAILED", "Registration failed")
                 }
 
                 Devices.insert {

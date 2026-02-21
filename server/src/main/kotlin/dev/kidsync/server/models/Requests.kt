@@ -44,6 +44,9 @@ data class JoinBucketRequest(
 
 // ---- Sync ----
 
+// SEC3-S-18: deviceId is redundant here since the authenticated device is already known
+// from the session. It is kept for backward compatibility and validated to match the
+// authenticated device in SyncService.uploadOps.
 @Serializable
 data class OpInput(
     val deviceId: String,

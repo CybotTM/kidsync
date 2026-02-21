@@ -70,6 +70,10 @@ fun Route.syncRoutes(
 
                     val since = call.request.queryParameters["since"]?.toLongOrNull()
                         ?: throw ApiException(400, "INVALID_REQUEST", "Missing or invalid 'since' parameter")
+                    // SEC3-S-10: Validate since is non-negative
+                    if (since < 0) {
+                        throw ApiException(400, "INVALID_REQUEST", "'since' parameter must be >= 0")
+                    }
                     val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 100
 
                     val pullResponse = syncService.pullOps(bucketId, principal.deviceId, since, limit)
@@ -146,20 +150,42 @@ fun Route.syncRoutes(
                         throw ApiException(413, "SNAPSHOT_TOO_LARGE", "Snapshot exceeds size limit")
                     }
 
+                    // SEC3-S-25: Validate snapshot metadata fields format
+                    if (!ValidationUtil.isValidSha256Hex(meta.sha256)) {
+                        throw ApiException(400, "INVALID_REQUEST", "meta.sha256 must be a valid 64-character hex SHA-256 hash")
+                    }
+                    if (!ValidationUtil.isValidBase64(meta.signature)) {
+                        throw ApiException(400, "INVALID_REQUEST", "meta.signature must be valid base64")
+                    }
+
+                    // SEC3-S-20: Validate atSequence is within valid range for this bucket
+                    val latestOpSeq = dbQuery {
+                        Ops.selectAll()
+                            .where { Ops.bucketId eq bucketId }
+                            .orderBy(Ops.sequence, SortOrder.DESC)
+                            .limit(1)
+                            .firstOrNull()
+                            ?.get(Ops.sequence) ?: 0L
+                    }
+                    if (meta.atSequence < 0 || meta.atSequence > latestOpSeq) {
+                        throw ApiException(
+                            400,
+                            "INVALID_REQUEST",
+                            "atSequence must be between 0 and the latest op sequence ($latestOpSeq)"
+                        )
+                    }
+
                     // Verify SHA-256 of the uploaded snapshot matches declared hash
                     // SEC-S-03: Use constant-time comparison to prevent timing side-channel attacks
                     val computedHash = MessageDigest.getInstance("SHA-256")
                         .digest(blob)
                         .joinToString("") { "%02x".format(it) }
                     if (!MessageDigest.isEqual(computedHash.toByteArray(), meta.sha256.toByteArray())) {
+                        // SEC3-S-09: Generic error without revealing server-computed hash
                         throw ApiException(
                             400,
                             "HASH_MISMATCH",
-                            "Snapshot SHA-256 mismatch: expected ${meta.sha256}, got $computedHash",
-                            details = kotlinx.serialization.json.buildJsonObject {
-                                put("declared", kotlinx.serialization.json.JsonPrimitive(meta.sha256))
-                                put("actual", kotlinx.serialization.json.JsonPrimitive(computedHash))
-                            },
+                            "SHA-256 mismatch",
                         )
                     }
 
@@ -206,6 +232,10 @@ fun Route.syncRoutes(
                     )
                 }
             }
+
+            // SEC3-S-06: TODO - A snapshot download endpoint (GET /buckets/{id}/snapshots/{snapshotId}/download)
+            // is needed to allow clients to download the actual snapshot binary data, not just metadata.
+            // This should serve the file from snapshotStoragePath with path traversal protection.
 
             // GET /buckets/{id}/snapshots/latest
             rateLimit(RateLimitName("general")) {
@@ -343,8 +373,24 @@ fun Route.syncRoutes(
             )
 
             // Main message loop
+            // SEC3-S-19: Simple counter-based rate limiter (max 10 messages per second)
+            var messageCount = 0
+            var windowStart = System.currentTimeMillis()
+
             for (frame in incoming) {
                 if (frame is Frame.Text) {
+                    // SEC3-S-19: Rate limit check
+                    val now = System.currentTimeMillis()
+                    if (now - windowStart > 1000) {
+                        messageCount = 0
+                        windowStart = now
+                    }
+                    messageCount++
+                    if (messageCount > 10) {
+                        // Drop excess messages silently
+                        continue
+                    }
+
                     val text = frame.readText()
                     try {
                         val jsonObj = json.parseToJsonElement(text).jsonObject
