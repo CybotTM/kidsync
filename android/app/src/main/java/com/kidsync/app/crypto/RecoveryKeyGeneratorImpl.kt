@@ -130,21 +130,28 @@ class RecoveryKeyGeneratorImpl @Inject constructor() : RecoveryKeyGenerator {
         System.arraycopy(entropy, 0, ikm, 0, entropy.size)
         System.arraycopy(passphraseBytes, 0, ikm, entropy.size, passphraseBytes.size)
 
-        // salt = "kidsync-recovery-v2"
-        val salt = HKDF_SALT.toByteArray(Charsets.UTF_8)
+        try {
+            // salt = "kidsync-recovery-v2"
+            val salt = HKDF_SALT.toByteArray(Charsets.UTF_8)
 
-        // info = "recovery-key"
-        val info = HKDF_INFO.toByteArray(Charsets.UTF_8)
+            // info = "recovery-key"
+            val info = HKDF_INFO.toByteArray(Charsets.UTF_8)
 
-        // HKDF-SHA256 expand to 32 bytes
-        val hkdf = HKDFBytesGenerator(SHA256Digest())
-        hkdf.init(HKDFParameters(ikm, salt, info))
+            // HKDF-SHA256 expand to 32 bytes
+            val hkdf = HKDFBytesGenerator(SHA256Digest())
+            hkdf.init(HKDFParameters(ikm, salt, info))
 
-        val recoveryKey = ByteArray(RECOVERY_KEY_LENGTH)
-        hkdf.generateBytes(recoveryKey, 0, RECOVERY_KEY_LENGTH)
+            val recoveryKey = ByteArray(RECOVERY_KEY_LENGTH)
+            hkdf.generateBytes(recoveryKey, 0, RECOVERY_KEY_LENGTH)
 
-        return recoveryKey
+            return recoveryKey
+        } finally {
+            // SEC-A-02: Zero sensitive key material
+            ikm.zeroOut()
+        }
     }
+
+    private fun ByteArray.zeroOut() { java.util.Arrays.fill(this, 0.toByte()) }
 
     private fun sha256(input: ByteArray): ByteArray {
         return MessageDigest.getInstance("SHA-256").digest(input)

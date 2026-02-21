@@ -2,6 +2,7 @@ package com.kidsync.app.data.sync
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.Data
@@ -27,7 +28,8 @@ class SyncWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
     private val syncOpsUseCase: SyncOpsUseCase,
-    @javax.inject.Named("prefs") private val prefs: SharedPreferences
+    // SEC-A-08: Use encrypted prefs instead of plain prefs for bucket ID fallback
+    @javax.inject.Named("encrypted_prefs") private val encryptedPrefs: SharedPreferences
 ) : CoroutineWorker(appContext, workerParams) {
 
     companion object {
@@ -44,12 +46,15 @@ class SyncWorker @AssistedInject constructor(
 
     override suspend fun doWork(): Result {
         val bucketId = inputData.getString(KEY_BUCKET_ID)
-            ?: prefs.getString(PREF_BUCKET_ID, null)
-            ?: return Result.failure(
-                Data.Builder()
-                    .putString("error", "No bucket ID available")
-                    .build()
-            )
+            ?: encryptedPrefs.getString(PREF_BUCKET_ID, null)
+            ?: run {
+                Log.w("SyncWorker", "No bucket ID in inputData or encrypted prefs")
+                return Result.failure(
+                    Data.Builder()
+                        .putString("error", "No bucket ID available")
+                        .build()
+                )
+            }
 
         return when (val syncResult = syncOpsUseCase(bucketId)) {
             is kotlin.Result<*> -> {

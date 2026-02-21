@@ -195,7 +195,11 @@ class TinkKeyManager @Inject constructor(
             )
             storeDek(bucketId, wrappedKey.keyEpoch, dek)
         } catch (e: Exception) {
-            android.util.Log.w("TinkKeyManager", "Failed to fetch wrapped DEKs, using cached", e)
+            // SEC-A-09: Only log stack traces in debug to avoid leaking key context
+            android.util.Log.w("TinkKeyManager", "Failed to fetch wrapped DEKs, using cached")
+            if (com.kidsync.app.BuildConfig.DEBUG) {
+                android.util.Log.d("TinkKeyManager", "DEK fetch error details", e)
+            }
         }
     }
 
@@ -239,31 +243,40 @@ class TinkKeyManager @Inject constructor(
         // Include device seed
         val seed = getSeed()
 
-        // Build JSON blob: { "seed": base64(seed), "deks": { "1": base64(dek1), ... } }
-        val deksJson = deksMap.entries.joinToString(",") { (k, v) -> "\"$k\":\"$v\"" }
-        val blobJson = """{"seed":"${encoder.encodeToString(seed)}","deks":{$deksJson}}"""
+        // SEC-A-12: Build JSON blob using JSONObject instead of string concatenation
+        val blobObj = org.json.JSONObject().apply {
+            put("seed", encoder.encodeToString(seed))
+            put("deks", org.json.JSONObject(deksMap as Map<*, *>))
+        }
+        val blobJson = blobObj.toString()
 
         // Encrypt with AES-256-GCM using recovery key
         val nonce = ByteArray(12)
         java.security.SecureRandom().nextBytes(nonce)
 
-        val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
-        val keySpec = javax.crypto.spec.SecretKeySpec(recoveryKey, "AES")
-        val gcmSpec = javax.crypto.spec.GCMParameterSpec(128, nonce)
-        cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, keySpec, gcmSpec)
-        cipher.updateAAD("recovery".toByteArray())
-        val encrypted = cipher.doFinal(blobJson.toByteArray(Charsets.UTF_8))
+        try {
+            val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+            val keySpec = javax.crypto.spec.SecretKeySpec(recoveryKey, "AES")
+            val gcmSpec = javax.crypto.spec.GCMParameterSpec(128, nonce)
+            cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, keySpec, gcmSpec)
+            cipher.updateAAD("recovery".toByteArray())
+            val encrypted = cipher.doFinal(blobJson.toByteArray(Charsets.UTF_8))
 
-        val result = ByteArray(nonce.size + encrypted.size)
-        System.arraycopy(nonce, 0, result, 0, nonce.size)
-        System.arraycopy(encrypted, 0, result, nonce.size, encrypted.size)
+            val result = ByteArray(nonce.size + encrypted.size)
+            System.arraycopy(nonce, 0, result, 0, nonce.size)
+            System.arraycopy(encrypted, 0, result, nonce.size, encrypted.size)
 
-        val encoded = encoder.encodeToString(result)
+            val encoded = encoder.encodeToString(result)
 
-        // Upload encrypted recovery blob to server
-        apiService.uploadRecoveryBlob(
-            com.kidsync.app.data.remote.dto.RecoveryBlobRequest(encryptedBlob = encoded)
-        )
+            // Upload encrypted recovery blob to server
+            apiService.uploadRecoveryBlob(
+                com.kidsync.app.data.remote.dto.RecoveryBlobRequest(encryptedBlob = encoded)
+            )
+        } finally {
+            // SEC-A-02: Zero sensitive key material
+            recoveryKey.zeroOut()
+            nonce.zeroOut()
+        }
     }
 
     /**
@@ -282,29 +295,34 @@ class TinkKeyManager @Inject constructor(
         val nonce = data.sliceArray(0 until 12)
         val encrypted = data.sliceArray(12 until data.size)
 
-        val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
-        val keySpec = javax.crypto.spec.SecretKeySpec(recoveryKey, "AES")
-        val gcmSpec = javax.crypto.spec.GCMParameterSpec(128, nonce)
-        cipher.init(javax.crypto.Cipher.DECRYPT_MODE, keySpec, gcmSpec)
-        cipher.updateAAD("recovery".toByteArray())
-        val decrypted = cipher.doFinal(encrypted)
+        try {
+            val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+            val keySpec = javax.crypto.spec.SecretKeySpec(recoveryKey, "AES")
+            val gcmSpec = javax.crypto.spec.GCMParameterSpec(128, nonce)
+            cipher.init(javax.crypto.Cipher.DECRYPT_MODE, keySpec, gcmSpec)
+            cipher.updateAAD("recovery".toByteArray())
+            val decrypted = cipher.doFinal(encrypted)
 
-        // Parse JSON blob
-        val blobJson = org.json.JSONObject(String(decrypted, Charsets.UTF_8))
+            // Parse JSON blob
+            val blobJson = org.json.JSONObject(String(decrypted, Charsets.UTF_8))
 
-        // Restore device seed
-        val seedBase64 = blobJson.getString("seed")
-        val seed = decoder.decode(seedBase64)
-        storeSeed(seed)
+            // Restore device seed
+            val seedBase64 = blobJson.getString("seed")
+            val seed = decoder.decode(seedBase64)
+            storeSeed(seed)
 
-        // Restore all epoch DEKs
-        val deksObj = blobJson.getJSONObject("deks")
-        var maxEpoch = 0
-        for (epochStr in deksObj.keys()) {
-            val epoch = epochStr.toInt()
-            val dekBytes = decoder.decode(deksObj.getString(epochStr))
-            storeDek(bucketId, epoch, dekBytes)
-            if (epoch > maxEpoch) maxEpoch = epoch
+            // Restore all epoch DEKs
+            val deksObj = blobJson.getJSONObject("deks")
+            var maxEpoch = 0
+            for (epochStr in deksObj.keys()) {
+                val epoch = epochStr.toInt()
+                val dekBytes = decoder.decode(deksObj.getString(epochStr))
+                storeDek(bucketId, epoch, dekBytes)
+                if (epoch > maxEpoch) maxEpoch = epoch
+            }
+        } finally {
+            // SEC-A-02: Zero sensitive key material
+            recoveryKey.zeroOut()
         }
     }
 

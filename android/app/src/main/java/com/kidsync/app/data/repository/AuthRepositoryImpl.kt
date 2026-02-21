@@ -39,6 +39,7 @@ class AuthRepositoryImpl @Inject constructor(
 
     companion object {
         private const val PREF_SERVER_URL = "server_url"
+        private const val PREF_SESSION_EXPIRES_AT = "session_expires_at"
     }
 
     override suspend fun register(signingKey: String, encryptionKey: String): Result<String> {
@@ -91,9 +92,11 @@ class AuthRepositoryImpl @Inject constructor(
                 )
             )
 
-            // 5. Store session token in encrypted prefs
+            // 5. Store session token and expiry in encrypted prefs
+            // SEC-A-10: Track session expiry to enforce token lifetime
             encryptedPrefs.edit()
                 .putString(AuthInterceptor.PREF_SESSION_TOKEN, verifyResponse.sessionToken)
+                .putLong(PREF_SESSION_EXPIRES_AT, System.currentTimeMillis() + verifyResponse.expiresIn * 1000L)
                 .apply()
 
             val deviceId = keyManager.getDeviceId()
@@ -119,8 +122,15 @@ class AuthRepositoryImpl @Inject constructor(
         return encryptedPrefs.getString(AuthInterceptor.PREF_SESSION_TOKEN, null)
     }
 
+    // SEC-A-10: Check token expiry in addition to token presence
     override suspend fun isAuthenticated(): Boolean {
-        return encryptedPrefs.getString(AuthInterceptor.PREF_SESSION_TOKEN, null) != null
+        val token = encryptedPrefs.getString(AuthInterceptor.PREF_SESSION_TOKEN, null) ?: return false
+        val expiresAt = encryptedPrefs.getLong(PREF_SESSION_EXPIRES_AT, 0L)
+        if (expiresAt > 0L && System.currentTimeMillis() >= expiresAt) {
+            clearSession()
+            return false
+        }
+        return true
     }
 
     override suspend fun clearSession() {
@@ -139,12 +149,13 @@ class AuthRepositoryImpl @Inject constructor(
         )
     }
 
+    // SEC-A-06: Use encryptedPrefs instead of plain prefs for server URL storage
     override fun getServerUrl(): String {
-        return prefs.getString(PREF_SERVER_URL, serverOrigin) ?: serverOrigin
+        return encryptedPrefs.getString(PREF_SERVER_URL, serverOrigin) ?: serverOrigin
     }
 
     override fun setServerUrl(url: String) {
-        prefs.edit()
+        encryptedPrefs.edit()
             .putString(PREF_SERVER_URL, url)
             .apply()
     }
@@ -156,8 +167,10 @@ class AuthRepositoryImpl @Inject constructor(
         }
     }
 
+    // SEC-A-16: Clear all sensitive data on logout, not just the session token
     override suspend fun logout() {
         clearSession()
+        encryptedPrefs.edit().clear().apply()
     }
 
     /**

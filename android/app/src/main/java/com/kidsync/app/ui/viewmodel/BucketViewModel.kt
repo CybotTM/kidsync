@@ -205,6 +205,18 @@ class BucketViewModel @Inject constructor(
                 // Parse QR payload
                 val payload = Json.decodeFromString<QrPairingPayload>(qrData)
 
+                // SEC-A-07: Validate server URL from QR code
+                if (!payload.s.startsWith("https://")) {
+                    _uiState.update { it.copy(isLoading = false, error = "Invalid server URL: HTTPS required") }
+                    return@launch
+                }
+                try {
+                    java.net.URL(payload.s)
+                } catch (_: Exception) {
+                    _uiState.update { it.copy(isLoading = false, error = "Malformed server URL") }
+                    return@launch
+                }
+
                 _uiState.update {
                     it.copy(
                         peerFingerprint = payload.f,

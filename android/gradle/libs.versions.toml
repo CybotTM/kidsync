@@ -12,6 +12,8 @@ tink = "1.16.0"
 sqlcipher = "4.6.1"
 sqlite = "2.4.0"
 workmanager = "2.10.0"
+# TODO(SEC-A-14): EncryptedSharedPreferences is on an alpha version (1.1.0-alpha06).
+#   Upgrade to a stable release when available to reduce risk of breaking API changes.
 security-crypto = "1.1.0-alpha06"
 kotest = "5.9.1"
 mockk = "1.13.13"

@@ -19,6 +19,9 @@ import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 import javax.inject.Inject
 
+/** SEC-A-02: Zero out sensitive byte arrays after use. */
+internal fun ByteArray.zeroOut() { java.util.Arrays.fill(this, 0.toByte()) }
+
 /**
  * CryptoManager implementation using standard Java crypto primitives and BouncyCastle.
  *
@@ -79,11 +82,16 @@ class TinkCryptoManager @Inject constructor(
         // Derive the full 64-byte expanded Ed25519 secret key from the 32-byte seed
         // by hashing with SHA-512, then use the first 32 bytes (clamped) as X25519 private key.
         val hash = MessageDigest.getInstance("SHA-512").digest(ed25519PrivateKey)
-        // Clamp the scalar (standard X25519 clamping)
-        hash[0] = (hash[0].toInt() and 248).toByte()
-        hash[31] = (hash[31].toInt() and 127).toByte()
-        hash[31] = (hash[31].toInt() or 64).toByte()
-        return hash.copyOfRange(0, 32)
+        try {
+            // Clamp the scalar (standard X25519 clamping)
+            hash[0] = (hash[0].toInt() and 248).toByte()
+            hash[31] = (hash[31].toInt() and 127).toByte()
+            hash[31] = (hash[31].toInt() or 64).toByte()
+            return hash.copyOfRange(0, 32)
+        } finally {
+            // SEC-A-02: Zero sensitive key material
+            hash.zeroOut()
+        }
     }
 
     override fun ed25519PublicToX25519(ed25519PublicKey: ByteArray): ByteArray {
@@ -205,24 +213,32 @@ class TinkCryptoManager @Inject constructor(
         val nonce = ByteArray(AES_GCM_NONCE_SIZE)
         SecureRandom().nextBytes(nonce)
 
-        val aad = "epoch=$keyEpoch,device=$deviceId".toByteArray(Charsets.UTF_8)
+        try {
+            val aad = "epoch=$keyEpoch,device=$deviceId".toByteArray(Charsets.UTF_8)
 
-        val cipher = Cipher.getInstance(ALGORITHM_AES_GCM)
-        val keySpec = SecretKeySpec(wrappingKey, "AES")
-        val gcmSpec = GCMParameterSpec(AES_GCM_TAG_SIZE, nonce)
-        cipher.init(Cipher.ENCRYPT_MODE, keySpec, gcmSpec)
-        cipher.updateAAD(aad)
-        val wrappedDekAndTag = cipher.doFinal(dek)
+            val cipher = Cipher.getInstance(ALGORITHM_AES_GCM)
+            val keySpec = SecretKeySpec(wrappingKey, "AES")
+            val gcmSpec = GCMParameterSpec(AES_GCM_TAG_SIZE, nonce)
+            cipher.init(Cipher.ENCRYPT_MODE, keySpec, gcmSpec)
+            cipher.updateAAD(aad)
+            val wrappedDekAndTag = cipher.doFinal(dek)
 
-        // 6. Construct result: ephemeralPublicKey || salt || nonce || wrappedDek || tag
-        val ephemeralPublicKeyBytes = ephemeralKeyPair.public.encoded
-        val result = ByteArrayOutputStream()
-        result.write(ephemeralPublicKeyBytes)
-        result.write(salt)
-        result.write(nonce)
-        result.write(wrappedDekAndTag)
+            // 6. Construct result: ephemeralPublicKey || salt || nonce || wrappedDek || tag
+            val ephemeralPublicKeyBytes = ephemeralKeyPair.public.encoded
+            val result = ByteArrayOutputStream()
+            result.write(ephemeralPublicKeyBytes)
+            result.write(salt)
+            result.write(nonce)
+            result.write(wrappedDekAndTag)
 
-        return Base64.getEncoder().encodeToString(result.toByteArray())
+            return Base64.getEncoder().encodeToString(result.toByteArray())
+        } finally {
+            // SEC-A-02: Zero sensitive key material
+            sharedSecret.zeroOut()
+            wrappingKey.zeroOut()
+            salt.zeroOut()
+            nonce.zeroOut()
+        }
     }
 
     override fun unwrapDek(
@@ -260,16 +276,22 @@ class TinkCryptoManager @Inject constructor(
         val info = (HKDF_DEK_WRAP_INFO + deviceId).toByteArray(Charsets.UTF_8)
         val wrappingKey = hkdfDerive(sharedSecret, salt, info, DEK_SIZE)
 
-        // 4. AES-256-GCM decrypt
-        val aad = "epoch=$keyEpoch,device=$deviceId".toByteArray(Charsets.UTF_8)
+        try {
+            // 4. AES-256-GCM decrypt
+            val aad = "epoch=$keyEpoch,device=$deviceId".toByteArray(Charsets.UTF_8)
 
-        val cipher = Cipher.getInstance(ALGORITHM_AES_GCM)
-        val aesKeySpec = SecretKeySpec(wrappingKey, "AES")
-        val gcmSpec = GCMParameterSpec(AES_GCM_TAG_SIZE, nonce)
-        cipher.init(Cipher.DECRYPT_MODE, aesKeySpec, gcmSpec)
-        cipher.updateAAD(aad)
+            val cipher = Cipher.getInstance(ALGORITHM_AES_GCM)
+            val aesKeySpec = SecretKeySpec(wrappingKey, "AES")
+            val gcmSpec = GCMParameterSpec(AES_GCM_TAG_SIZE, nonce)
+            cipher.init(Cipher.DECRYPT_MODE, aesKeySpec, gcmSpec)
+            cipher.updateAAD(aad)
 
-        return cipher.doFinal(wrappedDekAndTag)
+            return cipher.doFinal(wrappedDekAndTag)
+        } finally {
+            // SEC-A-02: Zero sensitive key material
+            sharedSecret.zeroOut()
+            wrappingKey.zeroOut()
+        }
     }
 
     // ─── Hashing & Key Derivation ───────────────────────────────────────────────
@@ -409,9 +431,20 @@ class TinkCryptoManager @Inject constructor(
         return bos.toByteArray()
     }
 
-    private fun gzipDecompress(data: ByteArray): ByteArray {
-        val bis = ByteArrayInputStream(data)
-        return GZIPInputStream(bis).use { it.readBytes() }
+    // SEC-A-15: Limit decompressed size to prevent decompression bomb attacks
+    private fun gzipDecompress(data: ByteArray, maxSize: Int = 10 * 1024 * 1024): ByteArray {
+        val bos = ByteArrayOutputStream()
+        GZIPInputStream(ByteArrayInputStream(data)).use { gzip ->
+            val buffer = ByteArray(8192)
+            var total = 0
+            var read: Int
+            while (gzip.read(buffer).also { read = it } != -1) {
+                total += read
+                if (total > maxSize) throw SecurityException("Decompressed data exceeds $maxSize bytes")
+                bos.write(buffer, 0, read)
+            }
+        }
+        return bos.toByteArray()
     }
 
     /**

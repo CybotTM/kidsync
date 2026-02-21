@@ -44,6 +44,11 @@
 -keepnames @dagger.hilt.android.lifecycle.HiltViewModel class * { *; }
 -keep,allowobfuscation,allowshrinking @dagger.hilt.EntryPoint interface * { *; }
 
+# SEC-A-11: BouncyCastle crypto (used for Ed25519, HKDF, X25519 conversions)
+-keep class org.bouncycastle.** { *; }
+-keepnames class org.bouncycastle.** { *; }
+-keep class com.kidsync.app.crypto.** { *; }
+
 # OkHttp
 -dontwarn okhttp3.internal.platform.**
 -dontwarn org.conscrypt.**

@@ -148,6 +148,9 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
 
     // Crypto
+    // TODO(SEC-A-13): Tink is included as a dependency but not actively used for crypto operations.
+    //   The app uses BouncyCastle + JCA primitives directly. Evaluate removing Tink to reduce
+    //   attack surface, or migrate to Tink if its higher-level APIs become needed.
     implementation(libs.tink)
     implementation(libs.bouncycastle)
 
