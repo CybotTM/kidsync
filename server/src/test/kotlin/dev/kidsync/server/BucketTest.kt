@@ -55,7 +55,7 @@ class BucketTest {
         }
 
         assertEquals(HttpStatusCode.OK, response.status)
-        val devices = response.body<List<DeviceInfo>>()
+        val devices = response.body<DeviceListResponse>().devices
         assertTrue(devices.isNotEmpty())
         assertTrue(devices.any { it.deviceId == device.deviceId })
     }
@@ -318,7 +318,7 @@ class BucketTest {
         }
 
         assertEquals(HttpStatusCode.OK, response.status)
-        val devices = response.body<List<DeviceInfo>>()
+        val devices = response.body<DeviceListResponse>().devices
         assertEquals(2, devices.size)
 
         val deviceIds = devices.map { it.deviceId }.toSet()
@@ -339,7 +339,7 @@ class BucketTest {
         }
 
         assertEquals(HttpStatusCode.OK, response.status)
-        val devices = response.body<List<DeviceInfo>>()
+        val devices = response.body<DeviceListResponse>().devices
 
         for (deviceInfo in devices) {
             assertNotNull(deviceInfo.encryptionKey)
@@ -371,7 +371,7 @@ class BucketTest {
         }
 
         assertEquals(HttpStatusCode.OK, response.status)
-        val devices = response.body<List<DeviceInfo>>()
+        val devices = response.body<DeviceListResponse>().devices
         assertEquals(1, devices.size)
         assertEquals(deviceA.deviceId, devices[0].deviceId)
     }
@@ -441,7 +441,7 @@ class BucketTest {
         }
 
         assertEquals(HttpStatusCode.OK, pullResp.status)
-        val ops = pullResp.body<List<OpResponse>>()
+        val ops = pullResp.body<PullOpsResponse>().ops
         assertEquals(3, ops.size)
     }
 

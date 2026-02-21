@@ -9,7 +9,7 @@ data class AppConfig(
     val snapshotStoragePath: String = System.getenv("KIDSYNC_SNAPSHOT_PATH") ?: "data/snapshots",
     val maxBlobSizeBytes: Long = 10 * 1024 * 1024, // 10 MB
     val maxSnapshotSizeBytes: Long = 50 * 1024 * 1024, // 50 MB
-    val maxPayloadSizeBytes: Int = 256 * 1024, // 256 KB per op
+    val maxPayloadSizeBytes: Int = 64 * 1024, // 64 KB per op
     val serverVersion: String = "0.2.0",
     val checkpointInterval: Int = 100,
     val host: String = System.getenv("KIDSYNC_HOST") ?: "0.0.0.0",

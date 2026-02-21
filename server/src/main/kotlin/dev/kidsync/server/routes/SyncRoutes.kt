@@ -45,13 +45,18 @@ fun Route.syncRoutes(
                         ?: throw ApiException(400, "INVALID_REQUEST", "Missing bucket id")
 
                     val request = call.receive<OpsBatchRequest>()
-                    val response = syncService.uploadOps(bucketId, principal.deviceId, request)
+                    val (response, checkpoint) = syncService.uploadOps(bucketId, principal.deviceId, request)
 
-                    call.respond(HttpStatusCode.OK, response)
+                    call.respond(HttpStatusCode.Created, response)
 
                     // Notify via WebSocket and push
                     wsManager.notifyOpsAvailable(bucketId, response.latestSequence, principal.deviceId)
                     pushService.notifyBucketDevices(bucketId, principal.deviceId, response.latestSequence)
+
+                    // Fire checkpoint notification if one was created
+                    if (checkpoint != null) {
+                        wsManager.notifyCheckpointAvailable(bucketId, checkpoint.startSequence, checkpoint.endSequence)
+                    }
                 }
             }
 
@@ -66,8 +71,8 @@ fun Route.syncRoutes(
                         ?: throw ApiException(400, "INVALID_REQUEST", "Missing or invalid 'since' parameter")
                     val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 100
 
-                    val ops = syncService.pullOps(bucketId, principal.deviceId, since, limit)
-                    call.respond(HttpStatusCode.OK, ops)
+                    val pullResponse = syncService.pullOps(bucketId, principal.deviceId, since, limit)
+                    call.respond(HttpStatusCode.OK, pullResponse)
                 }
             }
 
@@ -126,6 +131,15 @@ fun Route.syncRoutes(
                         throw ApiException(413, "SNAPSHOT_TOO_LARGE", "Snapshot exceeds size limit")
                     }
 
+                    // Validate declared sizeBytes matches actual upload size
+                    if (meta.sizeBytes != blob.size.toLong()) {
+                        throw ApiException(
+                            400,
+                            "SIZE_MISMATCH",
+                            "Declared sizeBytes (${meta.sizeBytes}) does not match actual upload size (${blob.size})"
+                        )
+                    }
+
                     // Verify SHA-256 of the uploaded snapshot matches declared hash
                     val computedHash = MessageDigest.getInstance("SHA-256")
                         .digest(blob)
@@ -144,19 +158,25 @@ fun Route.syncRoutes(
                     val snapshotFile = File(snapshotDir, snapshotId)
                     snapshotFile.writeBytes(blob)
 
-                    dbQuery {
-                        Snapshots.insert {
-                            it[id] = snapshotId
-                            it[Snapshots.bucketId] = bucketId
-                            it[deviceId] = principal.deviceId
-                            it[atSequence] = meta.atSequence
-                            it[keyEpoch] = meta.keyEpoch
-                            it[sizeBytes] = meta.sizeBytes
-                            it[sha256Hash] = meta.sha256
-                            it[signature] = meta.signature
-                            it[filePath] = snapshotFile.absolutePath
-                            it[createdAt] = LocalDateTime.now(ZoneOffset.UTC)
+                    try {
+                        dbQuery {
+                            Snapshots.insert {
+                                it[id] = snapshotId
+                                it[Snapshots.bucketId] = bucketId
+                                it[deviceId] = principal.deviceId
+                                it[atSequence] = meta.atSequence
+                                it[keyEpoch] = meta.keyEpoch
+                                it[sizeBytes] = meta.sizeBytes
+                                it[sha256Hash] = meta.sha256
+                                it[signature] = meta.signature
+                                it[filePath] = snapshotFile.absolutePath
+                                it[createdAt] = LocalDateTime.now(ZoneOffset.UTC)
+                            }
                         }
+                    } catch (e: Exception) {
+                        // Clean up orphaned file on DB insert failure
+                        snapshotFile.delete()
+                        throw e
                     }
 
                     wsManager.notifySnapshotAvailable(bucketId, meta.atSequence, snapshotId)
@@ -164,11 +184,11 @@ fun Route.syncRoutes(
                     call.respond(
                         HttpStatusCode.Created,
                         SnapshotResponse(
-                            id = snapshotId,
+                            snapshotId = snapshotId,
                             atSequence = meta.atSequence,
                             keyEpoch = meta.keyEpoch,
                             sizeBytes = meta.sizeBytes,
-                            sha256Hash = meta.sha256,
+                            sha256 = meta.sha256,
                             signature = meta.signature,
                             createdAt = meta.createdAt,
                         )
@@ -200,11 +220,11 @@ fun Route.syncRoutes(
                     call.respond(
                         HttpStatusCode.OK,
                         SnapshotResponse(
-                            id = snapshot[Snapshots.id],
+                            snapshotId = snapshot[Snapshots.id],
                             atSequence = snapshot[Snapshots.atSequence],
                             keyEpoch = snapshot[Snapshots.keyEpoch],
                             sizeBytes = snapshot[Snapshots.sizeBytes],
-                            sha256Hash = snapshot[Snapshots.sha256Hash],
+                            sha256 = snapshot[Snapshots.sha256Hash],
                             signature = snapshot[Snapshots.signature],
                             createdAt = snapshot[Snapshots.createdAt]
                                 .atOffset(ZoneOffset.UTC)

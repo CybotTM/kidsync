@@ -39,29 +39,52 @@ data class BucketResponse(
 )
 
 @Serializable
+data class InviteResponse(
+    val expiresAt: String,
+)
+
+@Serializable
+data class JoinResponse(
+    val bucketId: String,
+    val deviceId: String,
+)
+
+@Serializable
 data class DeviceInfo(
     val deviceId: String,
+    val signingKey: String,
     val encryptionKey: String,
     val grantedAt: String,
+)
+
+@Serializable
+data class DeviceListResponse(
+    val devices: List<DeviceInfo>,
 )
 
 // ---- Sync ----
 
 @Serializable
 data class OpResponse(
-    val sequence: Long,
-    val bucketId: String,
+    val globalSequence: Long,
     val deviceId: String,
     val encryptedPayload: String,
     val prevHash: String,
     val currentHash: String,
     val keyEpoch: Int,
-    val createdAt: String,
+    val serverTimestamp: String,
 )
 
 @Serializable
 data class OpsBatchResponse(
     val accepted: Int,
+    val latestSequence: Long,
+)
+
+@Serializable
+data class PullOpsResponse(
+    val ops: List<OpResponse>,
+    val hasMore: Boolean,
     val latestSequence: Long,
 )
 
@@ -77,22 +100,27 @@ data class WrappedKeyResponse(
 
 @Serializable
 data class KeyAttestationResponse(
-    val signerDeviceId: String,
-    val attestedDeviceId: String,
+    val signerDevice: String,
+    val attestedDevice: String,
     val attestedKey: String,
     val signature: String,
     val createdAt: String,
+)
+
+@Serializable
+data class AttestationListResponse(
+    val attestations: List<KeyAttestationResponse>,
 )
 
 // ---- Snapshots ----
 
 @Serializable
 data class SnapshotResponse(
-    val id: String,
+    val snapshotId: String,
     val atSequence: Long,
     val keyEpoch: Int,
     val sizeBytes: Long,
-    val sha256Hash: String,
+    val sha256: String,
     val signature: String,
     val createdAt: String,
 )
@@ -100,20 +128,28 @@ data class SnapshotResponse(
 // ---- Checkpoints ----
 
 @Serializable
-data class CheckpointResponse(
+data class CheckpointData(
     val startSequence: Long,
     val endSequence: Long,
     val hash: String,
+    val timestamp: String,
     val opCount: Int,
+)
+
+@Serializable
+data class CheckpointResponse(
+    val checkpoint: CheckpointData,
+    val latestSequence: Long,
+    val nextCheckpointAt: Long,
 )
 
 // ---- Blobs ----
 
 @Serializable
 data class BlobResponse(
-    val id: String,
+    val blobId: String,
     val sizeBytes: Long,
-    val sha256Hash: String,
+    val sha256: String,
     val uploadedAt: String,
 )
 

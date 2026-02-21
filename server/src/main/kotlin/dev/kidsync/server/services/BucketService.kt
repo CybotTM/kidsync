@@ -53,6 +53,14 @@ class BucketService(
                 throw ApiException(403, "FORBIDDEN", "Only the bucket creator can delete it")
             }
 
+            // Delete wrapped keys for devices that had access to this bucket
+            val deviceIds = BucketAccess.selectAll()
+                .where { BucketAccess.bucketId eq bucketId }
+                .map { it[BucketAccess.deviceId] }
+            for (devId in deviceIds) {
+                WrappedKeys.deleteWhere { WrappedKeys.targetDevice eq devId }
+            }
+
             // Delete all related data
             Ops.deleteWhere { Ops.bucketId eq bucketId }
             Checkpoints.deleteWhere { Checkpoints.bucketId eq bucketId }
@@ -80,8 +88,8 @@ class BucketService(
     /**
      * Register an invite token hash for a bucket. The device must have access.
      */
-    suspend fun createInvite(bucketId: String, deviceId: String, tokenHash: String) {
-        dbQuery {
+    suspend fun createInvite(bucketId: String, deviceId: String, tokenHash: String): InviteResponse {
+        return dbQuery {
             requireBucketAccess(bucketId, deviceId)
 
             val now = LocalDateTime.now(ZoneOffset.UTC)
@@ -109,13 +117,18 @@ class BucketService(
                 it[InviteTokens.createdAt] = now
                 it[InviteTokens.expiresAt] = expiresAt
             }
+
+            InviteResponse(
+                expiresAt = expiresAt.atOffset(ZoneOffset.UTC)
+                    .format(DateTimeFormatter.ISO_INSTANT),
+            )
         }
     }
 
     /**
      * Redeem an invite token to join a bucket.
      */
-    suspend fun joinBucket(bucketId: String, deviceId: String, inviteToken: String): BucketResponse {
+    suspend fun joinBucket(bucketId: String, deviceId: String, inviteToken: String): JoinResponse {
         return dbQuery {
             val tokenHash = HashUtil.sha256HexString(inviteToken)
             val now = LocalDateTime.now(ZoneOffset.UTC)
@@ -170,29 +183,32 @@ class BucketService(
                 }
             }
 
-            BucketResponse(bucketId = bucketId)
+            JoinResponse(bucketId = bucketId, deviceId = deviceId)
         }
     }
 
     /**
      * List all devices with active access to a bucket.
      */
-    suspend fun listDevices(bucketId: String, deviceId: String): List<DeviceInfo> {
+    suspend fun listDevices(bucketId: String, deviceId: String): DeviceListResponse {
         return dbQuery {
             requireBucketAccess(bucketId, deviceId)
 
-            (BucketAccess innerJoin Devices).selectAll().where {
+            val devices = (BucketAccess innerJoin Devices).selectAll().where {
                 (BucketAccess.bucketId eq bucketId) and
                     BucketAccess.revokedAt.isNull()
             }.map { row ->
                 DeviceInfo(
                     deviceId = row[BucketAccess.deviceId],
+                    signingKey = row[Devices.signingKey],
                     encryptionKey = row[Devices.encryptionKey],
                     grantedAt = row[BucketAccess.grantedAt]
                         .atOffset(ZoneOffset.UTC)
                         .format(DateTimeFormatter.ISO_INSTANT),
                 )
             }
+
+            DeviceListResponse(devices = devices)
         }
     }
 

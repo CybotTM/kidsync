@@ -137,7 +137,7 @@ class HashChainTest {
             ))
         }
 
-        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals(HttpStatusCode.Created, response.status)
     }
 
     @Test
@@ -231,7 +231,7 @@ class HashChainTest {
                 )
             ))
         }
-        assertEquals(HttpStatusCode.OK, respA.status)
+        assertEquals(HttpStatusCode.Created, respA.status)
 
         // Device B uploads ops with its OWN independent chain (also starts from sentinel)
         val payloadB1 = Base64.getEncoder().encodeToString("deviceB-op1".toByteArray())
@@ -249,12 +249,12 @@ class HashChainTest {
                 )
             ))
         }
-        assertEquals(HttpStatusCode.OK, respB.status)
+        assertEquals(HttpStatusCode.Created, respB.status)
 
         // Both devices' ops should be in the bucket
         val allOps = client.get("/buckets/$bucketId/ops?since=0") {
             header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
-        }.body<List<OpResponse>>()
+        }.body<PullOpsResponse>().ops
 
         assertEquals(4, allOps.size)
 
@@ -316,7 +316,7 @@ class HashChainTest {
                 OpInput(deviceA.deviceId, 1, payloadA2, hashA1, hashA2)
             )))
         }
-        assertEquals(HttpStatusCode.OK, respA2.status,
+        assertEquals(HttpStatusCode.Created, respA2.status,
             "Device A's second op should chain from its own previous hash, not device B's")
 
         // Device B: op 2 (continues from hashB1)
@@ -329,7 +329,7 @@ class HashChainTest {
                 OpInput(deviceB.deviceId, 1, payloadB2, hashB1, hashB2)
             )))
         }
-        assertEquals(HttpStatusCode.OK, respB2.status)
+        assertEquals(HttpStatusCode.Created, respB2.status)
     }
 
     // ================================================================

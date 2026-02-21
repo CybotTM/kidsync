@@ -163,7 +163,7 @@ class IntegrationTest {
             setBody(OpsBatchRequest(ops = listOf(
                 OpInput(deviceA.deviceId, 1, payloadA1, sentinel, hashA1)
             )))
-        }.also { assertEquals(HttpStatusCode.OK, it.status) }
+        }.also { assertEquals(HttpStatusCode.Created, it.status) }
 
         // Device B op 1
         val payloadB1 = Base64.getEncoder().encodeToString("B-1".toByteArray())
@@ -174,7 +174,7 @@ class IntegrationTest {
             setBody(OpsBatchRequest(ops = listOf(
                 OpInput(deviceB.deviceId, 1, payloadB1, sentinel, hashB1)
             )))
-        }.also { assertEquals(HttpStatusCode.OK, it.status) }
+        }.also { assertEquals(HttpStatusCode.Created, it.status) }
 
         // Device A op 2
         val payloadA2 = Base64.getEncoder().encodeToString("A-2".toByteArray())
@@ -185,7 +185,7 @@ class IntegrationTest {
             setBody(OpsBatchRequest(ops = listOf(
                 OpInput(deviceA.deviceId, 1, payloadA2, hashA1, hashA2)
             )))
-        }.also { assertEquals(HttpStatusCode.OK, it.status) }
+        }.also { assertEquals(HttpStatusCode.Created, it.status) }
 
         // Device B op 2
         val payloadB2 = Base64.getEncoder().encodeToString("B-2".toByteArray())
@@ -196,18 +196,18 @@ class IntegrationTest {
             setBody(OpsBatchRequest(ops = listOf(
                 OpInput(deviceB.deviceId, 1, payloadB2, hashB1, hashB2)
             )))
-        }.also { assertEquals(HttpStatusCode.OK, it.status) }
+        }.also { assertEquals(HttpStatusCode.Created, it.status) }
 
         // Verify all 4 ops are present in correct order
         val allOps = client.get("/buckets/$bucketId/ops?since=0") {
             header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
-        }.body<List<OpResponse>>()
+        }.body<PullOpsResponse>().ops
 
         assertEquals(4, allOps.size)
 
         // Global sequences are contiguous
         for (i in 1 until allOps.size) {
-            assertEquals(allOps[i - 1].sequence + 1, allOps[i].sequence)
+            assertEquals(allOps[i - 1].globalSequence + 1, allOps[i].globalSequence)
         }
     }
 
@@ -241,7 +241,7 @@ class IntegrationTest {
         // Device B can pull all existing ops
         val ops = client.get("/buckets/$bucketId/ops?since=0") {
             header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
-        }.body<List<OpResponse>>()
+        }.body<PullOpsResponse>().ops
 
         assertEquals(5, ops.size, "New device should see all pre-existing ops")
     }
@@ -262,7 +262,7 @@ class IntegrationTest {
         // Verify all 50 ops are stored
         val ops = client.get("/buckets/${device.bucketId}/ops?since=0") {
             header(HttpHeaders.Authorization, "Bearer ${device.sessionToken}")
-        }.body<List<OpResponse>>()
+        }.body<PullOpsResponse>().ops
 
         assertEquals(50, ops.size)
 
@@ -288,9 +288,9 @@ class IntegrationTest {
         }
 
         // Pull all ops and verify chain
-        val ops = client.get("/buckets/${device.bucketId}/ops?since=0") {
+        val ops = client.get("/buckets/${device.bucketId}/ops?since=0&limit=1000") {
             header(HttpHeaders.Authorization, "Bearer ${device.sessionToken}")
-        }.body<List<OpResponse>>()
+        }.body<PullOpsResponse>().ops
 
         assertEquals(100, ops.size)
 
@@ -298,7 +298,7 @@ class IntegrationTest {
         for (op in ops) {
             val expectedHash = computeHash(op.prevHash, op.encryptedPayload)
             assertEquals(expectedHash, op.currentHash,
-                "Hash chain broken at sequence ${op.sequence}")
+                "Hash chain broken at sequence ${op.globalSequence}")
         }
     }
 
@@ -423,17 +423,13 @@ class IntegrationTest {
         // Verify isolation
         val ops1 = client.get("/buckets/${bucket1.bucketId}/ops?since=0") {
             header(HttpHeaders.Authorization, "Bearer ${device.sessionToken}")
-        }.body<List<OpResponse>>()
+        }.body<PullOpsResponse>().ops
 
         val ops2 = client.get("/buckets/${bucket2.bucketId}/ops?since=0") {
             header(HttpHeaders.Authorization, "Bearer ${device.sessionToken}")
-        }.body<List<OpResponse>>()
+        }.body<PullOpsResponse>().ops
 
         assertEquals(3, ops1.size)
         assertEquals(5, ops2.size)
-
-        // Each bucket has its own sequence space
-        assertTrue(ops1.all { it.bucketId == bucket1.bucketId })
-        assertTrue(ops2.all { it.bucketId == bucket2.bucketId })
     }
 }

@@ -48,7 +48,7 @@ class SyncTest {
             ))
         }
 
-        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals(HttpStatusCode.Created, response.status)
         val body = response.body<OpsBatchResponse>()
         assertEquals(1, body.accepted)
         assertTrue(body.latestSequence > 0)
@@ -82,7 +82,7 @@ class SyncTest {
             ))
         }
 
-        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals(HttpStatusCode.Created, response.status)
         val body = response.body<OpsBatchResponse>()
         assertEquals(3, body.accepted)
     }
@@ -103,11 +103,11 @@ class SyncTest {
             header(HttpHeaders.Authorization, "Bearer ${device.sessionToken}")
         }
         assertEquals(HttpStatusCode.OK, pullResp.status)
-        val ops = pullResp.body<List<OpResponse>>()
+        val ops = pullResp.body<PullOpsResponse>().ops
         assertEquals(3, ops.size)
 
         for (i in 1 until ops.size) {
-            assertEquals(ops[i - 1].sequence + 1, ops[i].sequence,
+            assertEquals(ops[i - 1].globalSequence + 1, ops[i].globalSequence,
                 "Sequences should be contiguous")
         }
     }
@@ -126,11 +126,11 @@ class SyncTest {
             header(HttpHeaders.Authorization, "Bearer ${device.sessionToken}")
         }
         assertEquals(HttpStatusCode.OK, pullResp.status)
-        val ops = pullResp.body<List<OpResponse>>()
+        val ops = pullResp.body<PullOpsResponse>().ops
         assertEquals(1, ops.size)
 
-        assertNotNull(ops[0].createdAt)
-        assertTrue(ops[0].createdAt.isNotEmpty())
+        assertNotNull(ops[0].serverTimestamp)
+        assertTrue(ops[0].serverTimestamp.isNotEmpty())
     }
 
     @Test
@@ -166,7 +166,7 @@ class SyncTest {
         val pullResp = client.get("/buckets/$bucketId/ops?since=0") {
             header(HttpHeaders.Authorization, "Bearer ${device.sessionToken}")
         }
-        val ops = pullResp.body<List<OpResponse>>()
+        val ops = pullResp.body<PullOpsResponse>().ops
         assertEquals(opaquePayload, ops[0].encryptedPayload)
     }
 
@@ -204,16 +204,16 @@ class SyncTest {
         // Pull ops after sequence 0 (all)
         val allOps = client.get("/buckets/$bucketId/ops?since=0") {
             header(HttpHeaders.Authorization, "Bearer ${device.sessionToken}")
-        }.body<List<OpResponse>>()
+        }.body<PullOpsResponse>().ops
         assertEquals(5, allOps.size)
 
         // Pull ops after the 3rd one
-        val sinceSeq = allOps[2].sequence
+        val sinceSeq = allOps[2].globalSequence
         val laterOps = client.get("/buckets/$bucketId/ops?since=$sinceSeq") {
             header(HttpHeaders.Authorization, "Bearer ${device.sessionToken}")
-        }.body<List<OpResponse>>()
+        }.body<PullOpsResponse>().ops
         assertEquals(2, laterOps.size)
-        assertTrue(laterOps.all { it.sequence > sinceSeq })
+        assertTrue(laterOps.all { it.globalSequence > sinceSeq })
     }
 
     @Test
@@ -229,13 +229,13 @@ class SyncTest {
         // Get all ops
         val allOps = client.get("/buckets/$bucketId/ops?since=0") {
             header(HttpHeaders.Authorization, "Bearer ${device.sessionToken}")
-        }.body<List<OpResponse>>()
-        val lastSeq = allOps.last().sequence
+        }.body<PullOpsResponse>().ops
+        val lastSeq = allOps.last().globalSequence
 
         // Pull since last -- should be empty
         val newOps = client.get("/buckets/$bucketId/ops?since=$lastSeq") {
             header(HttpHeaders.Authorization, "Bearer ${device.sessionToken}")
-        }.body<List<OpResponse>>()
+        }.body<PullOpsResponse>().ops
         assertEquals(0, newOps.size)
     }
 
@@ -316,14 +316,14 @@ class SyncTest {
         // Pull from bucket 2 -- should be empty
         val ops2 = client.get("/buckets/${bucket2.bucketId}/ops?since=0") {
             header(HttpHeaders.Authorization, "Bearer ${device.sessionToken}")
-        }.body<List<OpResponse>>()
+        }.body<PullOpsResponse>().ops
 
         assertEquals(0, ops2.size)
 
         // Pull from bucket 1 -- should have 5
         val ops1 = client.get("/buckets/${bucket1.bucketId}/ops?since=0") {
             header(HttpHeaders.Authorization, "Bearer ${device.sessionToken}")
-        }.body<List<OpResponse>>()
+        }.body<PullOpsResponse>().ops
 
         assertEquals(5, ops1.size)
     }
@@ -391,19 +391,19 @@ class SyncTest {
         // Both pull all ops
         val opsA = client.get("/buckets/$bucketId/ops?since=0") {
             header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
-        }.body<List<OpResponse>>()
+        }.body<PullOpsResponse>().ops
 
         val opsB = client.get("/buckets/$bucketId/ops?since=0") {
             header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
-        }.body<List<OpResponse>>()
+        }.body<PullOpsResponse>().ops
 
         assertEquals(6, opsA.size)
         assertEquals(6, opsB.size)
 
         // Both see same global sequences in same order
         assertEquals(
-            opsA.map { it.sequence },
-            opsB.map { it.sequence },
+            opsA.map { it.globalSequence },
+            opsB.map { it.globalSequence },
         )
 
         // Both devices' ops are present

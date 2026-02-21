@@ -41,22 +41,28 @@ class BlobService(private val config: AppConfig) {
         val blobFile = File(blobDir, blobId)
         blobFile.writeBytes(fileBytes)
 
-        dbQuery {
-            Blobs.insert {
-                it[id] = blobId
-                it[Blobs.bucketId] = bucketId
-                it[filePath] = blobFile.absolutePath
-                it[sizeBytes] = fileBytes.size.toLong()
-                it[sha256Hash] = sha256
-                it[uploadedBy] = deviceId
-                it[uploadedAt] = now
+        try {
+            dbQuery {
+                Blobs.insert {
+                    it[id] = blobId
+                    it[Blobs.bucketId] = bucketId
+                    it[filePath] = blobFile.absolutePath
+                    it[sizeBytes] = fileBytes.size.toLong()
+                    it[sha256Hash] = sha256
+                    it[uploadedBy] = deviceId
+                    it[uploadedAt] = now
+                }
             }
+        } catch (e: Exception) {
+            // Clean up orphaned file on DB insert failure
+            blobFile.delete()
+            throw e
         }
 
         return BlobResponse(
-            id = blobId,
+            blobId = blobId,
             sizeBytes = fileBytes.size.toLong(),
-            sha256Hash = sha256,
+            sha256 = sha256,
             uploadedAt = now.atOffset(ZoneOffset.UTC).format(isoFormatter),
         )
     }

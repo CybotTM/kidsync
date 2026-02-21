@@ -8,15 +8,17 @@ fun Application.configureCORS() {
     val allowedOrigins = System.getenv("KIDSYNC_CORS_ORIGINS")
         ?.split(",")
         ?.map { it.trim() }
+        ?.filter { it.isNotEmpty() }
         ?: emptyList()
+    val devMode = System.getenv("KIDSYNC_DEV_MODE")?.lowercase() == "true"
 
     install(CORS) {
-        if (allowedOrigins.isEmpty()) {
-            // Development mode: allow all origins
-            anyHost()
-        } else {
+        if (allowedOrigins.isNotEmpty()) {
             allowedOrigins.forEach { origin -> allowHost(origin, schemes = listOf("https")) }
+        } else if (devMode) {
+            anyHost()
         }
+        // When neither origins nor dev mode is set, no hosts are allowed (restrictive default)
         allowMethod(HttpMethod.Get)
         allowMethod(HttpMethod.Post)
         allowMethod(HttpMethod.Put)

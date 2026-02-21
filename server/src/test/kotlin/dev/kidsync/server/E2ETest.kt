@@ -68,7 +68,7 @@ class E2ETest {
         // 6. Device A lists devices, sees B
         val devicesResp = client.get("/buckets/$bucketId/devices") {
             header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
-        }.body<List<DeviceInfo>>()
+        }.body<DeviceListResponse>().devices
         assertEquals(2, devicesResp.size)
         val deviceIds = devicesResp.map { it.deviceId }.toSet()
         assertTrue(deviceIds.contains(deviceA.deviceId))
@@ -104,7 +104,7 @@ class E2ETest {
             setBody(OpsBatchRequest(ops = listOf(
                 OpInput(deviceA.deviceId, 1, payloadA, sentinel, hashA)
             )))
-        }.also { assertEquals(HttpStatusCode.OK, it.status) }
+        }.also { assertEquals(HttpStatusCode.Created, it.status) }
 
         val payloadB = Base64.getEncoder().encodeToString("device-B-expense-create".toByteArray())
         val hashB = computeHash(sentinel, payloadB)
@@ -115,21 +115,21 @@ class E2ETest {
             setBody(OpsBatchRequest(ops = listOf(
                 OpInput(deviceB.deviceId, 1, payloadB, sentinel, hashB)
             )))
-        }.also { assertEquals(HttpStatusCode.OK, it.status) }
+        }.also { assertEquals(HttpStatusCode.Created, it.status) }
 
         // 10. Both devices can pull each other's ops
         val opsA = client.get("/buckets/$bucketId/ops?since=0") {
             header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
-        }.body<List<OpResponse>>()
+        }.body<PullOpsResponse>().ops
         assertEquals(2, opsA.size)
 
         val opsB = client.get("/buckets/$bucketId/ops?since=0") {
             header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
-        }.body<List<OpResponse>>()
+        }.body<PullOpsResponse>().ops
         assertEquals(2, opsB.size)
 
         // Both see the same global order
-        assertEquals(opsA.map { it.sequence }, opsB.map { it.sequence })
+        assertEquals(opsA.map { it.globalSequence }, opsB.map { it.globalSequence })
 
         // Both devices' ops are present
         val allDeviceIds = opsA.map { it.deviceId }.toSet()
@@ -190,7 +190,7 @@ class E2ETest {
             header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
         }
         assertEquals(HttpStatusCode.OK, ops1.status)
-        val ops1Body = ops1.body<List<OpResponse>>()
+        val ops1Body = ops1.body<PullOpsResponse>().ops
         assertEquals(3, ops1Body.size)
 
         // 4. Device B cannot access bucket 2 ops
@@ -247,7 +247,7 @@ class E2ETest {
             header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
         }
         assertEquals(HttpStatusCode.OK, pullA.status)
-        val opsA = pullA.body<List<OpResponse>>()
+        val opsA = pullA.body<PullOpsResponse>().ops
         assertEquals(4, opsA.size, "Device A should see all 4 ops (2 from A + 2 from B)")
     }
 
@@ -280,7 +280,7 @@ class E2ETest {
         // Verify data exists before deletion
         val opsBefore = client.get("/buckets/$bucketId/ops?since=0") {
             header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
-        }.body<List<OpResponse>>()
+        }.body<PullOpsResponse>().ops
         assertEquals(5, opsBefore.size)
 
         // 2. Device A deletes bucket
@@ -427,12 +427,12 @@ class E2ETest {
         // Both pull all 50 ops
         val allOps = client.get("/buckets/$bucketId/ops?since=0") {
             header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
-        }.body<List<OpResponse>>()
+        }.body<PullOpsResponse>().ops
 
         assertEquals(50, allOps.size)
 
         // Verify global sequences are contiguous
-        val sequences = allOps.map { it.sequence }
+        val sequences = allOps.map { it.globalSequence }
         for (i in 1 until sequences.size) {
             assertEquals(sequences[i - 1] + 1, sequences[i],
                 "Sequences should be contiguous at index $i")

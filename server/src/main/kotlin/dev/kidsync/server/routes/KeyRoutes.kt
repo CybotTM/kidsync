@@ -42,7 +42,7 @@ fun Route.keyRoutes(keyService: KeyService) {
                     val principal = call.devicePrincipal()
                     val request = call.receive<KeyAttestationRequest>()
 
-                    if (request.attestedDeviceId.isBlank() || request.attestedEncryptionKey.isBlank() || request.signature.isBlank()) {
+                    if (request.resolvedAttestedDeviceId().isBlank() || request.resolvedAttestedKey().isBlank() || request.signature.isBlank()) {
                         throw ApiException(400, "INVALID_REQUEST", "All fields are required")
                     }
 

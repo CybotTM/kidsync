@@ -54,8 +54,8 @@ fun Route.bucketRoutes(bucketService: BucketService, wsManager: WebSocketManager
                             throw ApiException(400, "INVALID_REQUEST", "tokenHash is required")
                         }
 
-                        bucketService.createInvite(bucketId, principal.deviceId, request.tokenHash)
-                        call.respond(HttpStatusCode.Created)
+                        val response = bucketService.createInvite(bucketId, principal.deviceId, request.tokenHash)
+                        call.respond(HttpStatusCode.Created, response)
                     }
 
                     /**

@@ -223,10 +223,10 @@ class KeyTest {
         }
 
         assertEquals(HttpStatusCode.OK, response.status)
-        val attestations = response.body<List<KeyAttestationResponse>>()
+        val attestations = response.body<AttestationListResponse>().attestations
         assertEquals(1, attestations.size)
-        assertEquals(deviceA.deviceId, attestations[0].signerDeviceId)
-        assertEquals(deviceB.deviceId, attestations[0].attestedDeviceId)
+        assertEquals(deviceA.deviceId, attestations[0].signerDevice)
+        assertEquals(deviceB.deviceId, attestations[0].attestedDevice)
         assertEquals(deviceB.encryptionKeyBase64, attestations[0].attestedKey)
         assertEquals(attestSig, attestations[0].signature)
         assertNotNull(attestations[0].createdAt)
@@ -315,16 +315,16 @@ class KeyTest {
         // Check attestations for device A
         val attestsA = client.get("/keys/attestations/${deviceA.deviceId}") {
             header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
-        }.body<List<KeyAttestationResponse>>()
+        }.body<AttestationListResponse>().attestations
         assertEquals(1, attestsA.size)
-        assertEquals(deviceB.deviceId, attestsA[0].signerDeviceId)
+        assertEquals(deviceB.deviceId, attestsA[0].signerDevice)
 
         // Check attestations for device B
         val attestsB = client.get("/keys/attestations/${deviceB.deviceId}") {
             header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
-        }.body<List<KeyAttestationResponse>>()
+        }.body<AttestationListResponse>().attestations
         assertEquals(1, attestsB.size)
-        assertEquals(deviceA.deviceId, attestsB[0].signerDeviceId)
+        assertEquals(deviceA.deviceId, attestsB[0].signerDevice)
     }
 
     @Test
@@ -339,7 +339,7 @@ class KeyTest {
         }
 
         assertEquals(HttpStatusCode.OK, response.status)
-        val attestations = response.body<List<KeyAttestationResponse>>()
+        val attestations = response.body<AttestationListResponse>().attestations
         assertEquals(0, attestations.size)
     }
 

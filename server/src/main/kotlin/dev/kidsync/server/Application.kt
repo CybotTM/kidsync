@@ -70,6 +70,7 @@ fun Application.module(config: AppConfig = AppConfig()) {
             val status = if (dbOk) HttpStatusCode.OK else HttpStatusCode.ServiceUnavailable
             call.respond(status, mapOf(
                 "status" to if (dbOk) "ok" else "degraded",
+                "version" to config.serverVersion,
                 "db" to dbOk.toString(),
             ))
         }

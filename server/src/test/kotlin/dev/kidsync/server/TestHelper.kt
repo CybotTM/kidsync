@@ -288,7 +288,7 @@ object TestHelper {
                     )
                 ))
             }
-            assertEquals(HttpStatusCode.OK, response.status,
+            assertEquals(HttpStatusCode.Created, response.status,
                 "Upload op $localIdPrefix-$i failed: ${response.bodyAsText()}")
             prevHash = curHash
         }
@@ -326,7 +326,7 @@ object TestHelper {
             header(HttpHeaders.Authorization, "Bearer ${device.sessionToken}")
             setBody(OpsBatchRequest(ops = ops))
         }
-        assertEquals(HttpStatusCode.OK, response.status, "Batch upload failed: ${response.bodyAsText()}")
+        assertEquals(HttpStatusCode.Created, response.status, "Batch upload failed: ${response.bodyAsText()}")
         val body = response.body<OpsBatchResponse>()
         assertEquals(count, body.accepted, "Expected $count accepted ops")
         return prevHash

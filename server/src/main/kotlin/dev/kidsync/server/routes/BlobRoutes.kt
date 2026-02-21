@@ -27,12 +27,18 @@ fun Route.blobRoutes(blobService: BlobService) {
 
                     val multipart = call.receiveMultipart()
                     var fileBytes: ByteArray? = null
+                    var clientSha256: String? = null
 
                     multipart.forEachPart { part ->
                         when (part) {
                             is PartData.FileItem -> {
                                 if (part.name == "file") {
                                     fileBytes = part.provider().toByteArray()
+                                }
+                            }
+                            is PartData.FormItem -> {
+                                if (part.name == "sha256") {
+                                    clientSha256 = part.value.trim()
                                 }
                             }
                             else -> {}
@@ -42,6 +48,20 @@ fun Route.blobRoutes(blobService: BlobService) {
 
                     val bytes = fileBytes
                         ?: throw ApiException(400, "INVALID_REQUEST", "Missing 'file' part")
+                    val declaredHash = clientSha256
+                        ?: throw ApiException(400, "INVALID_REQUEST", "Missing 'sha256' part")
+
+                    // Verify SHA-256 of the uploaded file matches client-declared hash
+                    val computedHash = java.security.MessageDigest.getInstance("SHA-256")
+                        .digest(bytes)
+                        .joinToString("") { "%02x".format(it) }
+                    if (computedHash != declaredHash) {
+                        throw ApiException(
+                            400,
+                            "HASH_MISMATCH",
+                            "Blob SHA-256 mismatch: expected $declaredHash, got $computedHash"
+                        )
+                    }
 
                     val response = blobService.uploadBlob(principal.deviceId, bucketId, bytes)
                     call.respond(HttpStatusCode.Created, response)

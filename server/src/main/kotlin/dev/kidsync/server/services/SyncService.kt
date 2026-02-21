@@ -11,6 +11,11 @@ import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
+/**
+ * Represents a checkpoint that was created during an upload.
+ */
+data class CheckpointCreated(val startSequence: Long, val endSequence: Long)
+
 class SyncService(private val config: AppConfig) {
 
     private val isoFormatter = DateTimeFormatter.ISO_INSTANT
@@ -18,12 +23,13 @@ class SyncService(private val config: AppConfig) {
     /**
      * Upload a batch of encrypted ops to a bucket.
      * Validates hash chain integrity but does NOT inspect encrypted payload contents.
+     * Returns the batch response and optionally a checkpoint if one was created.
      */
     suspend fun uploadOps(
         bucketId: String,
         deviceId: String,
         request: OpsBatchRequest,
-    ): OpsBatchResponse {
+    ): Pair<OpsBatchResponse, CheckpointCreated?> {
         if (request.ops.isEmpty()) {
             throw ApiException(400, "INVALID_REQUEST", "ops array must contain at least 1 entry")
         }
@@ -114,41 +120,61 @@ class SyncService(private val config: AppConfig) {
             }
 
             // Check if we crossed a checkpoint boundary
-            maybeCreateCheckpoint(bucketId)
+            val checkpoint = maybeCreateCheckpoint(bucketId)
 
-            OpsBatchResponse(
-                accepted = request.ops.size,
-                latestSequence = latestSequence,
+            Pair(
+                OpsBatchResponse(
+                    accepted = request.ops.size,
+                    latestSequence = latestSequence,
+                ),
+                checkpoint,
             )
         }
     }
 
     /**
      * Pull operations since a given sequence for a bucket.
+     * Returns a PullOpsResponse with ops, hasMore flag, and latestSequence.
      */
-    suspend fun pullOps(bucketId: String, deviceId: String, since: Long, limit: Int): List<OpResponse> {
+    suspend fun pullOps(bucketId: String, deviceId: String, since: Long, limit: Int): PullOpsResponse {
         return dbQuery {
             BucketService.requireBucketAccess(bucketId, deviceId)
 
             val effectiveLimit = limit.coerceIn(1, 1000)
 
-            Ops.selectAll()
+            val ops = Ops.selectAll()
                 .where { (Ops.bucketId eq bucketId) and (Ops.sequence greater since) }
                 .orderBy(Ops.sequence, SortOrder.ASC)
                 .limit(effectiveLimit)
                 .map { row ->
                     OpResponse(
-                        sequence = row[Ops.sequence],
-                        bucketId = row[Ops.bucketId],
+                        globalSequence = row[Ops.sequence],
                         deviceId = row[Ops.deviceId],
                         encryptedPayload = row[Ops.encryptedPayload],
                         prevHash = row[Ops.prevHash],
                         currentHash = row[Ops.currentHash],
                         keyEpoch = row[Ops.keyEpoch],
-                        createdAt = row[Ops.createdAt].atOffset(ZoneOffset.UTC)
+                        serverTimestamp = row[Ops.createdAt].atOffset(ZoneOffset.UTC)
                             .format(isoFormatter),
                     )
                 }
+
+            // Determine hasMore: if we got exactly effectiveLimit results, there might be more
+            val hasMore = ops.size == effectiveLimit
+
+            // Get the latest sequence for this bucket
+            val latestSequence = Ops.selectAll()
+                .where { Ops.bucketId eq bucketId }
+                .orderBy(Ops.sequence, SortOrder.DESC)
+                .limit(1)
+                .firstOrNull()
+                ?.get(Ops.sequence) ?: 0L
+
+            PullOpsResponse(
+                ops = ops,
+                hasMore = hasMore,
+                latestSequence = latestSequence,
+            )
         }
     }
 
@@ -159,19 +185,33 @@ class SyncService(private val config: AppConfig) {
         return dbQuery {
             BucketService.requireBucketAccess(bucketId, deviceId)
 
-            Checkpoints.selectAll()
+            val row = Checkpoints.selectAll()
                 .where { Checkpoints.bucketId eq bucketId }
                 .orderBy(Checkpoints.endSequence, SortOrder.DESC)
                 .limit(1)
+                .firstOrNull() ?: return@dbQuery null
+
+            val latestSequence = Ops.selectAll()
+                .where { Ops.bucketId eq bucketId }
+                .orderBy(Ops.sequence, SortOrder.DESC)
+                .limit(1)
                 .firstOrNull()
-                ?.let { row ->
-                    CheckpointResponse(
-                        startSequence = row[Checkpoints.startSequence],
-                        endSequence = row[Checkpoints.endSequence],
-                        hash = row[Checkpoints.hash],
-                        opCount = row[Checkpoints.opCount],
-                    )
-                }
+                ?.get(Ops.sequence) ?: row[Checkpoints.endSequence]
+
+            val nextCheckpointAt = row[Checkpoints.endSequence] + config.checkpointInterval
+
+            CheckpointResponse(
+                checkpoint = CheckpointData(
+                    startSequence = row[Checkpoints.startSequence],
+                    endSequence = row[Checkpoints.endSequence],
+                    hash = row[Checkpoints.hash],
+                    timestamp = row[Checkpoints.createdAt].atOffset(ZoneOffset.UTC)
+                        .format(isoFormatter),
+                    opCount = row[Checkpoints.opCount],
+                ),
+                latestSequence = latestSequence,
+                nextCheckpointAt = nextCheckpointAt,
+            )
         }
     }
 
@@ -191,8 +231,9 @@ class SyncService(private val config: AppConfig) {
 
     /**
      * Check if a checkpoint boundary was crossed and create checkpoint if so.
+     * Returns checkpoint info if one was created, null otherwise.
      */
-    private fun maybeCreateCheckpoint(bucketId: String) {
+    private fun maybeCreateCheckpoint(bucketId: String): CheckpointCreated? {
         val latestCheckpoint = Checkpoints.selectAll()
             .where { Checkpoints.bucketId eq bucketId }
             .orderBy(Checkpoints.endSequence, SortOrder.DESC)
@@ -207,7 +248,7 @@ class SyncService(private val config: AppConfig) {
             .orderBy(Ops.sequence, SortOrder.DESC)
             .limit(1)
             .firstOrNull()
-            ?.get(Ops.sequence) ?: return
+            ?.get(Ops.sequence) ?: return null
 
         if (latestSeq >= nextCheckpointEnd) {
             val startSeq = lastCheckpointEnd + 1
@@ -233,7 +274,10 @@ class SyncService(private val config: AppConfig) {
                     it[createdAt] = LocalDateTime.now(ZoneOffset.UTC)
                     it[opCount] = config.checkpointInterval
                 }
+
+                return CheckpointCreated(startSequence = startSeq, endSequence = endSeq)
             }
         }
+        return null
     }
 }

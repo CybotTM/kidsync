@@ -86,15 +86,18 @@ class KeyService {
             throw ApiException(413, "PAYLOAD_TOO_LARGE", "Attestation signature exceeds maximum size of 4KB")
         }
 
+        val attestedDeviceId = request.resolvedAttestedDeviceId()
+        val attestedKeyValue = request.resolvedAttestedKey()
+
         dbQuery {
             // Verify attested device exists
-            Devices.selectAll().where { Devices.id eq request.attestedDeviceId }.firstOrNull()
+            Devices.selectAll().where { Devices.id eq attestedDeviceId }.firstOrNull()
                 ?: throw ApiException(404, "NOT_FOUND", "Attested device not found")
 
             // Check if attestation already exists for this signer+attested pair
             val existing = KeyAttestations.selectAll().where {
                 (KeyAttestations.signerDevice eq signerDeviceId) and
-                    (KeyAttestations.attestedDevice eq request.attestedDeviceId)
+                    (KeyAttestations.attestedDevice eq attestedDeviceId)
             }.firstOrNull()
 
             if (existing != null) {
@@ -103,8 +106,8 @@ class KeyService {
 
             KeyAttestations.insert {
                 it[signerDevice] = signerDeviceId
-                it[attestedDevice] = request.attestedDeviceId
-                it[attestedKey] = request.attestedEncryptionKey
+                it[attestedDevice] = attestedDeviceId
+                it[attestedKey] = attestedKeyValue
                 it[signature] = request.signature
                 it[createdAt] = LocalDateTime.now(ZoneOffset.UTC)
             }
@@ -114,14 +117,14 @@ class KeyService {
     /**
      * Get all attestations for a given device (i.e., attestations where that device is the attested party).
      */
-    suspend fun getAttestations(attestedDeviceId: String): List<KeyAttestationResponse> {
+    suspend fun getAttestations(attestedDeviceId: String): AttestationListResponse {
         return dbQuery {
-            KeyAttestations.selectAll()
+            val attestations = KeyAttestations.selectAll()
                 .where { KeyAttestations.attestedDevice eq attestedDeviceId }
                 .map { row ->
                     KeyAttestationResponse(
-                        signerDeviceId = row[KeyAttestations.signerDevice],
-                        attestedDeviceId = row[KeyAttestations.attestedDevice],
+                        signerDevice = row[KeyAttestations.signerDevice],
+                        attestedDevice = row[KeyAttestations.attestedDevice],
                         attestedKey = row[KeyAttestations.attestedKey],
                         signature = row[KeyAttestations.signature],
                         createdAt = row[KeyAttestations.createdAt]
@@ -129,6 +132,8 @@ class KeyService {
                             .format(isoFormatter),
                     )
                 }
+
+            AttestationListResponse(attestations = attestations)
         }
     }
 
