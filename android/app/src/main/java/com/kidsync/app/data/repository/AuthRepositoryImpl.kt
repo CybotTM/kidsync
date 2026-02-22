@@ -118,10 +118,12 @@ class AuthRepositoryImpl(
 
                 // 5. Store session token and expiry in encrypted prefs
                 // SEC2-A-21: Track session expiry to enforce token lifetime in both AuthInterceptor and here
+                // SEC5-A-03: Use commit() instead of apply() for session token storage
+                // to ensure the token is persisted before returning to the caller
                 encryptedPrefs.edit()
                     .putString(AuthInterceptor.PREF_SESSION_TOKEN, verifyResponse.sessionToken)
                     .putLong(AuthInterceptor.PREF_SESSION_EXPIRES_AT, System.currentTimeMillis() + verifyResponse.expiresIn * 1000L)
-                    .apply()
+                    .commit()
 
                 val deviceId = keyManager.getDeviceId()
                     ?: throw IllegalStateException("Device ID not found after authentication")
@@ -169,10 +171,11 @@ class AuthRepositoryImpl(
     override suspend fun clearSession() {
         // SEC3-A-10: Remove both the session token and the expiry timestamp
         // to prevent stale session_expires_at from affecting future auth checks
+        // SEC5-A-04: Use commit() to ensure session is cleared synchronously
         encryptedPrefs.edit()
             .remove(AuthInterceptor.PREF_SESSION_TOKEN)
             .remove(AuthInterceptor.PREF_SESSION_EXPIRES_AT)
-            .apply()
+            .commit()
     }
 
     override suspend fun getSession(): DeviceSession? {
@@ -204,9 +207,12 @@ class AuthRepositoryImpl(
     }
 
     // SEC-A-16: Clear all sensitive data on logout, not just the session token
+    // SEC5-A-04: Use commit() for synchronous clearing
+    // SEC5-A-12: Also clear non-encrypted SharedPreferences (kidsync_prefs)
     override suspend fun logout() {
         clearSession()
-        encryptedPrefs.edit().clear().apply()
+        encryptedPrefs.edit().clear().commit()
+        prefs.edit().clear().commit()
     }
 
     /**
@@ -224,6 +230,11 @@ class AuthRepositoryImpl(
      *    never end with a digit.
      * 3. Both parties (client and server) use the same concatenation order.
      * A future protocol version could add length prefixes or a delimiter for defense in depth.
+     *
+     * TODO(SEC5-A-14): Consider adding length-prefix encoding to the challenge message format
+     * (e.g., 4-byte big-endian length prefix before each variable-length field). This would
+     * eliminate the theoretical boundary ambiguity between serverOrigin and timestamp, making
+     * the protocol robust against any future changes to timestamp format or origin conventions.
      */
     private fun buildChallengeMessage(
         nonce: String,

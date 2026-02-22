@@ -16,6 +16,13 @@ class BlobService(private val config: AppConfig) {
 
     private val isoFormatter = DateTimeFormatter.ISO_INSTANT
 
+    companion object {
+        // SEC5-S-13: Per-bucket blob storage quota (1 GB)
+        const val MAX_BUCKET_BLOB_STORAGE = 1_073_741_824L
+        // SEC5-S-13: Max number of blobs per bucket
+        const val MAX_BLOBS_PER_BUCKET = 1000
+    }
+
     /**
      * Upload an encrypted blob to a bucket. Returns blob metadata.
      */
@@ -30,6 +37,24 @@ class BlobService(private val config: AppConfig) {
 
         // Check access BEFORE writing file to disk (prevent TOCTOU)
         dbQuery { BucketService.requireBucketAccess(bucketId, deviceId) }
+
+        // SEC5-S-13: Check per-bucket blob count and storage quota
+        dbQuery {
+            val bucketBlobs = Blobs.selectAll()
+                .where { Blobs.bucketId eq bucketId }
+
+            val blobCount = bucketBlobs.count()
+            if (blobCount >= MAX_BLOBS_PER_BUCKET) {
+                throw ApiException(429, "QUOTA_EXCEEDED", "Maximum number of blobs per bucket exceeded")
+            }
+
+            val currentSize = Blobs.selectAll()
+                .where { Blobs.bucketId eq bucketId }
+                .sumOf { it[Blobs.sizeBytes] }
+            if (currentSize + fileBytes.size > MAX_BUCKET_BLOB_STORAGE) {
+                throw ApiException(429, "QUOTA_EXCEEDED", "Bucket blob storage quota exceeded")
+            }
+        }
 
         val blobId = UUID.randomUUID().toString()
         val sha256 = computeSha256(fileBytes)
@@ -69,9 +94,11 @@ class BlobService(private val config: AppConfig) {
     }
 
     /**
-     * Download a blob. Returns the file bytes and sha256 hash.
+     * SEC5-S-22: Download a blob. Returns the file path and sha256 hash for streaming.
+     * The caller should use call.respondFile() to stream the file instead of reading
+     * all bytes into memory.
      */
-    suspend fun downloadBlob(blobId: String, deviceId: String, bucketId: String): Pair<ByteArray, String> {
+    suspend fun downloadBlob(blobId: String, deviceId: String, bucketId: String): Pair<File, String> {
         return dbQuery {
             BucketService.requireBucketAccess(bucketId, deviceId)
 
@@ -93,7 +120,7 @@ class BlobService(private val config: AppConfig) {
                 throw ApiException(404, "NOT_FOUND", "Blob file not found on disk")
             }
 
-            Pair(file.readBytes(), blob[Blobs.sha256Hash])
+            Pair(file, blob[Blobs.sha256Hash])
         }
     }
 

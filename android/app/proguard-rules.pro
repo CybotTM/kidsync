@@ -61,6 +61,14 @@
 -dontwarn org.openjsse.**
 -keep class okhttp3.internal.platform.** { *; }
 
+# SEC5-A-10: Strip non-error log calls in release builds
+-assumenosideeffects class android.util.Log {
+    public static int v(...);
+    public static int d(...);
+    public static int i(...);
+    public static int w(...);
+}
+
 # Ktor / WebSocket
 -keep class io.ktor.** { *; }
 -dontwarn io.ktor.**

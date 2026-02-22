@@ -33,6 +33,11 @@ data class CheckpointCreated(val startSequence: Long, val endSequence: Long)
  * devices. This is by design: checkpoints provide an integrity anchor for the global
  * op stream, not per-device streams.
  */
+// SEC5-S-14: TODO - Add op table pruning after checkpoints. Once a checkpoint covers a range
+// of ops, the individual ops in that range could be pruned to save storage. This requires
+// ensuring all devices have acknowledged the checkpoint before pruning, which needs a
+// per-device checkpoint acknowledgment tracking mechanism.
+
 class SyncService(private val config: AppConfig) {
 
     private val isoFormatter = DateTimeFormatter.ISO_INSTANT

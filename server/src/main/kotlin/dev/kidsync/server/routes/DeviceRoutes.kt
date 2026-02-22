@@ -16,6 +16,11 @@ import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.util.*
 
+// SEC5-S-02: TODO - Add a device deregistration endpoint (DELETE /devices/me or similar).
+// This would allow a device to permanently remove itself from the system, cleaning up
+// all associated data: sessions, bucket access records, wrapped keys, attestations,
+// recovery blobs, and push tokens. Requires careful cascading deletion logic.
+
 fun Route.deviceRoutes() {
     rateLimit(RateLimitName("auth")) {
         /**

@@ -165,6 +165,11 @@ interface KeyManager {
      * @param seed The 32-byte seed
      * @return Pair of (publicKey, privateKey)
      */
+    // TODO(SEC5-A-09): Wrap the returned Pair in a Closeable/AutoCloseable wrapper that zeros
+    // the private key ByteArray on close(). Currently callers must manually zero x25519Private
+    // in a finally block, which is easy to forget. A Closeable wrapper would enable use() blocks:
+    //   deriveEncryptionKeyPair(seed).use { (pub, priv) -> ... }
+    // and automatically zero the private key when the scope exits.
     fun deriveEncryptionKeyPair(seed: ByteArray): Pair<ByteArray, ByteArray>
 
     /**

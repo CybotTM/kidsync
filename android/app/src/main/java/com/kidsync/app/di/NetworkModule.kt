@@ -62,7 +62,7 @@ object NetworkModule {
 
         val builder = OkHttpClient.Builder()
             // SEC4-A-01: Only allow TLS connections. CLEARTEXT (HTTP) is not permitted.
-            .connectionSpecs(listOf(tlsSpec, ConnectionSpec.COMPATIBLE_TLS))
+            .connectionSpecs(listOf(tlsSpec))
             .addInterceptor(authInterceptor)
             .addInterceptor(loggingInterceptor)
             .connectTimeout(30, TimeUnit.SECONDS)

@@ -219,6 +219,10 @@ fun Route.authRoutes(config: AppConfig, sessionUtil: SessionUtil) {
 
                 val deviceId = device[Devices.id]
 
+                // SEC5-S-01: TODO - Invalidate existing sessions for this device on re-authentication.
+                // When a device authenticates again, old session tokens should be revoked to prevent
+                // session accumulation and reduce the attack surface of stolen tokens.
+
                 // Create session
                 val (token, _) = sessionUtil.createSession(deviceId, request.signingKey)
 

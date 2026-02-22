@@ -7,6 +7,7 @@ import com.kidsync.app.crypto.KeyManager
 import com.kidsync.app.domain.repository.AuthRepository
 import com.kidsync.app.domain.repository.BucketRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -197,6 +198,20 @@ class BucketViewModel @Inject constructor(
         _uiState.update { it.copy(isInviteCopied = true) }
     }
 
+    /**
+     * SEC5-A-08: Schedule clipboard clearing in viewModelScope so it survives
+     * navigation away from PairingScreen. The coroutine runs in the ViewModel's
+     * scope which is tied to the Activity lifecycle, not the composable.
+     *
+     * @param onClear callback to clear the clipboard (called after 60s delay)
+     */
+    fun scheduleClipboardClear(onClear: () -> Unit) {
+        viewModelScope.launch {
+            delay(60_000L)
+            onClear()
+        }
+    }
+
     // -- Join Bucket --
 
     /**
@@ -242,6 +257,11 @@ class BucketViewModel @Inject constructor(
                 }
 
                 // Configure server URL from QR
+                // TODO(SEC5-A-07): Show a confirmation dialog to the user before accepting a server
+                // URL from the QR code, especially for non-kidsync.app domains. This prevents a
+                // malicious QR code from silently redirecting the app to a rogue server that could
+                // intercept wrapped DEKs or auth tokens. The dialog should display the URL and
+                // require explicit user approval.
                 authRepository.setServerUrl(payload.s)
 
                 // Register device if not already registered

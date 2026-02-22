@@ -72,10 +72,11 @@ class AuthInterceptor(
             val expiresAt = prefs.getLong(PREF_SESSION_EXPIRES_AT, 0L)
             if (expiresAt > 0L && System.currentTimeMillis() >= expiresAt) {
                 // Session expired -- clear token and do not send it
+                // SEC5-A-04: Use commit() to ensure expired session is cleared synchronously
                 prefs.edit()
                     .remove(PREF_SESSION_TOKEN)
                     .remove(PREF_SESSION_EXPIRES_AT)
-                    .apply()
+                    .commit()
             } else {
                 requestBuilder.header(HEADER_AUTHORIZATION, "Bearer $token")
             }

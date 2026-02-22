@@ -30,8 +30,15 @@ fun Route.blobRoutes(blobService: BlobService) {
                     val multipart = call.receiveMultipart()
                     var fileBytes: ByteArray? = null
                     var clientSha256: String? = null
+                    // SEC5-S-04: Bound multipart part count to prevent abuse
+                    var partCount = 0
 
                     multipart.forEachPart { part ->
+                        partCount++
+                        if (partCount > 5) {
+                            part.dispose()
+                            throw ApiException(400, "INVALID_REQUEST", "Too many multipart parts")
+                        }
                         when (part) {
                             is PartData.FileItem -> {
                                 if (part.name == "file") {
@@ -69,6 +76,11 @@ fun Route.blobRoutes(blobService: BlobService) {
                     val declaredHash = clientSha256
                         ?: throw ApiException(400, "INVALID_REQUEST", "Missing 'sha256' part")
 
+                    // SEC5-S-11: Validate SHA-256 format before comparing
+                    if (!ValidationUtil.isValidSha256Hex(declaredHash)) {
+                        throw ApiException(400, "INVALID_REQUEST", "sha256 must be a valid 64-character hex SHA-256 hash")
+                    }
+
                     // Verify SHA-256 of the uploaded file matches client-declared hash
                     // SEC-S-03: Use constant-time comparison to prevent timing side-channel attacks
                     val computedHash = java.security.MessageDigest.getInstance("SHA-256")
@@ -96,9 +108,10 @@ fun Route.blobRoutes(blobService: BlobService) {
                     val bucketId = ValidationUtil.requireUuidPathParam(call, "id", "bucket id")
                     val blobId = ValidationUtil.requireUuidPathParam(call, "blobId", "blob id")
 
-                    val (bytes, sha256) = blobService.downloadBlob(blobId, principal.deviceId, bucketId)
+                    // SEC5-S-22: Stream blob downloads instead of reading all bytes into memory
+                    val (file, sha256) = blobService.downloadBlob(blobId, principal.deviceId, bucketId)
                     call.response.header("X-Blob-SHA256", sha256)
-                    call.respondBytes(bytes, ContentType.Application.OctetStream)
+                    call.respondFile(file)
                 }
             }
         }

@@ -7,20 +7,16 @@ import dev.kidsync.server.util.ValidationUtil
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.slf4j.LoggerFactory
+import java.time.Duration
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
-import java.util.concurrent.ConcurrentHashMap
 
 class KeyService {
 
     private val logger = LoggerFactory.getLogger(KeyService::class.java)
 
     private val isoFormatter = DateTimeFormatter.ISO_INSTANT
-
-    // SEC4-S-14: Rate limit recovery blob overwrites (max 1 per hour per device)
-    private val recoveryBlobOverwriteTimestamps = ConcurrentHashMap<String, Long>()
-    private val recoveryBlobOverwriteIntervalMs = 3_600_000L // 1 hour
 
     // ---- Wrapped Keys ----
     // SEC3-S-17: TODO - No key rotation mechanism exists. When a device is revoked from a
@@ -249,17 +245,17 @@ class KeyService {
             val newVersion = if (existing != null) {
                 val oldVersion = existing[RecoveryBlobs.version]
 
-                // SEC4-S-14: Rate limit recovery blob overwrites (max 1 per hour per device)
-                val now = System.currentTimeMillis()
-                val lastOverwrite = recoveryBlobOverwriteTimestamps[deviceId]
-                if (lastOverwrite != null && (now - lastOverwrite) < recoveryBlobOverwriteIntervalMs) {
+                // SEC5-S-06: Rate limit recovery blob overwrites using DB timestamp (survives restarts)
+                val existingCreatedAt = existing[RecoveryBlobs.createdAt]
+                val now = LocalDateTime.now(ZoneOffset.UTC)
+                val age = Duration.between(existingCreatedAt, now)
+                if (age.toHours() < 1) {
                     logger.warn("Recovery blob overwrite rate limited: device={}", deviceId)
                     throw ApiException(429, "RATE_LIMITED", "Recovery blob can only be overwritten once per hour")
                 }
 
                 RecoveryBlobs.deleteWhere { RecoveryBlobs.deviceId eq deviceId }
                 logger.warn("Recovery blob overwritten: device={} oldVersion={} newVersion={}", deviceId, oldVersion, oldVersion + 1)
-                recoveryBlobOverwriteTimestamps[deviceId] = now
                 oldVersion + 1
             } else {
                 1

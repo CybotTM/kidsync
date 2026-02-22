@@ -87,9 +87,11 @@ fun PairingScreen(
     LaunchedEffect(uiState.isInviteCopied) {
         if (uiState.isInviteCopied) {
             snackbarHostState.showSnackbar("Invite data copied to clipboard")
-            // SEC-A-03: Clear clipboard after 60 seconds to prevent token leakage
-            kotlinx.coroutines.delay(60_000L)
-            clipboardManager.setText(AnnotatedString(""))
+            // SEC5-A-08: Delegate clipboard clearing to viewModelScope so it survives
+            // navigation away from PairingScreen (LaunchedEffect would be cancelled)
+            viewModel.scheduleClipboardClear {
+                clipboardManager.setText(AnnotatedString(""))
+            }
         }
     }
 

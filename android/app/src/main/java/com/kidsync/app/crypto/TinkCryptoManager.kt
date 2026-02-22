@@ -169,6 +169,12 @@ class TinkCryptoManager(
         // 1. Base64 decode
         val data = Base64.getDecoder().decode(encryptedPayload)
 
+        // SEC5-A-05: Validate minimum payload size (nonce 12 bytes + GCM tag 16 bytes minimum)
+        val minPayloadSize = AES_GCM_NONCE_SIZE + 16 // nonce + minimum GCM tag
+        require(data.size > minPayloadSize) {
+            "Encrypted payload too short: ${data.size} bytes (minimum ${minPayloadSize + 1} bytes required)"
+        }
+
         // 2. Extract nonce and ciphertext+tag
         val nonce = data.sliceArray(0 until AES_GCM_NONCE_SIZE)
         val ciphertextAndTag = data.sliceArray(AES_GCM_NONCE_SIZE until data.size)
@@ -260,6 +266,13 @@ class TinkCryptoManager(
         keyEpoch: Int
     ): ByteArray {
         val data = Base64.getDecoder().decode(wrappedDek)
+
+        // SEC5-A-05: Validate minimum wrapped DEK size.
+        // Components: ephemeral X509 public key (44) + salt (32) + nonce (12) + min ciphertext with GCM tag (48)
+        val minWrappedDekSize = 44 + 32 + AES_GCM_NONCE_SIZE + 48 // = 136 bytes minimum
+        require(data.size >= minWrappedDekSize) {
+            "Wrapped DEK too short: ${data.size} bytes (minimum $minWrappedDekSize bytes required)"
+        }
 
         // Parse components (X25519 public key is 44 bytes in X509 encoding)
         val ephemeralPublicKeyBytes = data.sliceArray(0 until 44) // X509-encoded X25519 public key

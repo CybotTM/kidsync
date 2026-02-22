@@ -7,6 +7,7 @@ import dev.kidsync.server.db.DatabaseFactory.dbQuery
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.less
+import java.security.MessageDigest
 import java.security.SecureRandom
 import java.time.Instant
 import java.util.*
@@ -92,7 +93,8 @@ class SessionUtil(private val config: AppConfig) {
             Challenges.deleteWhere { Challenges.nonce eq nonce }
 
             if (row == null) return@dbQuery null
-            if (row[Challenges.signingKey] != signingKey) return@dbQuery null
+            // SEC5-S-05/S-10: Constant-time comparison to prevent timing side-channel attacks
+            if (!MessageDigest.isEqual(row[Challenges.signingKey].toByteArray(), signingKey.toByteArray())) return@dbQuery null
             val expiresAt = Instant.ofEpochSecond(row[Challenges.expiresAt])
             if (Instant.now().isAfter(expiresAt)) return@dbQuery null
 

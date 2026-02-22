@@ -139,6 +139,10 @@ fun Application.module(config: AppConfig = AppConfig()) {
         call.response.header("Cache-Control", "no-store")
         // SEC2-S-12: HSTS header to enforce HTTPS connections
         call.response.header("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
+        // SEC5-S-21: Additional security headers
+        call.response.header("Referrer-Policy", "no-referrer")
+        call.response.header("Content-Security-Policy", "default-src 'none'")
+        call.response.header("Permissions-Policy", "")
     }
 
     // Configure routes

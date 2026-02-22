@@ -392,27 +392,29 @@ class KeyTest {
         val device = TestHelper.setupDeviceWithBucket(client)
 
         // Upload first recovery blob
-        client.post("/recovery") {
+        val resp1 = client.post("/recovery") {
             contentType(ContentType.Application.Json)
             header(HttpHeaders.Authorization, "Bearer ${device.sessionToken}")
             setBody(RecoveryBlobRequest(encryptedBlob = "version-1"))
         }
+        assertEquals(HttpStatusCode.Created, resp1.status)
 
-        // Upload second recovery blob (should overwrite)
-        client.post("/recovery") {
+        // SEC5-S-06: Immediate second upload is rate-limited (DB-based, max 1 per hour)
+        val resp2 = client.post("/recovery") {
             contentType(ContentType.Application.Json)
             header(HttpHeaders.Authorization, "Bearer ${device.sessionToken}")
             setBody(RecoveryBlobRequest(encryptedBlob = "version-2"))
         }
+        assertEquals(HttpStatusCode.TooManyRequests, resp2.status)
 
-        // Retrieve -- should get version-2
+        // Retrieve -- should still get version-1 since overwrite was rate-limited
         val response = client.get("/recovery") {
             header(HttpHeaders.Authorization, "Bearer ${device.sessionToken}")
         }
 
         assertEquals(HttpStatusCode.OK, response.status)
         val body = response.body<RecoveryBlobResponse>()
-        assertEquals("version-2", body.encryptedBlob)
+        assertEquals("version-1", body.encryptedBlob)
     }
 
     @Test

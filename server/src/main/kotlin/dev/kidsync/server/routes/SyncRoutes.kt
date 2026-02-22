@@ -18,7 +18,9 @@ import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
 import io.ktor.utils.io.*
 import io.ktor.websocket.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.*
 import org.jetbrains.exposed.sql.*
@@ -155,8 +157,15 @@ fun Route.syncRoutes(
                     val multipart = call.receiveMultipart()
                     var metadata: SnapshotMetadata? = null
                     var snapshotBytes: ByteArray? = null
+                    // SEC5-S-04: Bound multipart part count to prevent abuse
+                    var partCount = 0
 
                     multipart.forEachPart { part ->
+                        partCount++
+                        if (partCount > 5) {
+                            part.dispose()
+                            throw ApiException(400, "INVALID_REQUEST", "Too many multipart parts")
+                        }
                         when (part) {
                             is PartData.FormItem -> {
                                 if (part.name == "metadata") {
@@ -198,6 +207,11 @@ fun Route.syncRoutes(
                         throw ApiException(413, "SNAPSHOT_TOO_LARGE", "Snapshot exceeds size limit")
                     }
 
+                    // SEC5-S-09: Validate snapshot keyEpoch >= 1
+                    if (meta.keyEpoch < 1) {
+                        throw ApiException(400, "INVALID_REQUEST", "keyEpoch must be >= 1")
+                    }
+
                     // SEC3-S-25: Validate snapshot metadata fields format
                     if (!ValidationUtil.isValidSha256Hex(meta.sha256)) {
                         throw ApiException(400, "INVALID_REQUEST", "meta.sha256 must be a valid 64-character hex SHA-256 hash")
@@ -215,11 +229,12 @@ fun Route.syncRoutes(
                             .firstOrNull()
                             ?.get(Ops.sequence) ?: 0L
                     }
+                    // SEC5-S-20: Do not expose latestOpSeq in error message
                     if (meta.atSequence < 0 || meta.atSequence > latestOpSeq) {
                         throw ApiException(
                             400,
                             "INVALID_REQUEST",
-                            "atSequence must be between 0 and the latest op sequence ($latestOpSeq)"
+                            "atSequence is out of valid range"
                         )
                     }
 
@@ -329,6 +344,11 @@ fun Route.syncRoutes(
         }
     }
 
+    // SEC5-S-03: TODO - Accept WebSocket auth token as a query parameter (?token=...) in addition
+    // to the current in-band auth message. This would allow the server to reject unauthenticated
+    // connections at upgrade time (before allocating WebSocket resources), reducing the attack
+    // surface for resource exhaustion. The token should still be validated via SessionUtil.
+
     // WebSocket /buckets/{id}/ws
     webSocket("/buckets/{id}/ws") {
         // SEC4-S-10: IP-based rate limiting for WebSocket upgrade attempts
@@ -434,69 +454,78 @@ fun Route.syncRoutes(
                 )
             )
 
+            // SEC5-S-16: Timer-based WebSocket re-validation in a separate coroutine
+            val revalidationJob = launch {
+                val revalidationIntervalMs = 60_000L
+                while (isActive) {
+                    delay(revalidationIntervalMs)
+                    val revalidatedSession = sessionUtil.validateSession(sessionToken!!)
+                    if (revalidatedSession == null) {
+                        close(CloseReason(4001, "Session expired"))
+                        return@launch
+                    }
+                    val stillHasAccess = try {
+                        dbQuery { BucketService.requireBucketAccess(bucketId, revalidatedSession.deviceId) }
+                        true
+                    } catch (_: ApiException) {
+                        false
+                    }
+                    if (!stillHasAccess) {
+                        close(CloseReason(CloseReason.Codes.VIOLATED_POLICY.code, "Access revoked"))
+                        return@launch
+                    }
+                }
+            }
+
             // Main message loop
             // SEC3-S-19: Simple counter-based rate limiter (max 10 messages per second)
             var messageCount = 0
             var windowStart = System.currentTimeMillis()
-            // SEC4-S-01: Track last session re-validation time for periodic checks
-            var lastRevalidation = System.currentTimeMillis()
-            val revalidationIntervalMs = 60_000L // Re-validate every 60 seconds
 
-            for (frame in incoming) {
-                if (frame is Frame.Text) {
-                    // SEC3-S-19: Rate limit check
-                    val now = System.currentTimeMillis()
-                    if (now - windowStart > 1000) {
-                        messageCount = 0
-                        windowStart = now
-                    }
-                    messageCount++
-                    if (messageCount > 10) {
-                        // Drop excess messages silently
-                        continue
-                    }
-
-                    // SEC4-S-01: Periodic session and bucket access re-validation
-                    if (now - lastRevalidation > revalidationIntervalMs) {
-                        lastRevalidation = now
-                        val revalidatedSession = sessionUtil.validateSession(sessionToken!!)
-                        if (revalidatedSession == null) {
-                            close(CloseReason(4001, "Session expired"))
-                            return@webSocket
+            try {
+                for (frame in incoming) {
+                    if (frame is Frame.Text) {
+                        // SEC3-S-19: Rate limit check
+                        val now = System.currentTimeMillis()
+                        if (now - windowStart > 1000) {
+                            messageCount = 0
+                            windowStart = now
                         }
-                        val stillHasAccess = try {
-                            dbQuery { BucketService.requireBucketAccess(bucketId, revalidatedSession.deviceId) }
-                            true
-                        } catch (_: ApiException) {
-                            false
+                        messageCount++
+                        if (messageCount > 10) {
+                            // Drop excess messages silently
+                            continue
                         }
-                        if (!stillHasAccess) {
-                            close(CloseReason(CloseReason.Codes.VIOLATED_POLICY.code, "Access revoked"))
-                            return@webSocket
+
+                        val text = frame.readText()
+                        // SEC5-S-12: Narrow catch to JSON parsing only; let send exceptions propagate
+                        val jsonObj = try {
+                            json.parseToJsonElement(text).jsonObject
+                        } catch (_: Exception) {
+                            // Ignore malformed messages
+                            null
                         }
-                    }
 
-                    val text = frame.readText()
-                    try {
-                        val jsonObj = json.parseToJsonElement(text).jsonObject
-                        val type = jsonObj["type"]?.jsonPrimitive?.content
+                        if (jsonObj != null) {
+                            val type = jsonObj["type"]?.jsonPrimitive?.content
 
-                        when (type) {
-                            "ping" -> {
-                                send(
-                                    Frame.Text(
-                                        json.encodeToString(
-                                            WsPong.serializer(),
-                                            WsPong(ts = Instant.now().toString())
+                            when (type) {
+                                "ping" -> {
+                                    send(
+                                        Frame.Text(
+                                            json.encodeToString(
+                                                WsPong.serializer(),
+                                                WsPong(ts = Instant.now().toString())
+                                            )
                                         )
                                     )
-                                )
+                                }
                             }
                         }
-                    } catch (_: Exception) {
-                        // Ignore malformed messages
                     }
                 }
+            } finally {
+                revalidationJob.cancel()
             }
         } finally {
             if (connection != null) {

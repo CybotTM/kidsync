@@ -245,6 +245,11 @@ class TinkKeyManager(
         }
     }
 
+    // TODO(SEC5-A-06): The recovery blob AAD is currently hardcoded as "recovery". It should
+    // include the bucket ID to bind the blob to a specific bucket, preventing cross-bucket
+    // recovery blob substitution attacks. Change AAD to "recovery:$bucketId" and update
+    // both wrapDekWithRecoveryKey and unwrapDekWithRecoveryKey accordingly.
+
     /**
      * Create a recovery blob containing ALL epoch DEKs and the device seed.
      *
