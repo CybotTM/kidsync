@@ -171,7 +171,7 @@ class BoundaryTest {
                 header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
                 setBody(WrappedKeyRequest(
                     targetDevice = deviceB.deviceId,
-                    wrappedDek = "dek-epoch-$epoch",
+                    wrappedDek = "dek-epoch-$epoch-padded-to-meet-minimum-length-req",
                     keyEpoch = epoch,
                 ))
             }.also { assertEquals(HttpStatusCode.Created, it.status) }
@@ -182,7 +182,7 @@ class BoundaryTest {
             val resp = client.get("/keys/wrapped?epoch=$epoch") {
                 header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
             }.body<WrappedKeyResponse>()
-            assertEquals("dek-epoch-$epoch", resp.wrappedDek)
+            assertEquals("dek-epoch-$epoch-padded-to-meet-minimum-length-req", resp.wrappedDek)
             assertEquals(epoch, resp.keyEpoch)
         }
     }
@@ -203,7 +203,7 @@ class BoundaryTest {
             header(HttpHeaders.Authorization, "Bearer ${device.sessionToken}")
             setBody(WrappedKeyRequest(
                 targetDevice = "00000000-0000-0000-0000-000000000000",
-                wrappedDek = "some-dek",
+                wrappedDek = "some-dek-padded-to-meet-minimum-length-requirement",
                 keyEpoch = 1,
             ))
         }
@@ -275,8 +275,9 @@ class BoundaryTest {
     // Health Endpoint
     // ================================================================
 
+    // SEC6-S-18: Health endpoint no longer returns version or uptime
     @Test
-    fun `health endpoint returns version and uptime`() = testApplication {
+    fun `health endpoint returns status only`() = testApplication {
         application { module(testConfig()) }
         val client = createJsonClient()
 
@@ -285,9 +286,9 @@ class BoundaryTest {
 
         val body = response.body<HealthResponse>()
         assertEquals("healthy", body.status)
-        assertNotNull(body.version)
-        assertTrue(body.version!!.isNotEmpty())
-        assertNotNull(body.uptime)
+        // version and uptime are no longer included
+        assertEquals(null, body.version)
+        assertEquals(null, body.uptime)
     }
 
     // ================================================================

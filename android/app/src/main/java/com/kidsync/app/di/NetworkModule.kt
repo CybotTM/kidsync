@@ -47,6 +47,10 @@ object NetworkModule {
         }
     }
 
+    // TODO(SEC6-A-03): When the user changes the server URL in SettingsViewModel, the
+    // OkHttpClient and CertificatePinner are not rebuilt. The pinner remains configured for
+    // the original host. Either rebuild the OkHttpClient on URL change or use a dynamic
+    // pinner that re-evaluates the host on each request.
     @Provides
     @Singleton
     fun provideOkHttpClient(

@@ -54,8 +54,9 @@ class BucketIntegrationTest {
         assertEquals("INVITE_INVALID", body.error)
     }
 
+    // SEC6-S-01: Consumed invite now returns generic 404 INVITE_INVALID
     @Test
-    fun `join with consumed invite returns INVITE_CONSUMED`() = testApplication {
+    fun `join with consumed invite returns INVITE_INVALID`() = testApplication {
         application { module(testConfig()) }
         val client = createJsonClient()
 
@@ -88,9 +89,9 @@ class BucketIntegrationTest {
             setBody(JoinBucketRequest(inviteToken = inviteToken))
         }
 
-        assertEquals(HttpStatusCode.Gone, join2.status)
+        assertEquals(HttpStatusCode.NotFound, join2.status)
         val body = join2.body<ErrorResponse>()
-        assertEquals("INVITE_CONSUMED", body.error)
+        assertEquals("INVITE_INVALID", body.error)
     }
 
     // ================================================================
@@ -159,7 +160,7 @@ class BucketIntegrationTest {
             header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
             setBody(WrappedKeyRequest(
                 targetDevice = deviceB.deviceId,
-                wrappedDek = "dek-to-delete",
+                wrappedDek = "dek-to-delete-padded-to-meet-minimum-len-requirement",
                 keyEpoch = 1,
             ))
         }

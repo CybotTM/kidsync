@@ -115,7 +115,7 @@ class IntegrationTest {
             header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
             setBody(WrappedKeyRequest(
                 targetDevice = deviceB.deviceId,
-                wrappedDek = "first-dek",
+                wrappedDek = "first-dek-padded-to-meet-minimum-length-requirement-44ch",
                 keyEpoch = 1,
             ))
         }
@@ -127,7 +127,7 @@ class IntegrationTest {
             header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
             setBody(WrappedKeyRequest(
                 targetDevice = deviceB.deviceId,
-                wrappedDek = "second-dek",
+                wrappedDek = "second-dek-padded-to-meet-minimum-length-req-44ch",
                 keyEpoch = 1,
             ))
         }

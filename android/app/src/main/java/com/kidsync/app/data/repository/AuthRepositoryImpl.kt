@@ -69,22 +69,28 @@ class AuthRepositoryImpl(
     }
 
     override suspend fun authenticate(): Result<DeviceSession> {
-        // SEC3-A-17: Enforce exponential backoff on repeated auth failures
-        val now = System.currentTimeMillis()
-        if (consecutiveFailures > 0) {
-            // SEC4-A-08: Cap the shift amount to prevent Long overflow. Shifting a Long by >= 63
-            // produces negative values, causing minOf to return a negative backoff (no wait).
-            // Limit shift to 20 (1000 * 2^20 = ~1M ms > MAX_BACKOFF_MS) so the cap always applies.
-            val shift = minOf(consecutiveFailures - 1, 20)
-            val backoffMs = minOf(BASE_BACKOFF_MS shl shift, MAX_BACKOFF_MS)
-            val elapsed = now - lastAttemptTimeMs
-            if (elapsed < backoffMs) {
-                return Result.failure(
-                    IllegalStateException("Auth rate limited. Retry in ${(backoffMs - elapsed) / 1000}s")
-                )
+        // SEC6-A-02: Synchronized access to the read-check-modify pattern on
+        // consecutiveFailures and lastAttemptTimeMs. @Volatile alone is insufficient
+        // because the compound check (read failures, compute backoff, compare elapsed,
+        // update lastAttemptTimeMs) must be atomic.
+        synchronized(this) {
+            // SEC3-A-17: Enforce exponential backoff on repeated auth failures
+            val now = System.currentTimeMillis()
+            if (consecutiveFailures > 0) {
+                // SEC4-A-08: Cap the shift amount to prevent Long overflow. Shifting a Long by >= 63
+                // produces negative values, causing minOf to return a negative backoff (no wait).
+                // Limit shift to 20 (1000 * 2^20 = ~1M ms > MAX_BACKOFF_MS) so the cap always applies.
+                val shift = minOf(consecutiveFailures - 1, 20)
+                val backoffMs = minOf(BASE_BACKOFF_MS shl shift, MAX_BACKOFF_MS)
+                val elapsed = now - lastAttemptTimeMs
+                if (elapsed < backoffMs) {
+                    return Result.failure(
+                        IllegalStateException("Auth rate limited. Retry in ${(backoffMs - elapsed) / 1000}s")
+                    )
+                }
             }
+            lastAttemptTimeMs = now
         }
-        lastAttemptTimeMs = now
 
         return try {
             val (signingPublicKey, signingPrivateKey) = keyManager.getOrCreateSigningKeyPair()
@@ -129,7 +135,7 @@ class AuthRepositoryImpl(
                     ?: throw IllegalStateException("Device ID not found after authentication")
 
                 // SEC3-A-17: Reset backoff on success
-                consecutiveFailures = 0
+                synchronized(this@AuthRepositoryImpl) { consecutiveFailures = 0 }
 
                 Result.success(
                     DeviceSession(
@@ -144,7 +150,7 @@ class AuthRepositoryImpl(
             }
         } catch (e: Exception) {
             // SEC3-A-17: Increment backoff on failure
-            consecutiveFailures++
+            synchronized(this@AuthRepositoryImpl) { consecutiveFailures++ }
             Result.failure(e)
         }
     }
@@ -243,7 +249,10 @@ class AuthRepositoryImpl(
         timestamp: String
     ): ByteArray {
         val nonceBytes = Base64.getDecoder().decode(nonce)
+        // SEC6-A-11: Validate nonce and signing key sizes to prevent truncated or padded values
+        require(nonceBytes.size == 32) { "Invalid nonce size: ${nonceBytes.size}" }
         val keyBytes = Base64.getDecoder().decode(signingKey)
+        require(keyBytes.size == 32) { "Invalid signing key size: ${keyBytes.size}" }
         val originBytes = serverOrigin.toByteArray(Charsets.UTF_8)
         val timestampBytes = timestamp.toByteArray(Charsets.UTF_8)
         return nonceBytes + keyBytes + originBytes + timestampBytes

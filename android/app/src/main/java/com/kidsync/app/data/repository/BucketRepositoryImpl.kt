@@ -61,12 +61,12 @@ class BucketRepositoryImpl(
                 createdAt = Instant.now()
             )
             bucketDao.insertBucket(bucket.toEntity())
-            // Track in accessible buckets
+            // SEC6-A-09: Atomic write of bucket set via a single commit() call
             val existing = getAccessibleBuckets().toMutableSet()
             existing.add(bucket.bucketId)
             encryptedPrefs.edit()
                 .putStringSet(PREF_ACCESSIBLE_BUCKETS, existing)
-                .apply()
+                .commit()
             Result.success(bucket)
         } catch (e: Exception) {
             Result.failure(e)
@@ -225,16 +225,15 @@ class BucketRepositoryImpl(
         // The devices table now stores signing and encryption keys
     }
 
+    // SEC6-A-09: Atomic write of both bucket name and bucket set in a single commit() call.
+    // Previously used two separate apply() calls which risked partial writes.
     override suspend fun storeLocalBucketName(bucketId: String, name: String) {
-        encryptedPrefs.edit()
-            .putString(PREF_BUCKET_NAME_PREFIX + bucketId, name)
-            .apply()
-        // Also track this bucket ID in the accessible list
         val existing = getAccessibleBuckets().toMutableSet()
         existing.add(bucketId)
         encryptedPrefs.edit()
+            .putString(PREF_BUCKET_NAME_PREFIX + bucketId, name)
             .putStringSet(PREF_ACCESSIBLE_BUCKETS, existing)
-            .apply()
+            .commit()
     }
 
     override suspend fun getLocalBucketName(bucketId: String): String? {

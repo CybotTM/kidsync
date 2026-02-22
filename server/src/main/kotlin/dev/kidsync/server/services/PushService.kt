@@ -8,6 +8,9 @@ import org.slf4j.LoggerFactory
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 
+// SEC6-S-13: TODO - Push tokens should be encrypted at rest in the database.
+// Currently stored as plaintext in the push_tokens table. Consider using envelope
+// encryption with a server-side key to protect tokens if the database is compromised.
 class PushService {
 
     private val logger = LoggerFactory.getLogger(PushService::class.java)

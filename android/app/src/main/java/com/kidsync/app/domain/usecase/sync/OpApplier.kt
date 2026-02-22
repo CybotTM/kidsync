@@ -126,10 +126,18 @@ class OpApplier @Inject constructor(
 
         val existing = overrideDao.getOverrideById(overrideId)
         if (existing != null && payload.operation == "UPDATE") {
-            val validTransition = conflictResolver.isValidOverrideTransition(
-                OverrideStatus.valueOf(existing.status),
-                OverrideStatus.valueOf(status)
-            )
+            // SEC6-A-15: Guard OverrideStatus.valueOf against unknown status values.
+            // If a future server version introduces new status values, skip gracefully
+            // rather than crashing the sync pipeline.
+            val fromStatus: OverrideStatus
+            val toStatus: OverrideStatus
+            try {
+                fromStatus = OverrideStatus.valueOf(existing.status)
+                toStatus = OverrideStatus.valueOf(status)
+            } catch (_: IllegalArgumentException) {
+                return ApplyResult()
+            }
+            val validTransition = conflictResolver.isValidOverrideTransition(fromStatus, toStatus)
             if (!validTransition) {
                 return ApplyResult()
             }

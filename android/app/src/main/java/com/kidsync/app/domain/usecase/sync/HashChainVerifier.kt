@@ -13,6 +13,9 @@ import javax.inject.Inject
  *
  * Genesis value: 0000000000000000000000000000000000000000000000000000000000000000
  */
+// TODO(SEC6-A-04): Verify hash chain continuity against local state. When receiving new ops,
+// the first op's devicePrevHash should match the last known hash for that device stored locally.
+// Currently we only verify intra-batch continuity but not continuity with previously persisted ops.
 class HashChainVerifier @Inject constructor() {
 
     companion object {

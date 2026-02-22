@@ -34,7 +34,7 @@ class KeyTest {
             header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
             setBody(WrappedKeyRequest(
                 targetDevice = deviceB.deviceId,
-                wrappedDek = "encrypted-dek-for-deviceB-epoch1",
+                wrappedDek = "encrypted-dek-for-deviceB-epoch1-padded-to-min",
                 keyEpoch = 1,
             ))
         }
@@ -55,7 +55,7 @@ class KeyTest {
             header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
             setBody(WrappedKeyRequest(
                 targetDevice = deviceB.deviceId,
-                wrappedDek = "wrapped-dek-epoch-1",
+                wrappedDek = "wrapped-dek-epoch-1-padded-to-meet-minimum-length",
                 keyEpoch = 1,
             ))
         }
@@ -67,7 +67,7 @@ class KeyTest {
 
         assertEquals(HttpStatusCode.OK, response.status)
         val body = response.body<WrappedKeyResponse>()
-        assertEquals("wrapped-dek-epoch-1", body.wrappedDek)
+        assertEquals("wrapped-dek-epoch-1-padded-to-meet-minimum-length", body.wrappedDek)
         assertEquals(1, body.keyEpoch)
         assertEquals(deviceA.deviceId, body.wrappedBy)
     }
@@ -98,7 +98,7 @@ class KeyTest {
             header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
             setBody(WrappedKeyRequest(
                 targetDevice = deviceB.deviceId,
-                wrappedDek = "wrapped-dek-no-sig",
+                wrappedDek = "wrapped-dek-no-sig-padded-to-meet-minimum-length",
                 keyEpoch = 1,
             ))
         }
@@ -110,7 +110,7 @@ class KeyTest {
         }
         assertEquals(HttpStatusCode.OK, getResp.status)
         val body = getResp.body<WrappedKeyResponse>()
-        assertEquals("wrapped-dek-no-sig", body.wrappedDek)
+        assertEquals("wrapped-dek-no-sig-padded-to-meet-minimum-length", body.wrappedDek)
         assertEquals(deviceA.deviceId, body.wrappedBy)
     }
 
@@ -127,7 +127,7 @@ class KeyTest {
             header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
             setBody(WrappedKeyRequest(
                 targetDevice = deviceB.deviceId,
-                wrappedDek = "dek-epoch-1",
+                wrappedDek = "dek-epoch-1-padded-to-meet-minimum-length-requiremt",
                 keyEpoch = 1,
             ))
         }
@@ -138,7 +138,7 @@ class KeyTest {
             header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
             setBody(WrappedKeyRequest(
                 targetDevice = deviceB.deviceId,
-                wrappedDek = "dek-epoch-2",
+                wrappedDek = "dek-epoch-2-padded-to-meet-minimum-length-requiremt",
                 keyEpoch = 2,
             ))
         }
@@ -147,14 +147,14 @@ class KeyTest {
         val resp1 = client.get("/keys/wrapped?epoch=1") {
             header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
         }.body<WrappedKeyResponse>()
-        assertEquals("dek-epoch-1", resp1.wrappedDek)
+        assertEquals("dek-epoch-1-padded-to-meet-minimum-length-requiremt", resp1.wrappedDek)
         assertEquals(1, resp1.keyEpoch)
 
         // Retrieve epoch 2
         val resp2 = client.get("/keys/wrapped?epoch=2") {
             header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
         }.body<WrappedKeyResponse>()
-        assertEquals("dek-epoch-2", resp2.wrappedDek)
+        assertEquals("dek-epoch-2-padded-to-meet-minimum-length-requiremt", resp2.wrappedDek)
         assertEquals(2, resp2.keyEpoch)
     }
 

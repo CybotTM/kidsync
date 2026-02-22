@@ -416,22 +416,17 @@ class TinkCryptoManager(
     }
 
     override fun decryptBlob(encryptedData: ByteArray, key: ByteArray, blobId: String): ByteArray {
+        // SEC6-A-07: Key zeroing is the caller's responsibility. Do not destroy input parameters.
         val nonce = encryptedData.sliceArray(0 until AES_GCM_NONCE_SIZE)
         val ciphertextAndTag = encryptedData.sliceArray(AES_GCM_NONCE_SIZE until encryptedData.size)
 
-        try {
-            val cipher = Cipher.getInstance(ALGORITHM_AES_GCM)
-            val keySpec = SecretKeySpec(key, "AES")
-            val gcmSpec = GCMParameterSpec(AES_GCM_TAG_SIZE, nonce)
-            cipher.init(Cipher.DECRYPT_MODE, keySpec, gcmSpec)
-            cipher.updateAAD(blobId.toByteArray(Charsets.UTF_8))
+        val cipher = Cipher.getInstance(ALGORITHM_AES_GCM)
+        val keySpec = SecretKeySpec(key, "AES")
+        val gcmSpec = GCMParameterSpec(AES_GCM_TAG_SIZE, nonce)
+        cipher.init(Cipher.DECRYPT_MODE, keySpec, gcmSpec)
+        cipher.updateAAD(blobId.toByteArray(Charsets.UTF_8))
 
-            return cipher.doFinal(ciphertextAndTag)
-        } finally {
-            // SEC4-A-04: Zero the blob key after decryption. The caller passed us the key,
-            // but we zero it here defensively. Callers should not reuse the array after this call.
-            key.zeroOut()
-        }
+        return cipher.doFinal(ciphertextAndTag)
     }
 
     // ─── Invite Token ────────────────────────────────────────────────────────────
@@ -454,6 +449,9 @@ class TinkCryptoManager(
         }
     }
 
+    // TODO(SEC6-A-05): The DEK epoch should come from the server's wrapped key response, not
+    // from the locally stored currentEpoch. Using local epoch means a replayed wrapped DEK
+    // could overwrite a newer epoch's key. Accept keyEpoch as a parameter instead.
     override suspend fun unwrapAndStoreDek(
         bucketId: String,
         wrappedDek: String,

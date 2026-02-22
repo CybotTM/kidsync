@@ -14,6 +14,8 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.*
 
+private fun inviteInvalidException() = ApiException(404, "INVITE_INVALID", "Invalid or expired invite token")
+
 class BucketService(
     private val blobStoragePath: String,
     private val snapshotStoragePath: String,
@@ -151,6 +153,21 @@ class BucketService(
         for (devId in deviceIdsInBucket) {
             wsManager?.disconnectDevice(bucketId, devId)
         }
+
+        // SEC6-S-11: Invalidate sessions for non-creator devices that no longer have
+        // any active bucket memberships after this bucket was deleted.
+        for (devId in deviceIdsInBucket) {
+            if (devId == deviceId) continue // Skip the creator (who initiated the deletion)
+            val remainingBuckets = dbQuery {
+                BucketAccess.selectAll().where {
+                    (BucketAccess.deviceId eq devId) and BucketAccess.revokedAt.isNull()
+                }.count()
+            }
+            if (remainingBuckets == 0L) {
+                logger.info("Device {} lost last bucket membership via bucket deletion, invalidating sessions", devId)
+                sessionUtil?.deleteSessionsByDevice(devId)
+            }
+        }
     }
 
     /**
@@ -209,21 +226,29 @@ class BucketService(
             val tokenHash = HashUtil.sha256HexString(inviteToken)
             val now = LocalDateTime.now(ZoneOffset.UTC)
 
-            // Stage 1: Find token by hash + bucketId (for error differentiation)
+            // SEC6-S-01: All invite error cases return the same generic error to prevent
+            // enumeration. Server-side log messages differentiate for debugging.
+
+            // Stage 1: Find token by hash + bucketId
             val invite = InviteTokens.selectAll().where {
                 (InviteTokens.tokenHash eq tokenHash) and
                     (InviteTokens.bucketId eq bucketId)
             }.firstOrNull()
-                ?: throw ApiException(404, "INVITE_INVALID", "Invalid invite token")
+            if (invite == null) {
+                logger.info("Invite token not found: bucket={}", bucketId)
+                throw inviteInvalidException()
+            }
 
-            // Stage 2: Check if already used (for better error message)
+            // Stage 2: Check if already used
             if (invite[InviteTokens.usedAt] != null) {
-                throw ApiException(410, "INVITE_CONSUMED", "Invite token has already been used")
+                logger.info("Invite token already consumed: bucket={}", bucketId)
+                throw inviteInvalidException()
             }
 
             // Stage 3: Check if expired
             if (invite[InviteTokens.expiresAt] <= now) {
-                throw ApiException(410, "INVITE_EXPIRED", "Invite token has expired")
+                logger.info("Invite token expired: bucket={}", bucketId)
+                throw inviteInvalidException()
             }
 
             // SEC2-S-02: Check if this device was previously revoked from this bucket.
@@ -279,8 +304,9 @@ class BucketService(
             }
 
             if (updatedRows == 0) {
-                // Another concurrent request consumed the invite first
-                throw ApiException(410, "INVITE_CONSUMED", "Invite token has already been used")
+                // SEC6-S-01: Another concurrent request consumed the invite first
+                logger.warn("Invite token race: concurrent consumption detected for bucket={}", bucketId)
+                throw inviteInvalidException()
             }
 
             // Re-activate previously revoked access or grant new

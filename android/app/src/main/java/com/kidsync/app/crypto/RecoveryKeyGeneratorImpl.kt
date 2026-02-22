@@ -5,6 +5,7 @@ import org.bouncycastle.crypto.generators.HKDFBytesGenerator
 import org.bouncycastle.crypto.params.HKDFParameters
 import java.security.MessageDigest
 import java.security.SecureRandom
+// SEC6-A-19: Use the internal zeroOut() from TinkCryptoManager.kt (same package)
 
 /**
  * BIP39 mnemonic generation and recovery key derivation using 256-bit entropy (24 words).
@@ -154,7 +155,7 @@ class RecoveryKeyGeneratorImpl : RecoveryKeyGenerator {
         }
     }
 
-    private fun ByteArray.zeroOut() { java.util.Arrays.fill(this, 0.toByte()) }
+    // SEC6-A-19: Removed duplicate ByteArray.zeroOut() - using internal fun from TinkCryptoManager.kt
 
     private fun sha256(input: ByteArray): ByteArray {
         return MessageDigest.getInstance("SHA-256").digest(input)

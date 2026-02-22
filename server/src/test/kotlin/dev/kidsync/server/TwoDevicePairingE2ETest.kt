@@ -66,7 +66,7 @@ class TwoDevicePairingE2ETest {
             header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
             setBody(WrappedKeyRequest(
                 targetDevice = deviceB.deviceId,
-                wrappedDek = "dek-for-B-epoch1",
+                wrappedDek = "dek-for-B-epoch1-padded-to-meet-minimum-length",
                 keyEpoch = 1,
             ))
         }.also { assertEquals(HttpStatusCode.Created, it.status) }
@@ -75,7 +75,7 @@ class TwoDevicePairingE2ETest {
         val wrappedKey = client.get("/keys/wrapped?epoch=1") {
             header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
         }.body<WrappedKeyResponse>()
-        assertEquals("dek-for-B-epoch1", wrappedKey.wrappedDek)
+        assertEquals("dek-for-B-epoch1-padded-to-meet-minimum-length", wrappedKey.wrappedDek)
         assertEquals(deviceA.deviceId, wrappedKey.wrappedBy)
 
         // Both devices exchange key attestations

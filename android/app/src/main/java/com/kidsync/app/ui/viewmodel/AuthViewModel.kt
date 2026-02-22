@@ -270,6 +270,11 @@ class AuthViewModel @Inject constructor(
      * 2. Re-derive Ed25519 + X25519 keypairs
      * 3. Register as new device, authenticate
      * 4. Unwrap DEK using recovery key
+     *
+     * TODO(SEC6-A-08): Key ordering during recovery flow - the recovery restores the
+     * device seed before registering new encryption keys with the server. If restoration
+     * fails mid-flow, the local seed may not match the server's registered keys. Consider
+     * ordering: register first, then restore seed, then unwrap DEK.
      */
     fun restoreFromRecovery() {
         val state = _uiState.value

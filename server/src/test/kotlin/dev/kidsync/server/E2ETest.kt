@@ -80,7 +80,7 @@ class E2ETest {
             header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
             setBody(WrappedKeyRequest(
                 targetDevice = deviceB.deviceId,
-                wrappedDek = "wrapped-dek-for-B-epoch1",
+                wrappedDek = "wrapped-dek-for-B-epoch1-padded-to-min-length",
                 keyEpoch = 1,
             ))
         }.also { assertEquals(HttpStatusCode.Created, it.status) }
@@ -89,7 +89,7 @@ class E2ETest {
         val wrappedKey = client.get("/keys/wrapped?epoch=1") {
             header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
         }.body<WrappedKeyResponse>()
-        assertEquals("wrapped-dek-for-B-epoch1", wrappedKey.wrappedDek)
+        assertEquals("wrapped-dek-for-B-epoch1-padded-to-min-length", wrappedKey.wrappedDek)
         assertEquals(1, wrappedKey.keyEpoch)
         assertEquals(deviceA.deviceId, wrappedKey.wrappedBy)
 
@@ -276,7 +276,7 @@ class E2ETest {
             header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
             setBody(WrappedKeyRequest(
                 targetDevice = deviceB.deviceId,
-                wrappedDek = "dek-to-be-purged",
+                wrappedDek = "dek-to-be-purged-padded-to-meet-min-length-req",
                 keyEpoch = 1,
             ))
         }
@@ -294,6 +294,7 @@ class E2ETest {
         assertEquals(HttpStatusCode.NoContent, deleteResp.status)
 
         // 3. All data is purged -- no device can access the bucket
+        // SEC6-S-11: Creator's session remains valid (they initiated deletion) but bucket is gone
         val pullA = client.get("/buckets/$bucketId/ops?since=0") {
             header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
         }
@@ -303,12 +304,14 @@ class E2ETest {
         )
 
         // 4. No device can access the bucket
+        // SEC6-S-11: Device B's session may be invalidated (401) if it has no remaining buckets
         val pullB = client.get("/buckets/$bucketId/ops?since=0") {
             header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
         }
         assertTrue(
-            pullB.status == HttpStatusCode.NotFound || pullB.status == HttpStatusCode.Forbidden,
-            "Expected 404 or 403 for device B after bucket deletion, got ${pullB.status}"
+            pullB.status == HttpStatusCode.NotFound || pullB.status == HttpStatusCode.Forbidden ||
+                pullB.status == HttpStatusCode.Unauthorized,
+            "Expected 401, 403, or 404 for device B after bucket deletion, got ${pullB.status}"
         )
 
         // Device list should also fail
@@ -372,7 +375,7 @@ class E2ETest {
             header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
             setBody(WrappedKeyRequest(
                 targetDevice = deviceB.deviceId,
-                wrappedDek = "wrapped-dek-after-cross-sign",
+                wrappedDek = "wrapped-dek-after-cross-sign-padded-min-leng",
                 keyEpoch = 1,
             ))
         }.also { assertEquals(HttpStatusCode.Created, it.status) }
@@ -382,7 +385,7 @@ class E2ETest {
             header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
         }.body<WrappedKeyResponse>()
 
-        assertEquals("wrapped-dek-after-cross-sign", wrappedKey.wrappedDek)
+        assertEquals("wrapped-dek-after-cross-sign-padded-min-leng", wrappedKey.wrappedDek)
         assertEquals(deviceA.deviceId, wrappedKey.wrappedBy)
 
         // Device B can verify the cross-signature against Device A's known signing key

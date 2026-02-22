@@ -248,6 +248,7 @@ class SettingsViewModel @Inject constructor(
         private const val PREF_NOTIFICATIONS = "notifications_enabled"
         private const val PREF_CURRENCY = "default_currency"
         private const val PREF_SPLIT_RATIO = "default_split_ratio"
-        private const val DEFAULT_SERVER_URL = "https://api.example.com/v1/"
+        // SEC6-A-10: Match AppModule.kt baseUrl to avoid mismatch between default and injected URL
+        private const val DEFAULT_SERVER_URL = "https://api.kidsync.app/"
     }
 }

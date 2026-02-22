@@ -62,7 +62,12 @@ fun Route.blobRoutes(blobService: BlobService) {
                                 }
                             }
                             is PartData.FormItem -> {
+                                // SEC6-S-14: Size limit on FormItem parts to prevent abuse
                                 if (part.name == "sha256") {
+                                    if (part.value.length > 128) {
+                                        part.dispose()
+                                        throw ApiException(400, "INVALID_REQUEST", "Form field too large")
+                                    }
                                     clientSha256 = part.value.trim()
                                 }
                             }

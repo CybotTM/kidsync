@@ -48,7 +48,12 @@ fun Application.module(config: AppConfig = AppConfig()) {
     // Initialize database
     DatabaseFactory.init(config)
 
-    val startTime = System.currentTimeMillis()
+    val logger = LoggerFactory.getLogger("dev.kidsync.server.Application")
+
+    // SEC6-S-20: Warn if debug logging is enabled (sensitive data may be logged)
+    if (logger.isDebugEnabled) {
+        logger.warn("DEBUG logging is enabled. Sensitive data may be logged. Do not use in production.")
+    }
 
     // Initialize utilities and services
     val sessionUtil = SessionUtil(config)
@@ -147,7 +152,7 @@ fun Application.module(config: AppConfig = AppConfig()) {
 
     // Configure routes
     routing {
-        // Health check (unauthenticated)
+        // SEC6-S-18: Simplified health endpoint -- only returns status, no version or uptime
         get("/health") {
             val dbOk = try {
                 dbQuery { true }
@@ -155,11 +160,8 @@ fun Application.module(config: AppConfig = AppConfig()) {
                 false
             }
             val status = if (dbOk) HttpStatusCode.OK else HttpStatusCode.ServiceUnavailable
-            val uptimeSeconds = (System.currentTimeMillis() - startTime) / 1000
             call.respond(status, HealthResponse(
                 status = if (dbOk) "healthy" else "degraded",
-                version = config.serverVersion,
-                uptime = uptimeSeconds,
             ))
         }
 

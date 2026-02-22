@@ -172,6 +172,9 @@ object Sessions : Table("sessions") {
     val createdAt = long("created_at")
     val expiresAt = long("expires_at")
     override val primaryKey = PrimaryKey(tokenHash)
+
+    // SEC6-S-10: Index on deviceId for efficient session lookups and cleanup by device
+    init { index(false, deviceId) }
 }
 
 // ---- Challenges ----
@@ -182,6 +185,9 @@ object Challenges : Table("challenges") {
     val createdAt = long("created_at")
     val expiresAt = long("expires_at")
     override val primaryKey = PrimaryKey(nonce)
+
+    // SEC6-S-10: Index on signingKey for efficient challenge lookups by key
+    init { index(false, signingKey) }
 }
 
 // ---- Key Attestations ----

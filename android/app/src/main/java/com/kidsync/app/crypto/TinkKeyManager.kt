@@ -86,17 +86,31 @@ class TinkKeyManager(
     }
 
     override suspend fun getSigningKeyFingerprint(): String {
-        val (publicKey, _) = getOrCreateSigningKeyPair()
-        return cryptoManager.computeKeyFingerprint(publicKey)
+        val (publicKey, seed) = getOrCreateSigningKeyPair()
+        try {
+            return cryptoManager.computeKeyFingerprint(publicKey)
+        } finally {
+            // SEC6-A-12: Zero the seed copy; we only needed the public key for fingerprinting
+            seed.zeroOut()
+        }
     }
 
     override suspend fun getEncryptionKeyFingerprint(): String {
-        val encKeyPair = getEncryptionKeyPair()
-        val rawPublicKey = encKeyPair.public.encoded.let { encoded ->
-            // Extract raw 32-byte X25519 public key from X.509 SubjectPublicKeyInfo (44 bytes)
-            if (encoded.size == 44) encoded.copyOfRange(12, 44) else encoded
+        // SEC6-A-12: getEncryptionKeyPair() internally calls getOrCreateSigningKeyPair()
+        // which returns the seed. The seed flows through ed25519PrivateToX25519 and is
+        // zeroed in getEncryptionKeyPair's finally block. We also zero the seed from
+        // our own call path here.
+        val (_, seed) = getOrCreateSigningKeyPair()
+        try {
+            val encKeyPair = getEncryptionKeyPair()
+            val rawPublicKey = encKeyPair.public.encoded.let { encoded ->
+                // Extract raw 32-byte X25519 public key from X.509 SubjectPublicKeyInfo (44 bytes)
+                if (encoded.size == 44) encoded.copyOfRange(12, 44) else encoded
+            }
+            return cryptoManager.computeKeyFingerprint(rawPublicKey)
+        } finally {
+            seed.zeroOut()
         }
-        return cryptoManager.computeKeyFingerprint(rawPublicKey)
     }
 
     override suspend fun getEncryptionKeyPair(): KeyPair {
@@ -107,22 +121,29 @@ class TinkKeyManager(
 
         try {
             // Derive X25519 public key from Ed25519 public key
-            val (ed25519Public, _) = getOrCreateSigningKeyPair()
-            val x25519PublicBytes = cryptoManager.ed25519PublicToX25519(ed25519Public)
+            val (ed25519Public, seed2) = getOrCreateSigningKeyPair()
+            try {
+                val x25519PublicBytes = cryptoManager.ed25519PublicToX25519(ed25519Public)
 
-            // Construct a Java KeyPair from the raw bytes using X25519 key specs
-            // Build X509-encoded public key: for X25519, the X509 encoding wraps the 32-byte key
-            val x25519PublicX509 = buildX25519PublicKeyEncoding(x25519PublicBytes)
-            val x25519PrivatePKCS8 = buildX25519PrivateKeyEncoding(x25519PrivateBytes)
+                // Construct a Java KeyPair from the raw bytes using X25519 key specs
+                // Build X509-encoded public key: for X25519, the X509 encoding wraps the 32-byte key
+                val x25519PublicX509 = buildX25519PublicKeyEncoding(x25519PublicBytes)
+                val x25519PrivatePKCS8 = buildX25519PrivateKeyEncoding(x25519PrivateBytes)
 
-            val keyFactory = KeyFactory.getInstance("X25519")
-            val publicKey = keyFactory.generatePublic(X509EncodedKeySpec(x25519PublicX509))
-            val privateKey = keyFactory.generatePrivate(PKCS8EncodedKeySpec(x25519PrivatePKCS8))
+                val keyFactory = KeyFactory.getInstance("X25519")
+                val publicKey = keyFactory.generatePublic(X509EncodedKeySpec(x25519PublicX509))
+                val privateKey = keyFactory.generatePrivate(PKCS8EncodedKeySpec(x25519PrivatePKCS8))
 
-            return KeyPair(publicKey, privateKey)
+                return KeyPair(publicKey, privateKey)
+            } finally {
+                // SEC6-A-12: Zero the second seed copy from getOrCreateSigningKeyPair
+                seed2.zeroOut()
+            }
         } finally {
             // SEC2-A-02: Zero X25519 private key material after constructing KeyPair
             x25519PrivateBytes.zeroOut()
+            // SEC6-A-12: Zero the seed copy from getOrCreateSigningKeyPair
+            seed.zeroOut()
         }
     }
 
@@ -130,10 +151,12 @@ class TinkKeyManager(
         return encryptedPrefs.getString(PREF_DEVICE_ID, null)
     }
 
+    // SEC6-A-06: Use commit() instead of apply() to ensure device ID is persisted
+    // synchronously before the caller proceeds with authentication.
     override suspend fun storeDeviceId(deviceId: String) {
         encryptedPrefs.edit()
             .putString(PREF_DEVICE_ID, deviceId)
-            .apply()
+            .commit()
     }
 
     // ─── Key Attestation ────────────────────────────────────────────────────────

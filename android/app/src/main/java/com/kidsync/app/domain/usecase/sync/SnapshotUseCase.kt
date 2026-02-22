@@ -120,6 +120,11 @@ class SnapshotUseCase @Inject constructor(
 
     /**
      * Compute SHA-256 hash of the current materialized state.
+     *
+     * TODO(SEC6-A-16): Incomplete entity coverage - this hash only covers CustodySchedule,
+     * ScheduleOverride, and Expense entities. CalendarEvent and InfoBankEntry entities are
+     * missing, meaning state divergence in those entity types would not be detected by
+     * snapshot comparison. Add them to the hash computation for full coverage.
      */
     private suspend fun computeStateHash(): String {
         val digest = MessageDigest.getInstance("SHA-256")

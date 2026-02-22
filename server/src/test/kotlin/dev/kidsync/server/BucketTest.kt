@@ -160,12 +160,14 @@ class BucketTest {
         }
 
         // Device B should not be able to access the bucket
+        // SEC6-S-11: Device B's session may be invalidated (401) if it has no remaining buckets
         val response = client.get("/buckets/$bucketId/devices") {
             header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
         }
         assertTrue(
-            response.status == HttpStatusCode.NotFound || response.status == HttpStatusCode.Forbidden,
-            "Expected 404 or 403 for deleted bucket, got ${response.status}"
+            response.status == HttpStatusCode.NotFound || response.status == HttpStatusCode.Forbidden ||
+                response.status == HttpStatusCode.Unauthorized,
+            "Expected 401, 403, or 404 for deleted bucket, got ${response.status}"
         )
     }
 

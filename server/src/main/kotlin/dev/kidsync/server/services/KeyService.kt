@@ -28,6 +28,10 @@ class KeyService {
      * SEC-S-07: The caller must share at least one active bucket with the target device.
      */
     suspend fun uploadWrappedKey(callerDeviceId: String, request: WrappedKeyRequest) {
+        // SEC6-S-19: Minimum length for wrappedDek (44 chars = minimum base64 for a wrapped key)
+        if (request.wrappedDek.length < 44) {
+            throw ApiException(400, "INVALID_REQUEST", "wrappedDek is too short")
+        }
         if (request.wrappedDek.length > 8192) {
             throw ApiException(413, "PAYLOAD_TOO_LARGE", "Wrapped key exceeds maximum size of 8KB")
         }
@@ -232,7 +236,8 @@ class KeyService {
      * is the pragmatic mitigation.
      */
     suspend fun uploadRecoveryBlob(deviceId: String, request: RecoveryBlobRequest) {
-        if (request.encryptedBlob.length > 1_048_576) {
+        // SEC6-S-02: Validate by byte count, not character count (multi-byte chars inflate size)
+        if (request.encryptedBlob.toByteArray(Charsets.UTF_8).size > 1_048_576) {
             throw ApiException(413, "PAYLOAD_TOO_LARGE", "Recovery blob exceeds maximum size of 1MB")
         }
 

@@ -26,6 +26,8 @@ import kotlinx.serialization.json.*
 import org.jetbrains.exposed.sql.*
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.attribute.PosixFilePermissions
 import java.security.MessageDigest
 import java.time.Instant
 import java.time.LocalDateTime
@@ -145,6 +147,9 @@ fun Route.syncRoutes(
                 }
             }
 
+            // SEC6-S-06: TODO - Per-bucket snapshot quota. Enforce a maximum number of snapshots
+            // and total snapshot storage size per bucket, similar to the blob quota in BlobService.
+
             // POST /buckets/{id}/snapshots
             rateLimit(RateLimitName("snapshot")) {
                 post("/snapshots") {
@@ -169,6 +174,11 @@ fun Route.syncRoutes(
                         when (part) {
                             is PartData.FormItem -> {
                                 if (part.name == "metadata") {
+                                    // SEC6-S-14: Size limit on FormItem parts to prevent abuse
+                                    if (part.value.length > 10_240) {
+                                        part.dispose()
+                                        throw ApiException(400, "INVALID_REQUEST", "Form field too large")
+                                    }
                                     metadata = Json.decodeFromString<SnapshotMetadata>(part.value)
                                 }
                             }
@@ -266,6 +276,13 @@ fun Route.syncRoutes(
                     val snapshotFile = File(snapshotDir, snapshotId)
                     snapshotFile.writeBytes(blob)
 
+                    // SEC6-S-15: Set file permissions to 600 (owner read/write only)
+                    try {
+                        Files.setPosixFilePermissions(snapshotFile.toPath(), PosixFilePermissions.fromString("rw-------"))
+                    } catch (_: UnsupportedOperationException) {
+                        // Windows doesn't support POSIX file permissions
+                    }
+
                     try {
                         dbQuery {
                             Snapshots.insert {
@@ -343,6 +360,10 @@ fun Route.syncRoutes(
             }
         }
     }
+
+    // SEC6-S-07: TODO - Hash the session token before storing it in the WebSocket connection's
+    // in-memory state. Currently the raw token is held in sessionToken variable for re-validation.
+    // Storing a hash would limit exposure if the server process memory is dumped.
 
     // SEC5-S-03: TODO - Accept WebSocket auth token as a query parameter (?token=...) in addition
     // to the current in-band auth message. This would allow the server to reject unauthenticated

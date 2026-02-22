@@ -15,6 +15,10 @@ import java.util.*
 // SEC3-S-01: Session tokens are hashed with SHA-256 before storage.
 // The raw token is returned to the client; only the hash is persisted in the DB.
 
+// SEC6-S-05: TODO - Add a type prefix to session tokens (e.g., "sess_") and challenge tokens
+// (e.g., "chal_") to prevent cross-use attacks where a challenge token is submitted as a
+// session token or vice versa.
+
 /** SEC2-S-07: Maximum number of concurrent sessions per device */
 private const val MAX_SESSIONS_PER_DEVICE = 5
 
@@ -81,7 +85,10 @@ class SessionUtil(private val config: AppConfig) {
 
     /**
      * Consume a challenge nonce. Returns the challenge if valid (exists, not expired, matches key),
-     * or null if invalid. The nonce is always deleted (one-time use).
+     * or null if invalid.
+     *
+     * SEC6-S-09: The nonce is only deleted after validation succeeds. If the signing key
+     * doesn't match or the nonce is expired, it is left for the legitimate holder.
      */
     suspend fun consumeChallenge(nonce: String, signingKey: String): PendingChallenge? {
         return dbQuery {
@@ -89,14 +96,16 @@ class SessionUtil(private val config: AppConfig) {
                 .where { Challenges.nonce eq nonce }
                 .firstOrNull()
 
-            // Always delete the nonce (one-time use)
-            Challenges.deleteWhere { Challenges.nonce eq nonce }
-
             if (row == null) return@dbQuery null
+
             // SEC5-S-05/S-10: Constant-time comparison to prevent timing side-channel attacks
             if (!MessageDigest.isEqual(row[Challenges.signingKey].toByteArray(), signingKey.toByteArray())) return@dbQuery null
+
             val expiresAt = Instant.ofEpochSecond(row[Challenges.expiresAt])
             if (Instant.now().isAfter(expiresAt)) return@dbQuery null
+
+            // SEC6-S-09: Only delete the nonce after validation succeeds
+            Challenges.deleteWhere { Challenges.nonce eq nonce }
 
             PendingChallenge(
                 nonce = row[Challenges.nonce],
