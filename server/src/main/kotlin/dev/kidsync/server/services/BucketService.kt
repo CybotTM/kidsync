@@ -418,7 +418,7 @@ class BucketService(
         return dbQuery {
             val now = LocalDateTime.now(ZoneOffset.UTC)
             val deleted = InviteTokens.deleteWhere {
-                InviteTokens.expiresAt less now
+                InviteTokens.expiresAt lessEq now
             }.toLong()
             if (deleted > 0) {
                 logger.info("Cleaned up {} expired invite tokens", deleted)
