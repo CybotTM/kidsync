@@ -217,7 +217,7 @@ class WebDavSettingsViewModel @Inject constructor(
             val config = WebDavConfig(
                 serverUrl = state.serverUrl.trim(),
                 username = state.username.trim(),
-                password = state.password,
+                password = state.password.toCharArray(),
                 basePath = state.basePath.trim().ifBlank { "kidsync" }
             )
 

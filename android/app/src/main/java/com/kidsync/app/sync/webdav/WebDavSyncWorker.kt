@@ -132,7 +132,7 @@ class WebDavSyncWorker @AssistedInject constructor(
         val config = WebDavConfig(
             serverUrl = serverUrl,
             username = username,
-            password = password,
+            password = password.toCharArray(),
             basePath = basePath
         )
 

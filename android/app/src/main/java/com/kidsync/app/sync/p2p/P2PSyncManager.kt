@@ -81,6 +81,7 @@ class P2PSyncManager(
         const val SERVICE_ID = "com.kidsync.app.p2p"
         private const val HMAC_ALGORITHM = "HmacSHA256"
         private const val BATCH_SIZE = 50
+        private const val DB_QUERY_LIMIT = 1000 // Max ops to load from DB per query
         private const val HANDSHAKE_TIMESTAMP_TOLERANCE_MS = 30_000L // 30 seconds
         private const val MAX_PAYLOAD_SIZE_BYTES = 10 * 1024 * 1024 // 10 MB
 
@@ -165,6 +166,26 @@ class P2PSyncManager(
     // ── HMAC Computation ─────────────────────────────────────────────────────
 
     /**
+     * Compute HMAC-SHA256(key=DEK, message=opsReceived|opsSent|bucketId) to authenticate
+     * the SyncComplete message. Prevents a malicious peer from sending a premature
+     * SyncComplete to truncate sync.
+     *
+     * Visible for testing.
+     */
+    suspend fun computeSyncCompleteHmac(bucketId: String, opsReceived: Long, opsSent: Long): String {
+        val epoch = keyManager.getCurrentEpoch(bucketId)
+        val dek = keyManager.getDek(bucketId, epoch)
+            ?: throw IllegalStateException("No DEK available for bucket $bucketId epoch $epoch")
+
+        return try {
+            val message = "$opsReceived|$opsSent|$bucketId".toByteArray(Charsets.UTF_8)
+            hmacSha256(dek, message)
+        } finally {
+            // DEK is managed by KeyManager; we don't zero it here
+        }
+    }
+
+    /**
      * Compute HMAC-SHA256(key=DEK, message=bucketId+timestamp) to prove bucket membership.
      * Both devices must share the same DEK to produce matching HMACs.
      * Including the timestamp prevents replay attacks.
@@ -191,7 +212,7 @@ class P2PSyncManager(
      * Visible for testing.
      */
     suspend fun getOpsToSend(bucketId: String, peerLastSeq: Long): List<OpLogEntryEntity> {
-        return opLogDao.getOpsAfterSequence(bucketId, peerLastSeq, limit = Int.MAX_VALUE)
+        return opLogDao.getOpsAfterSequence(bucketId, peerLastSeq, limit = DB_QUERY_LIMIT)
     }
 
     /**
@@ -378,7 +399,7 @@ class P2PSyncManager(
             when (message) {
                 is P2PMessage.Handshake -> handleHandshake(endpointId, message)
                 is P2PMessage.OpsPayload -> handleOpsPayload(message)
-                is P2PMessage.SyncComplete -> handleSyncComplete(message)
+                is P2PMessage.SyncComplete -> handleSyncComplete(endpointId, message)
                 is P2PMessage.Error -> handleError(endpointId, message)
             }
         } catch (e: Exception) {
@@ -491,7 +512,39 @@ class P2PSyncManager(
         }
     }
 
-    private fun handleSyncComplete(syncComplete: P2PMessage.SyncComplete) {
+    private suspend fun handleSyncComplete(endpointId: String, syncComplete: P2PMessage.SyncComplete) {
+        val bucketId = currentBucketId
+        if (bucketId == null) {
+            _state.value = P2PState.Error("No bucket selected during SyncComplete verification")
+            return
+        }
+
+        // SEC8: Verify the HMAC on SyncComplete to prevent premature truncation attacks
+        if (syncComplete.hmac.isNotEmpty()) {
+            try {
+                val expectedHmac = computeSyncCompleteHmac(
+                    bucketId,
+                    syncComplete.opsReceived,
+                    syncComplete.opsSent
+                )
+                if (!MessageDigest.isEqual(syncComplete.hmac.toByteArray(), expectedHmac.toByteArray())) {
+                    Log.e(TAG, "SyncComplete HMAC verification failed")
+                    sendMessage(endpointId, P2PMessage.Error("HMAC_MISMATCH", "SyncComplete HMAC verification failed"))
+                    _state.value = P2PState.Error("SyncComplete authentication failed")
+                    connectionsClient.disconnectFromEndpoint(endpointId)
+                    return
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to verify SyncComplete HMAC", e)
+                _state.value = P2PState.Error("SyncComplete HMAC verification error: ${e.message}")
+                connectionsClient.disconnectFromEndpoint(endpointId)
+                return
+            }
+        } else {
+            // Peer sent SyncComplete without HMAC (older client) -- log warning
+            Log.w(TAG, "Peer sent SyncComplete without HMAC authentication")
+        }
+
         Log.d(TAG, "Peer reports sync complete: sent=${syncComplete.opsSent}, received=${syncComplete.opsReceived}")
         _state.value = P2PState.Completed(
             opsReceived = opsReceivedCount,
@@ -509,37 +562,52 @@ class P2PSyncManager(
 
     private suspend fun performSync(endpointId: String, bucketId: String, peerLastSeq: Long) {
         try {
-            val opsToSend = getOpsToSend(bucketId, peerLastSeq)
-            val totalOps = opsToSend.size
             opsSentCount = 0
+            var currentAfterSeq = peerLastSeq
+            var hasMore = true
 
-            if (totalOps == 0) {
-                // Nothing to send; notify completion
+            // SEC8: Paginate DB queries to avoid loading the entire op history into memory.
+            // Each page fetches at most DB_QUERY_LIMIT ops, then sends them in BATCH_SIZE chunks.
+            while (hasMore) {
+                val opsPage = getOpsToSend(bucketId, currentAfterSeq)
+
+                if (opsPage.isEmpty()) {
+                    break
+                }
+
+                // Send this page of ops in network-level batches
+                val batches = opsPage.chunked(BATCH_SIZE)
+                for (batch in batches) {
+                    val p2pOps = batch.map { entityToP2POp(it) }
+                    sendMessage(endpointId, P2PMessage.OpsPayload(p2pOps))
+                    opsSentCount += batch.size
+
+                    val endpointName = ((_state.value as? P2PState.Syncing)?.endpointName) ?: endpointId
+                    _state.value = P2PState.Syncing(0.5f, endpointName) // Indeterminate progress
+                }
+
+                // Advance the cursor to the last op in this page
+                currentAfterSeq = opsPage.last().globalSequence
+
+                // If we got fewer than the limit, there are no more ops
+                hasMore = opsPage.size >= DB_QUERY_LIMIT
+            }
+
+            if (opsSentCount == 0L) {
                 val endpointName = ((_state.value as? P2PState.Syncing)?.endpointName) ?: endpointId
                 _state.value = P2PState.Syncing(1f, endpointName)
-                sendMessage(
-                    endpointId,
-                    P2PMessage.SyncComplete(opsReceived = 0, opsSent = 0)
-                )
-                return
             }
 
-            // Send ops in batches
-            val batches = opsToSend.chunked(BATCH_SIZE)
-            for ((index, batch) in batches.withIndex()) {
-                val p2pOps = batch.map { entityToP2POp(it) }
-                sendMessage(endpointId, P2PMessage.OpsPayload(p2pOps))
-                opsSentCount += batch.size
-
-                val progress = (index + 1).toFloat() / batches.size
-                val endpointName = ((_state.value as? P2PState.Syncing)?.endpointName) ?: endpointId
-                _state.value = P2PState.Syncing(progress, endpointName)
-            }
-
-            // Send completion message
+            // Send completion message with HMAC authentication
+            val completionHmac = computeSyncCompleteHmac(bucketId, opsReceivedCount, opsSentCount)
             sendMessage(
                 endpointId,
-                P2PMessage.SyncComplete(opsReceived = opsReceivedCount, opsSent = opsSentCount)
+                P2PMessage.SyncComplete(
+                    opsReceived = opsReceivedCount,
+                    opsSent = opsSentCount,
+                    bucketId = bucketId,
+                    hmac = completionHmac
+                )
             )
         } catch (e: Exception) {
             Log.e(TAG, "Sync failed", e)

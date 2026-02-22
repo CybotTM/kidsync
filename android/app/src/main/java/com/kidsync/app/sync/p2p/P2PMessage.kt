@@ -35,7 +35,9 @@ sealed class P2PMessage {
     @SerialName("sync_complete")
     data class SyncComplete(
         val opsReceived: Long,
-        val opsSent: Long
+        val opsSent: Long,
+        val bucketId: String = "",
+        val hmac: String = ""
     ) : P2PMessage()
 
     @Serializable

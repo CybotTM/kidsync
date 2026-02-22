@@ -67,6 +67,7 @@ class WebDavSyncManager @Inject constructor(
         private const val TAG = "WebDavSyncManager"
         private const val PROPFIND_DEPTH_1 = "1"
         private const val MAX_OP_FILE_SIZE_BYTES = 10 * 1024 * 1024L // 10 MB per op file
+        private const val PRUNE_THRESHOLD = 1000 // Only prune when more than this many op files exist
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
         private val TEXT_MEDIA_TYPE = "text/plain; charset=utf-8".toMediaType()
         private val XML_MEDIA_TYPE = "application/xml; charset=utf-8".toMediaType()
@@ -111,7 +112,7 @@ class WebDavSyncManager @Inject constructor(
             .addInterceptor { chain ->
                 val original = chain.request()
                 val authenticated = original.newBuilder()
-                    .header("Authorization", Credentials.basic(config.username, config.password))
+                    .header("Authorization", Credentials.basic(config.username, config.passwordAsString()))
                     .build()
                 chain.proceed(authenticated)
             }
@@ -355,6 +356,14 @@ class WebDavSyncManager @Inject constructor(
                 )
             }
 
+            // SEC8: Prune old ops to prevent unbounded growth on the server
+            try {
+                pruneOldOps(bucketId)
+            } catch (e: Exception) {
+                // Pruning failures are non-fatal; log and continue
+                Log.w(TAG, "Failed to prune old ops: ${e.message}")
+            }
+
             Result.success(newOps)
         } catch (e: Exception) {
             Result.failure(WebDavException("Failed to pull ops: ${e.message}", e))
@@ -429,6 +438,43 @@ class WebDavSyncManager @Inject constructor(
         }
     }
 
+    /**
+     * SEC8: Prune old op files from the server to prevent unbounded storage growth.
+     *
+     * If the local checkpoint exists and there are more than [PRUNE_THRESHOLD] op files
+     * on the server, deletes ops with a Lamport timestamp less than the checkpoint's
+     * last sequence (i.e., ops that have already been checkpointed).
+     *
+     * This is best-effort; individual delete failures are logged but do not
+     * abort the pruning process.
+     */
+    internal suspend fun pruneOldOps(bucketId: String) {
+        val checkpoint = downloadCheckpoint(bucketId) ?: return
+        val (_, cfg) = requireConfigured()
+        val opsDir = "${cfg.resolvedBaseUrl()}buckets/$bucketId/ops/"
+
+        val fileNames = listDirectory(opsDir)
+        val jsonFiles = fileNames.filter { it.endsWith(".json") }
+
+        if (jsonFiles.size <= PRUNE_THRESHOLD) return
+
+        var pruned = 0
+        for (filename in jsonFiles) {
+            val lamport = extractLamportFromFilename(filename) ?: continue
+            if (lamport < checkpoint.lastSequence) {
+                try {
+                    deleteFile("$opsDir$filename")
+                    pruned++
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to delete old op file $filename: ${e.message}")
+                }
+            }
+        }
+        if (pruned > 0) {
+            Log.d(TAG, "Pruned $pruned old op files for bucket $bucketId")
+        }
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // Low-level WebDAV HTTP operations
     // ──────────────────────────────────────────────────────────────────────────
@@ -447,7 +493,7 @@ class WebDavSyncManager @Inject constructor(
         httpClient.newCall(request).execute().use { response ->
             // 201 Created or 405 Already Exists are both OK
             if (response.code != 201 && response.code != 405 && !response.isSuccessful) {
-                throw WebDavException("MKCOL $url failed: HTTP ${response.code}")
+                throw WebDavException("MKCOL failed: HTTP ${response.code}")
             }
         }
     }
@@ -464,7 +510,7 @@ class WebDavSyncManager @Inject constructor(
 
         httpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful && response.code != 201 && response.code != 204) {
-                throw WebDavException("PUT $url failed: HTTP ${response.code}")
+                throw WebDavException("PUT failed: HTTP ${response.code}")
             }
         }
     }
@@ -490,13 +536,32 @@ class WebDavSyncManager @Inject constructor(
                     val contentLength = response.body?.contentLength() ?: -1L
                     if (contentLength > MAX_OP_FILE_SIZE_BYTES) {
                         throw WebDavException(
-                            "GET $url: response too large ($contentLength bytes, max: $MAX_OP_FILE_SIZE_BYTES)"
+                            "GET failed: response too large ($contentLength bytes, max: $MAX_OP_FILE_SIZE_BYTES)"
                         )
                     }
                     response.body?.string()
                 }
                 response.code == 404 -> null
-                else -> throw WebDavException("GET $url failed: HTTP ${response.code}")
+                else -> throw WebDavException("GET failed: HTTP ${response.code}")
+            }
+        }
+    }
+
+    /**
+     * Delete a file from the WebDAV server (DELETE).
+     * Silently succeeds if the file doesn't exist (404).
+     */
+    internal fun deleteFile(url: String) {
+        val (httpClient, _) = requireConfigured()
+        val request = Request.Builder()
+            .url(url)
+            .delete()
+            .build()
+
+        httpClient.newCall(request).execute().use { response ->
+            // 204 No Content or 404 Not Found are both OK
+            if (!response.isSuccessful && response.code != 204 && response.code != 404) {
+                throw WebDavException("DELETE failed: HTTP ${response.code}")
             }
         }
     }
@@ -516,7 +581,7 @@ class WebDavSyncManager @Inject constructor(
         httpClient.newCall(request).execute().use { response ->
             if (response.code != 207 && !response.isSuccessful) {
                 if (response.code == 404) return emptyList()
-                throw WebDavException("PROPFIND $url failed: HTTP ${response.code}")
+                throw WebDavException("PROPFIND failed: HTTP ${response.code}")
             }
 
             val body = response.body?.string() ?: return emptyList()

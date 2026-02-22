@@ -138,7 +138,12 @@ class P2PSyncManagerTest : FunSpec({
     }
 
     test("SyncComplete message serialization roundtrip") {
-        val original = P2PMessage.SyncComplete(opsReceived = 10, opsSent = 5)
+        val original = P2PMessage.SyncComplete(
+            opsReceived = 10,
+            opsSent = 5,
+            bucketId = "bucket-abc",
+            hmac = "hmac-value-base64"
+        )
 
         val jsonStr = json.encodeToString(P2PMessage.serializer(), original)
         val deserialized = json.decodeFromString(P2PMessage.serializer(), jsonStr)
@@ -146,6 +151,41 @@ class P2PSyncManagerTest : FunSpec({
         deserialized.shouldBeInstanceOf<P2PMessage.SyncComplete>()
         deserialized.opsReceived shouldBe 10L
         deserialized.opsSent shouldBe 5L
+        deserialized.bucketId shouldBe "bucket-abc"
+        deserialized.hmac shouldBe "hmac-value-base64"
+    }
+
+    test("SyncComplete message with empty HMAC (backward compat) serialization roundtrip") {
+        val original = P2PMessage.SyncComplete(opsReceived = 3, opsSent = 7)
+
+        val jsonStr = json.encodeToString(P2PMessage.serializer(), original)
+        val deserialized = json.decodeFromString(P2PMessage.serializer(), jsonStr)
+
+        deserialized.shouldBeInstanceOf<P2PMessage.SyncComplete>()
+        deserialized.opsReceived shouldBe 3L
+        deserialized.opsSent shouldBe 7L
+        deserialized.bucketId shouldBe ""
+        deserialized.hmac shouldBe ""
+    }
+
+    test("SyncComplete HMAC is computed consistently") {
+        val key = "test-dek-key-32-bytes-long!!!!!".toByteArray(Charsets.UTF_8)
+        val data1 = "10|5|bucket-abc".toByteArray(Charsets.UTF_8)
+        val data2 = "10|5|bucket-abc".toByteArray(Charsets.UTF_8)
+
+        val hmac1 = P2PSyncManager.hmacSha256(key, data1)
+        val hmac2 = P2PSyncManager.hmacSha256(key, data2)
+        hmac1 shouldBe hmac2
+    }
+
+    test("SyncComplete HMAC differs with different counts") {
+        val key = "test-dek-key-32-bytes-long!!!!!".toByteArray(Charsets.UTF_8)
+        val data1 = "10|5|bucket-abc".toByteArray(Charsets.UTF_8)
+        val data2 = "10|6|bucket-abc".toByteArray(Charsets.UTF_8)
+
+        val hmac1 = P2PSyncManager.hmacSha256(key, data1)
+        val hmac2 = P2PSyncManager.hmacSha256(key, data2)
+        hmac1 shouldNotBe hmac2
     }
 
     test("Error message serialization roundtrip") {

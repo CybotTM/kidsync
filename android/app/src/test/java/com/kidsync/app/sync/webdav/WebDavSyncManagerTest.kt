@@ -74,7 +74,7 @@ class WebDavSyncManagerTest : FunSpec({
         val config = WebDavConfig(
             serverUrl = server.url("/remote.php/dav/files/user/").toString(),
             username = "testuser",
-            password = "testpass",
+            password = "testpass".toCharArray(),
             basePath = "kidsync"
         )
         manager.configure(config)
@@ -294,6 +294,8 @@ class WebDavSyncManagerTest : FunSpec({
         server.enqueue(MockResponse().setResponseCode(207).setBody(propfindResponse))
         // GET for op 10 (op 5 is skipped because afterSequence=5 means > 5)
         server.enqueue(MockResponse().setResponseCode(200).setBody(json.encodeToString(WebDavOp.serializer(), op10)))
+        // GET for checkpoint.json during pruning (404 = no checkpoint, pruning skipped)
+        server.enqueue(MockResponse().setResponseCode(404))
 
         val result = manager.pullOps(bucketId, afterSequence = 5)
         result.isSuccess shouldBe true
@@ -338,6 +340,8 @@ class WebDavSyncManagerTest : FunSpec({
 </d:multistatus>"""
 
         server.enqueue(MockResponse().setResponseCode(207).setBody(propfindResponse))
+        // GET for checkpoint.json during pruning (404 = no checkpoint)
+        server.enqueue(MockResponse().setResponseCode(404))
 
         // afterSequence=10, so op 5 is skipped
         val result = manager.pullOps(bucketId, afterSequence = 10)
@@ -346,6 +350,8 @@ class WebDavSyncManagerTest : FunSpec({
     }
 
     test("pullOps handles 404 empty directory") {
+        server.enqueue(MockResponse().setResponseCode(404))
+        // GET for checkpoint.json during pruning (404 = no checkpoint)
         server.enqueue(MockResponse().setResponseCode(404))
 
         val result = manager.pullOps(bucketId, afterSequence = 0)
@@ -578,15 +584,62 @@ class WebDavSyncManagerTest : FunSpec({
     test("WebDavConfig.resolvedBaseUrl formats correctly") {
         val config1 = WebDavConfig(
             serverUrl = "https://cloud.example.com/remote.php/dav/files/user/",
-            username = "u", password = "p"
+            username = "u", password = "p".toCharArray()
         )
         config1.resolvedBaseUrl() shouldBe "https://cloud.example.com/remote.php/dav/files/user/kidsync/"
 
         val config2 = WebDavConfig(
             serverUrl = "https://cloud.example.com/remote.php/dav/files/user",
-            username = "u", password = "p", basePath = "myapp"
+            username = "u", password = "p".toCharArray(), basePath = "myapp"
         )
         config2.resolvedBaseUrl() shouldBe "https://cloud.example.com/remote.php/dav/files/user/myapp/"
+    }
+
+    test("WebDavConfig.resolvedBaseUrl rejects path traversal in basePath") {
+        val config = WebDavConfig(
+            serverUrl = "https://cloud.example.com/dav/",
+            username = "u", password = "p".toCharArray(), basePath = "../etc"
+        )
+        val exception = runCatching { config.resolvedBaseUrl() }.exceptionOrNull()
+        exception.shouldBeInstanceOf<IllegalArgumentException>()
+    }
+
+    test("WebDavConfig.resolvedBaseUrl rejects absolute basePath") {
+        val config = WebDavConfig(
+            serverUrl = "https://cloud.example.com/dav/",
+            username = "u", password = "p".toCharArray(), basePath = "/etc/passwd"
+        )
+        val exception = runCatching { config.resolvedBaseUrl() }.exceptionOrNull()
+        exception.shouldBeInstanceOf<IllegalArgumentException>()
+    }
+
+    test("WebDavConfig.resolvedBaseUrl rejects URL-encoded traversal") {
+        val config = WebDavConfig(
+            serverUrl = "https://cloud.example.com/dav/",
+            username = "u", password = "p".toCharArray(), basePath = "%2e%2e%2fetc"
+        )
+        val exception = runCatching { config.resolvedBaseUrl() }.exceptionOrNull()
+        exception.shouldBeInstanceOf<IllegalArgumentException>()
+    }
+
+    test("WebDavConfig clearCredentials zeros the password") {
+        val config = WebDavConfig(
+            serverUrl = "https://cloud.example.com/dav/",
+            username = "u", password = "secret".toCharArray()
+        )
+        config.passwordAsString() shouldBe "secret"
+        config.clearCredentials()
+        // After clearing, password should be zeroed (all null chars)
+        config.passwordAsString() shouldBe "\u0000\u0000\u0000\u0000\u0000\u0000"
+    }
+
+    test("WebDavConfig.close delegates to clearCredentials") {
+        val config = WebDavConfig(
+            serverUrl = "https://cloud.example.com/dav/",
+            username = "u", password = "pass".toCharArray()
+        )
+        config.close()
+        config.passwordAsString() shouldBe "\u0000\u0000\u0000\u0000"
     }
 
     test("unconfigured manager throws IllegalStateException") {
@@ -594,6 +647,115 @@ class WebDavSyncManagerTest : FunSpec({
         val result = unconfigured.testConnection()
         result.isFailure shouldBe true
         result.exceptionOrNull().shouldBeInstanceOf<IllegalStateException>()
+    }
+
+    test("pruneOldOps deletes ops older than checkpoint") {
+        val checkpoint = WebDavCheckpoint(
+            lastSequence = 50,
+            lamportTimestamp = 50,
+            updatedAt = "2026-02-22T10:00:00Z"
+        )
+        val checkpointJson = json.encodeToString(WebDavCheckpoint.serializer(), checkpoint)
+
+        // Build a PROPFIND response with >1000 files to trigger pruning threshold
+        val opEntries = (1..1005).joinToString("\n") { i ->
+            """  <d:response>
+    <d:href>/remote.php/dav/files/user/kidsync/buckets/$bucketId/ops/$i-$deviceId.json</d:href>
+    <d:propstat>
+      <d:prop><d:displayname>$i-$deviceId.json</d:displayname></d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>"""
+        }
+        val propfindResponse = """<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:">
+  <d:response>
+    <d:href>/remote.php/dav/files/user/kidsync/buckets/$bucketId/ops/</d:href>
+    <d:propstat>
+      <d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+$opEntries
+</d:multistatus>"""
+
+        // GET checkpoint.json
+        server.enqueue(MockResponse().setResponseCode(200).setBody(checkpointJson))
+        // PROPFIND for ops directory listing
+        server.enqueue(MockResponse().setResponseCode(207).setBody(propfindResponse))
+        // DELETE for ops 1..49 (all with lamport < 50)
+        repeat(49) {
+            server.enqueue(MockResponse().setResponseCode(204))
+        }
+
+        manager.pruneOldOps(bucketId)
+
+        // Verify: 1 GET + 1 PROPFIND + 49 DELETE = 51 requests
+        server.requestCount shouldBe 51
+    }
+
+    test("pruneOldOps skips when no checkpoint exists") {
+        // GET checkpoint.json returns 404
+        server.enqueue(MockResponse().setResponseCode(404))
+
+        manager.pruneOldOps(bucketId)
+
+        // Only 1 request (GET checkpoint)
+        server.requestCount shouldBe 1
+    }
+
+    test("pruneOldOps skips when under threshold") {
+        val checkpoint = WebDavCheckpoint(
+            lastSequence = 50,
+            lamportTimestamp = 50,
+            updatedAt = "2026-02-22T10:00:00Z"
+        )
+        val checkpointJson = json.encodeToString(WebDavCheckpoint.serializer(), checkpoint)
+
+        // Only 5 files -- below 1000 threshold
+        val propfindResponse = """<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:">
+  <d:response>
+    <d:href>/remote.php/dav/files/user/kidsync/buckets/$bucketId/ops/</d:href>
+    <d:propstat>
+      <d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/remote.php/dav/files/user/kidsync/buckets/$bucketId/ops/1-$deviceId.json</d:href>
+    <d:propstat>
+      <d:prop><d:displayname>1-$deviceId.json</d:displayname></d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+</d:multistatus>"""
+
+        // GET checkpoint.json
+        server.enqueue(MockResponse().setResponseCode(200).setBody(checkpointJson))
+        // PROPFIND for ops directory listing
+        server.enqueue(MockResponse().setResponseCode(207).setBody(propfindResponse))
+
+        manager.pruneOldOps(bucketId)
+
+        // 2 requests: GET checkpoint + PROPFIND -- no DELETEs since count <= 1000
+        server.requestCount shouldBe 2
+    }
+
+    test("deleteFile handles 204 No Content") {
+        server.enqueue(MockResponse().setResponseCode(204))
+
+        manager.deleteFile(server.url("/test-file.json").toString())
+
+        val request = server.takeRequest()
+        request.method shouldBe "DELETE"
+    }
+
+    test("deleteFile silently handles 404 Not Found") {
+        server.enqueue(MockResponse().setResponseCode(404))
+
+        manager.deleteFile(server.url("/test-file.json").toString())
+        // No exception thrown
     }
 }) {
     companion object {
