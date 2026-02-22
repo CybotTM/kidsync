@@ -1,5 +1,6 @@
 package com.kidsync.app.sync.webdav
 
+import android.util.Log
 import com.kidsync.app.data.local.dao.OpLogDao
 import com.kidsync.app.data.local.dao.SyncStateDao
 import com.kidsync.app.data.local.entity.OpLogEntryEntity
@@ -17,6 +18,8 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkStatic
+import io.mockk.unmockkStatic
 import kotlinx.serialization.json.Json
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -52,6 +55,15 @@ class WebDavSyncManagerTest : FunSpec({
 
     beforeEach {
         clearAllMocks()
+
+        // Mock android.util.Log which is unavailable in JVM unit tests.
+        // The XmlPullParser fallback path in parsePropfindResponse calls Log.e().
+        mockkStatic(Log::class)
+        every { Log.e(any(), any()) } returns 0
+        every { Log.e(any(), any(), any()) } returns 0
+        every { Log.w(any(), any<String>()) } returns 0
+        every { Log.d(any(), any<String>()) } returns 0
+
         // Re-stub after clearAllMocks
         every { hashChainVerifier.verifyChains(any(), any()) } returns Result.success(Unit)
 
@@ -70,6 +82,7 @@ class WebDavSyncManagerTest : FunSpec({
 
     afterEach {
         server.shutdown()
+        unmockkStatic(Log::class)
     }
 
     test("configure sets up OkHttp client with basic auth") {

@@ -37,6 +37,14 @@ class WebDavSettingsViewModelTest : FunSpec({
     beforeEach {
         Dispatchers.setMain(testDispatcher)
         clearAllMocks()
+
+        // Mock WebDavSyncWorker companion object static methods (schedule/cancel/syncNow)
+        // which call WorkManager.getInstance() -- unavailable in JVM unit tests.
+        mockkObject(WebDavSyncWorker.Companion)
+        every { WebDavSyncWorker.schedule(any(), any()) } just Runs
+        every { WebDavSyncWorker.cancel(any()) } just Runs
+        every { WebDavSyncWorker.syncNow(any()) } just Runs
+
         every { encryptedPrefs.edit() } returns editor
         every { editor.putString(any(), any()) } returns editor
         every { editor.putLong(any(), any()) } returns editor
@@ -52,6 +60,7 @@ class WebDavSettingsViewModelTest : FunSpec({
 
     afterEach {
         Dispatchers.resetMain()
+        unmockkObject(WebDavSyncWorker.Companion)
     }
 
     fun createViewModel(): WebDavSettingsViewModel {

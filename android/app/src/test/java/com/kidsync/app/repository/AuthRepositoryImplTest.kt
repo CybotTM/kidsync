@@ -230,13 +230,13 @@ class AuthRepositoryImplTest : FunSpec({
         repo.getServerUrl() shouldBe serverOrigin
     }
 
-    test("setServerUrl stores URL") {
+    test("setServerUrl stores URL with commit (SEC5-A-04)") {
         val repo = createRepo()
         repo.setServerUrl("https://custom.server.com")
 
         verify {
             encryptedEditor.putString("server_url", "https://custom.server.com")
-            encryptedEditor.apply()
+            encryptedEditor.commit()
         }
     }
 
