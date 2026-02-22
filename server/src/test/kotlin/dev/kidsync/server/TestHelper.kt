@@ -41,6 +41,7 @@ fun testConfig(): AppConfig {
         serverOrigin = "https://test.kidsync.app",
         sessionTtlSeconds = 3600L,
         challengeTtlSeconds = 60L,
+        snapshotRateLimitPerHour = 100, // Relaxed for testing
     )
 }
 

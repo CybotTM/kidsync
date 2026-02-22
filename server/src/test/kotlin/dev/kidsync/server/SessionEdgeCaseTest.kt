@@ -98,7 +98,7 @@ class SessionEdgeCaseTest {
     // ================================================================
 
     @Test
-    fun `device can have multiple active sessions`() = testApplication {
+    fun `re-authentication invalidates prior sessions`() = testApplication {
         application { module(testConfig()) }
         val client = createJsonClient()
 
@@ -110,13 +110,21 @@ class SessionEdgeCaseTest {
 
         assertNotEquals(session1.sessionToken, session2.sessionToken)
 
-        // Both sessions should work
-        val bucketResp = client.post("/buckets") {
+        // SEC5-S-01: First session should be invalidated by re-authentication
+        val bucketResp1 = client.post("/buckets") {
             contentType(ContentType.Application.Json)
             header(HttpHeaders.Authorization, "Bearer ${session1.sessionToken}")
             setBody(CreateBucketRequest())
         }
-        assertEquals(HttpStatusCode.Created, bucketResp.status)
+        assertEquals(HttpStatusCode.Unauthorized, bucketResp1.status)
+
+        // Second (latest) session should work
+        val bucketResp2 = client.post("/buckets") {
+            contentType(ContentType.Application.Json)
+            header(HttpHeaders.Authorization, "Bearer ${session2.sessionToken}")
+            setBody(CreateBucketRequest())
+        }
+        assertEquals(HttpStatusCode.Created, bucketResp2.status)
     }
 
     // ================================================================

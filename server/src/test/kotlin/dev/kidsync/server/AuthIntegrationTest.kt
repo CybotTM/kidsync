@@ -208,7 +208,7 @@ class AuthIntegrationTest {
     // ================================================================
 
     @Test
-    fun `multiple concurrent sessions for same device are valid`() = testApplication {
+    fun `re-authentication invalidates previous sessions`() = testApplication {
         application { module(testConfig()) }
         val client = createJsonClient()
 
@@ -217,14 +217,16 @@ class AuthIntegrationTest {
         val session1 = TestHelper.authenticateDevice(client, device)
         val session2 = TestHelper.authenticateDevice(client, device)
 
-        // Both sessions should work
+        // SEC5-S-01: Re-authentication invalidates previous sessions.
+        // session1 should be invalidated after session2 is created.
         val resp1 = client.post("/buckets") {
             contentType(ContentType.Application.Json)
             header(HttpHeaders.Authorization, "Bearer ${session1.sessionToken}")
             setBody(CreateBucketRequest())
         }
-        assertEquals(HttpStatusCode.Created, resp1.status)
+        assertEquals(HttpStatusCode.Unauthorized, resp1.status)
 
+        // session2 (latest) should work
         val resp2 = client.post("/buckets") {
             contentType(ContentType.Application.Json)
             header(HttpHeaders.Authorization, "Bearer ${session2.sessionToken}")

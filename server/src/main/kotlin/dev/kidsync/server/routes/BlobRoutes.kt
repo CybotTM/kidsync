@@ -14,7 +14,7 @@ import io.ktor.server.routing.*
 import io.ktor.utils.io.*
 import java.io.ByteArrayOutputStream
 
-fun Route.blobRoutes(blobService: BlobService) {
+fun Route.blobRoutes(blobService: BlobService, allowedContentTypes: Set<String> = emptySet()) {
     authenticate("auth-session") {
         rateLimit(RateLimitName("general")) {
             route("/buckets/{id}/blobs") {
@@ -42,6 +42,18 @@ fun Route.blobRoutes(blobService: BlobService) {
                         when (part) {
                             is PartData.FileItem -> {
                                 if (part.name == "file") {
+                                    // SEC-H4: Validate content type against allowlist
+                                    if (allowedContentTypes.isNotEmpty()) {
+                                        val partContentType = part.contentType?.toString() ?: "application/octet-stream"
+                                        if (partContentType !in allowedContentTypes) {
+                                            part.dispose()
+                                            throw ApiException(
+                                                415,
+                                                "UNSUPPORTED_MEDIA_TYPE",
+                                                "Content type '$partContentType' is not allowed"
+                                            )
+                                        }
+                                    }
                                     // SEC2-S-04: Track bytes read during multipart processing to
                                     // guard against chunked transfer encoding bypassing Content-Length.
                                     val channel = part.provider()

@@ -452,23 +452,19 @@ class BucketTest {
     }
 
     @Test
-    fun `no endpoint to revoke another device`() = testApplication {
+    fun `creator can revoke another device`() = testApplication {
         application { module(testConfig()) }
         val client = createJsonClient()
 
         val (deviceA, deviceB) = TestHelper.setupTwoDeviceBucket(client)
         val bucketId = deviceA.bucketId!!
 
-        // Try to revoke device B via a hypothetical endpoint (should not exist)
+        // SEC5-S-08: Creator (device A) can revoke device B
         val response = client.delete("/buckets/$bucketId/devices/${deviceB.deviceId}") {
             header(HttpHeaders.Authorization, "Bearer ${deviceA.sessionToken}")
         }
 
-        // Should be 404 (route not found) or 405 (method not allowed)
-        assertTrue(
-            response.status == HttpStatusCode.NotFound || response.status == HttpStatusCode.MethodNotAllowed,
-            "Expected 404 or 405 for revoking another device, got ${response.status}"
-        )
+        assertEquals(HttpStatusCode.NoContent, response.status)
     }
 
     @Test

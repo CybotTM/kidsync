@@ -45,6 +45,9 @@ fun main() {
 }
 
 fun Application.module(config: AppConfig = AppConfig()) {
+    // SEC3-S-16: Validate storage paths on startup (fail fast if invalid)
+    AppConfig.validateStoragePaths(config)
+
     // Initialize database
     DatabaseFactory.init(config)
 
@@ -58,11 +61,11 @@ fun Application.module(config: AppConfig = AppConfig()) {
     // Initialize utilities and services
     val sessionUtil = SessionUtil(config)
     val wsManager = WebSocketManager()
-    val bucketService = BucketService(config.blobStoragePath, config.snapshotStoragePath, wsManager, sessionUtil)
+    val bucketService = BucketService(config.blobStoragePath, config.snapshotStoragePath, wsManager, sessionUtil, config.maxDevicesPerBucket)
     val keyService = KeyService()
     val syncService = SyncService(config)
     val blobService = BlobService(config)
-    val pushService = PushService()
+    val pushService = PushService(config.pushTokenEncryptionKey)
 
     // Periodic cleanup of expired sessions and challenges (every 5 minutes)
     // SEC-S-02: Sessions are now DB-backed; cleanup requires suspend context
@@ -90,7 +93,7 @@ fun Application.module(config: AppConfig = AppConfig()) {
     configureSerialization()
     configureAuth(sessionUtil)
     configureCORS()
-    configureRateLimit()
+    configureRateLimit(config)
     configureStatusPages()
     configureWebSockets()
 
@@ -165,14 +168,14 @@ fun Application.module(config: AppConfig = AppConfig()) {
             ))
         }
 
-        // Public routes (no auth required)
-        deviceRoutes()
+        // Public routes (no auth required) + device management (auth required for DELETE /devices/me)
+        deviceRoutes(sessionUtil)
         authRoutes(config, sessionUtil)
 
         // Authenticated routes
         bucketRoutes(bucketService, wsManager)
         syncRoutes(config, syncService, pushService, wsManager, sessionUtil)
-        blobRoutes(blobService)
+        blobRoutes(blobService, config.allowedBlobContentTypes)
         pushRoutes(pushService)
         keyRoutes(keyService)
     }

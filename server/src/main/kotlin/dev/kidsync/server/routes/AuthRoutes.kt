@@ -139,7 +139,9 @@ fun Route.authRoutes(config: AppConfig, sessionUtil: SessionUtil) {
                     throw ApiException(400, "INVALID_REQUEST", "All fields are required")
                 }
 
-                // Validate timestamp is within acceptable window (60 seconds)
+                // SEC-M2: Validate timestamp is within acceptable window.
+                // Allow +-1 time step (30s each) beyond the base 60s window to account
+                // for clock skew between devices, giving an effective 90-second tolerance.
                 val clientTimestamp = try {
                     Instant.parse(request.timestamp)
                 } catch (_: Exception) {
@@ -148,7 +150,8 @@ fun Route.authRoutes(config: AppConfig, sessionUtil: SessionUtil) {
 
                 val now = Instant.now()
                 val timeDiff = kotlin.math.abs(now.epochSecond - clientTimestamp.epochSecond)
-                if (timeDiff > 60) {
+                val maxTimestampDrift = 90L // 60s base + 30s tolerance for clock skew
+                if (timeDiff > maxTimestampDrift) {
                     throw ApiException(400, "TIMESTAMP_DRIFT", "Timestamp too far from server time")
                 }
 
@@ -219,9 +222,9 @@ fun Route.authRoutes(config: AppConfig, sessionUtil: SessionUtil) {
 
                 val deviceId = device[Devices.id]
 
-                // SEC5-S-01: TODO - Invalidate existing sessions for this device on re-authentication.
-                // When a device authenticates again, old session tokens should be revoked to prevent
-                // session accumulation and reduce the attack surface of stolen tokens.
+                // SEC5-S-01: Invalidate all existing sessions for this device on re-authentication.
+                // This prevents session accumulation and reduces the attack surface of stolen tokens.
+                sessionUtil.deleteSessionsByDevice(deviceId)
 
                 // Create session
                 val (token, _) = sessionUtil.createSession(deviceId, request.signingKey)

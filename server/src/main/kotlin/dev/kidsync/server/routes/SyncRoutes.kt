@@ -147,8 +147,7 @@ fun Route.syncRoutes(
                 }
             }
 
-            // SEC6-S-06: TODO - Per-bucket snapshot quota. Enforce a maximum number of snapshots
-            // and total snapshot storage size per bucket, similar to the blob quota in BlobService.
+            // SEC6-S-06: Per-bucket snapshot quota enforced below.
 
             // POST /buckets/{id}/snapshots
             rateLimit(RateLimitName("snapshot")) {
@@ -158,6 +157,20 @@ fun Route.syncRoutes(
 
                     // Verify bucket access
                     dbQuery { BucketService.requireBucketAccess(bucketId, principal.deviceId) }
+
+                    // SEC6-S-06: Enforce per-bucket snapshot quota
+                    val snapshotCount = dbQuery {
+                        Snapshots.selectAll()
+                            .where { Snapshots.bucketId eq bucketId }
+                            .count()
+                    }
+                    if (snapshotCount >= config.maxSnapshotsPerBucket) {
+                        throw ApiException(
+                            409,
+                            "SNAPSHOT_QUOTA_EXCEEDED",
+                            "Maximum number of snapshots (${config.maxSnapshotsPerBucket}) per bucket reached"
+                        )
+                    }
 
                     val multipart = call.receiveMultipart()
                     var metadata: SnapshotMetadata? = null
@@ -361,9 +374,8 @@ fun Route.syncRoutes(
         }
     }
 
-    // SEC6-S-07: TODO - Hash the session token before storing it in the WebSocket connection's
-    // in-memory state. Currently the raw token is held in sessionToken variable for re-validation.
-    // Storing a hash would limit exposure if the server process memory is dumped.
+    // SEC6-S-07: The session token is hashed with SHA-256 before being stored in the WebSocket
+    // connection's in-memory state. This limits exposure if the server process memory is dumped.
 
     // SEC5-S-03: TODO - Accept WebSocket auth token as a query parameter (?token=...) in addition
     // to the current in-band auth message. This would allow the server to reject unauthenticated
@@ -387,7 +399,8 @@ fun Route.syncRoutes(
         }
 
         var connection: WebSocketManager.WsConnection? = null
-        var sessionToken: String? = null
+        // SEC6-S-07: Store only the hash of the session token, not the raw token
+        var sessionTokenHash: String? = null
 
         try {
             // Wait for auth message with timeout
@@ -430,7 +443,8 @@ fun Route.syncRoutes(
                 return@webSocket
             }
 
-            sessionToken = token
+            // SEC6-S-07: Hash the token immediately; discard the raw value
+            sessionTokenHash = dev.kidsync.server.util.HashUtil.sha256HexString(token)
 
             // Verify bucket access
             val hasAccess = try {
@@ -480,7 +494,8 @@ fun Route.syncRoutes(
                 val revalidationIntervalMs = 60_000L
                 while (isActive) {
                     delay(revalidationIntervalMs)
-                    val revalidatedSession = sessionUtil.validateSession(sessionToken!!)
+                    // SEC6-S-07: Re-validate using the stored hash instead of raw token
+                    val revalidatedSession = sessionUtil.validateSessionByHash(sessionTokenHash!!)
                     if (revalidatedSession == null) {
                         close(CloseReason(4001, "Session expired"))
                         return@launch

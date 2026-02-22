@@ -34,6 +34,11 @@ object BucketAccess : Table("bucket_access") {
     val revokedAt = datetime("revoked_at").nullable()
 
     override val primaryKey = PrimaryKey(id)
+
+    // QA-M1: Index on (bucketId, deviceId) for efficient access lookups
+    init {
+        index(false, bucketId, deviceId)
+    }
 }
 
 // ---- Ops ----
@@ -55,6 +60,8 @@ object Ops : Table("ops") {
         // with the same prevHash from both succeeding. The first insert wins; the second
         // will fail with a constraint violation and should be retried.
         uniqueIndex(deviceId, bucketId, prevHash)
+        // QA-M1: Index on (bucketId, sequence) for efficient op retrieval by range
+        index(false, bucketId, sequence)
     }
 }
 
