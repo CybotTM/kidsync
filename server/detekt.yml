@@ -1,0 +1,90 @@
+build:
+  maxIssues: -1  # Report all issues without failing (baseline phase)
+
+complexity:
+  LongMethod:
+    threshold: 60
+  LongParameterList:
+    functionThreshold: 8
+    constructorThreshold: 10
+  TooManyFunctions:
+    thresholdInFiles: 20
+    thresholdInClasses: 20
+    thresholdInInterfaces: 20
+  CyclomaticComplexMethod:
+    threshold: 20
+  NestedBlockDepth:
+    threshold: 5
+
+formatting:
+  active: true
+  MaximumLineLength:
+    active: true
+    maxLineLength: 150
+    excludeCommentStatements: true
+
+naming:
+  FunctionNaming:
+    active: true
+    # Allow backtick-quoted test function names
+    excludes: ['**/test/**', '**/androidTest/**']
+  MatchingDeclarationName:
+    active: false  # Ktor route files often have multiple top-level functions
+
+style:
+  MagicNumber:
+    active: true
+    excludes: ['**/test/**', '**/androidTest/**']
+    ignoreNumbers:
+      - '-1'
+      - '0'
+      - '1'
+      - '2'
+      - '10'
+      - '100'
+    ignoreHashCodeFunction: true
+    ignorePropertyDeclaration: true
+    ignoreLocalVariableDeclaration: true
+    ignoreConstantDeclaration: true
+    ignoreCompanionObjectPropertyDeclaration: true
+    ignoreAnnotation: true
+    ignoreEnums: true
+  MaxLineLength:
+    active: true
+    maxLineLength: 150
+    excludeCommentStatements: true
+  WildcardImport:
+    active: true
+    excludeImports:
+      - 'io.ktor.server.routing.*'
+      - 'io.ktor.server.application.*'
+      - 'io.ktor.server.response.*'
+      - 'io.ktor.server.request.*'
+      - 'io.ktor.http.*'
+      - 'org.jetbrains.exposed.sql.*'
+  ReturnCount:
+    max: 5
+  ForbiddenComment:
+    active: false  # Allow TODO/FIXME comments during development
+  UnusedPrivateMember:
+    active: true
+    allowedNames: 'serialVersionUID'
+
+exceptions:
+  TooGenericExceptionCaught:
+    active: true
+    exceptionNames:
+      - 'ArrayIndexOutOfBoundsException'
+      - 'Error'
+      - 'IllegalMonitorStateException'
+      - 'NullPointerException'
+      - 'IndexOutOfBoundsException'
+    # Allow catching Exception/Throwable in Ktor error handlers
+    allowedExceptionNameRegex: ''
+  SwallowedException:
+    active: true
+    ignoredExceptionTypes:
+      - 'InterruptedException'
+      - 'MalformedURLException'
+      - 'NumberFormatException'
+      - 'ParseException'

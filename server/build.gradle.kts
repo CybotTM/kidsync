@@ -2,6 +2,8 @@ plugins {
     kotlin("jvm") version "2.1.0"
     kotlin("plugin.serialization") version "2.1.0"
     id("io.ktor.plugin") version "3.0.3"
+    id("org.jetbrains.kotlinx.kover") version "0.9.7"
+    id("io.gitlab.arturbosch.detekt") version "1.23.8"
 }
 
 group = "dev.kidsync"
@@ -72,5 +74,38 @@ ktor {
         jreVersion.set(JavaVersion.VERSION_21)
         localImageName.set("kidsync-server")
         imageTag.set(version.toString())
+    }
+}
+
+kover {
+    reports {
+        filters {
+            excludes {
+                // Exclude generated code and the main application entry point
+                classes("dev.kidsync.server.ApplicationKt")
+            }
+        }
+
+        verify {
+            rule("Minimum line coverage") {
+                minBound(60)
+                // Warning only -- this is a new baseline, not a hard gate
+                isEnabled = true
+            }
+        }
+    }
+}
+
+detekt {
+    config.setFrom(files("detekt.yml"))
+    buildUponDefaultConfig = true
+    parallel = true
+}
+
+tasks.withType<io.gitlab.arturbosch.detekt.Detekt>().configureEach {
+    reports {
+        sarif.required.set(true)
+        html.required.set(true)
+        xml.required.set(false)
     }
 }
