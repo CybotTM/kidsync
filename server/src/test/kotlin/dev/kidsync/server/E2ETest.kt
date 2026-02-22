@@ -456,7 +456,7 @@ class E2ETest {
     // ================================================================
 
     @Test
-    fun `device can re-authenticate after session expires`() = testApplication {
+    fun `device can re-authenticate and new session replaces old`() = testApplication {
         application { module(testConfig()) }
         val client = createJsonClient()
 
@@ -470,16 +470,15 @@ class E2ETest {
         val authed2 = TestHelper.authenticateDevice(client, deviceReg)
         assertTrue(authed2.sessionToken.isNotEmpty())
 
-        // Both should be different tokens
-        // (they could theoretically be the same but practically never will be)
-        // The important thing is both work
+        // SEC5-S-01: Re-authentication invalidates previous sessions
         val resp1 = client.post("/buckets") {
             contentType(ContentType.Application.Json)
             header(HttpHeaders.Authorization, "Bearer ${authed1.sessionToken}")
             setBody(CreateBucketRequest())
         }
-        assertEquals(HttpStatusCode.Created, resp1.status)
+        assertEquals(HttpStatusCode.Unauthorized, resp1.status)
 
+        // New session should work
         val resp2 = client.post("/buckets") {
             contentType(ContentType.Application.Json)
             header(HttpHeaders.Authorization, "Bearer ${authed2.sessionToken}")
