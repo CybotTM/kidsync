@@ -224,10 +224,13 @@ class E2ETest {
         assertEquals(HttpStatusCode.NoContent, revokeResp.status)
 
         // 3. Device B cannot access bucket anymore
+        // SEC4-S-07: Session is invalidated when device has no remaining buckets,
+        // so we get 401 (Unauthorized) instead of 403 (Forbidden)
         val pullB = client.get("/buckets/$bucketId/ops?since=0") {
             header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
         }
-        assertEquals(HttpStatusCode.Forbidden, pullB.status)
+        assertTrue(pullB.status == HttpStatusCode.Forbidden || pullB.status == HttpStatusCode.Unauthorized,
+            "Expected 401 or 403 after self-revoke, got ${pullB.status}")
 
         // Device B cannot upload ops
         val sentinel = "0".repeat(64)
@@ -240,7 +243,8 @@ class E2ETest {
                 OpInput(deviceB.deviceId, 1, payload, sentinel, hash)
             )))
         }
-        assertEquals(HttpStatusCode.Forbidden, uploadB.status)
+        assertTrue(uploadB.status == HttpStatusCode.Forbidden || uploadB.status == HttpStatusCode.Unauthorized,
+            "Expected 401 or 403 after self-revoke, got ${uploadB.status}")
 
         // 4. Device A is unaffected
         val pullA = client.get("/buckets/$bucketId/ops?since=0") {

@@ -80,6 +80,10 @@ class SnapshotUseCase @Inject constructor(
                 )
 
                 // 4. Sign the encrypted blob with Ed25519
+                // SEC4-A-09: The signature covers the Base64-encoded encrypted payload (UTF-8 bytes),
+                // not the raw ciphertext bytes. This convention is intentional: it matches what the
+                // server receives in the multipart upload and allows the server (or any verifier) to
+                // check the signature against the transmitted form without Base64 decoding first.
                 val (_, signingPrivateKey) = keyManager.getOrCreateSigningKeyPair()
                 seed = signingPrivateKey
                 val encryptedBytes = encryptedBlob.toByteArray(Charsets.UTF_8)

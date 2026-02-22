@@ -1,8 +1,12 @@
 package dev.kidsync.server.services
 
+import dev.kidsync.server.db.BucketAccess
+import dev.kidsync.server.db.DatabaseFactory.dbQuery
 import io.ktor.websocket.*
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import org.jetbrains.exposed.sql.and
+import org.jetbrains.exposed.sql.selectAll
 import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
@@ -39,10 +43,16 @@ class WebSocketManager {
      * SEC2-S-09: Uses synchronized block to make the count-check-and-add atomic,
      * preventing race conditions where concurrent connections could both pass the
      * limit check before either is added.
+     *
+     * SEC4-S-02: Uses increment-first pattern for global counter to prevent race
+     * condition where concurrent connections could both pass the limit check.
      */
     fun addConnection(bucketId: String, connection: WsConnection): Boolean {
-        // SEC3-S-14: Check global connection limit first
-        if (globalConnectionCount.get() >= MAX_GLOBAL_CONNECTIONS) {
+        // SEC4-S-02: Atomically increment first, then check. If over limit, decrement.
+        // This prevents a TOCTOU race where two threads both read below-limit and both add.
+        val newCount = globalConnectionCount.incrementAndGet()
+        if (newCount > MAX_GLOBAL_CONNECTIONS) {
+            globalConnectionCount.decrementAndGet()
             logger.warn("WebSocket global connection limit reached: {}", MAX_GLOBAL_CONNECTIONS)
             return false
         }
@@ -53,18 +63,19 @@ class WebSocketManager {
             // SEC-S-06: Enforce per-device connection limit
             val deviceCount = bucketConnections.count { it.deviceId == connection.deviceId }
             if (deviceCount >= MAX_CONNECTIONS_PER_DEVICE) {
+                globalConnectionCount.decrementAndGet()
                 logger.warn("WebSocket connection limit per device reached: device={} bucket={}", connection.deviceId, bucketId)
                 return false
             }
 
             // SEC-S-06: Enforce per-bucket connection limit
             if (bucketConnections.size >= MAX_CONNECTIONS_PER_BUCKET) {
+                globalConnectionCount.decrementAndGet()
                 logger.warn("WebSocket connection limit per bucket reached: bucket={}", bucketId)
                 return false
             }
 
             bucketConnections.add(connection)
-            globalConnectionCount.incrementAndGet()
         }
         logger.info("WebSocket connected: device={} bucket={}", connection.deviceId, bucketId)
         return true
@@ -107,6 +118,47 @@ class WebSocketManager {
     }
 
     /**
+     * SEC4-S-15: Helper to remove dead connections and properly decrement the global counter.
+     * Must be called when connections are found to be dead during notification sends.
+     */
+    private fun removeDeadConnections(bucketConnections: MutableSet<WsConnection>, deadConnections: List<WsConnection>) {
+        for (conn in deadConnections) {
+            if (bucketConnections.remove(conn)) {
+                globalConnectionCount.decrementAndGet()
+            }
+        }
+    }
+
+    /**
+     * SEC4-S-09: Check if a connection's device still has active bucket access.
+     * Returns false if the device's access has been revoked, and closes the connection.
+     */
+    private suspend fun validateConnectionAccess(conn: WsConnection): Boolean {
+        val hasAccess = try {
+            dbQuery {
+                BucketAccess.selectAll().where {
+                    (BucketAccess.bucketId eq conn.bucketId) and
+                        (BucketAccess.deviceId eq conn.deviceId) and
+                        BucketAccess.revokedAt.isNull()
+                }.firstOrNull() != null
+            }
+        } catch (_: Exception) {
+            // On DB errors, assume still valid to avoid disconnecting on transient failures
+            true
+        }
+
+        if (!hasAccess) {
+            try {
+                conn.session.close(CloseReason(CloseReason.Codes.VIOLATED_POLICY.code, "Access revoked"))
+            } catch (_: Exception) {
+                // Already closed
+            }
+        }
+
+        return hasAccess
+    }
+
+    /**
      * Notify all bucket devices (except the source) that new ops are available.
      */
     suspend fun notifyOpsAvailable(bucketId: String, latestSequence: Long, sourceDeviceId: String) {
@@ -127,7 +179,8 @@ class WebSocketManager {
                 }
             }
         }
-        bucketConnections.removeAll(deadConnections.toSet())
+        // SEC4-S-15: Properly decrement global counter when removing dead connections
+        removeDeadConnections(bucketConnections, deadConnections)
     }
 
     /**
@@ -149,7 +202,8 @@ class WebSocketManager {
                 deadConnections.add(conn)
             }
         }
-        bucketConnections.removeAll(deadConnections.toSet())
+        // SEC4-S-15: Properly decrement global counter when removing dead connections
+        removeDeadConnections(bucketConnections, deadConnections)
     }
 
     /**
@@ -171,11 +225,14 @@ class WebSocketManager {
                 deadConnections.add(conn)
             }
         }
-        bucketConnections.removeAll(deadConnections.toSet())
+        // SEC4-S-15: Properly decrement global counter when removing dead connections
+        removeDeadConnections(bucketConnections, deadConnections)
     }
 
     /**
      * Notify bucket about new device joining.
+     * SEC4-S-09: Re-validates bucket access before sending sensitive notifications
+     * (encryptionKey). Connections with revoked access are closed and skipped.
      */
     suspend fun notifyDeviceJoined(bucketId: String, newDeviceId: String, encryptionKey: String) {
         val bucketConnections = connections[bucketId] ?: return
@@ -187,6 +244,13 @@ class WebSocketManager {
         val deadConnections = mutableListOf<WsConnection>()
         for (conn in bucketConnections) {
             if (conn.deviceId != newDeviceId) {
+                // SEC4-S-09: Re-validate bucket access before sending encryptionKey
+                if (!validateConnectionAccess(conn)) {
+                    logger.warn("Skipping WS device-joined for revoked device={}", conn.deviceId)
+                    deadConnections.add(conn)
+                    continue
+                }
+
                 try {
                     conn.session.send(Frame.Text(message))
                 } catch (e: Exception) {
@@ -195,7 +259,8 @@ class WebSocketManager {
                 }
             }
         }
-        bucketConnections.removeAll(deadConnections.toSet())
+        // SEC4-S-15: Properly decrement global counter when removing dead connections
+        removeDeadConnections(bucketConnections, deadConnections)
     }
 }
 

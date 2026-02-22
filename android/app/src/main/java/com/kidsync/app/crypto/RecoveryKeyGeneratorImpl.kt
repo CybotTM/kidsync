@@ -30,6 +30,10 @@ class RecoveryKeyGeneratorImpl : RecoveryKeyGenerator {
         private const val RECOVERY_KEY_LENGTH = 32 // 256 bits
     }
 
+    // SEC4-A-05: The returned word list uses JVM String objects which cannot be zeroed from
+    // memory. This is a systemic JVM limitation. Callers should discard the list as soon as
+    // possible to allow GC to reclaim the String objects. The entropy ByteArray CAN and SHOULD
+    // be zeroed by callers after use.
     override fun generateMnemonic(): Pair<List<String>, ByteArray> {
         // Step 1: Generate 32 bytes of cryptographically secure random entropy
         val entropy = ByteArray(ENTROPY_BYTES)

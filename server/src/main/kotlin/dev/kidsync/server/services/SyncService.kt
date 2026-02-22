@@ -93,7 +93,7 @@ class SyncService(private val config: AppConfig) {
                     throw ApiException(400, "INVALID_REQUEST", "encryptedPayload must be valid base64")
                 }
 
-                // Enforce per-op payload size limit (check decoded byte count, not base64 string length)
+                // SEC4-S-18: Decode payload once and reuse for both size check and hash verification
                 val payloadBytes = java.util.Base64.getDecoder().decode(op.encryptedPayload)
                 if (payloadBytes.size > config.maxPayloadSizeBytes) {
                     throw ApiException(413, "PAYLOAD_TOO_LARGE", "Encrypted payload exceeds size limit")
@@ -121,8 +121,8 @@ class SyncService(private val config: AppConfig) {
                     }
                 }
 
-                // Validate hash correctness
-                if (!HashUtil.verifyHashChain(op.prevHash, op.encryptedPayload, op.currentHash)) {
+                // SEC4-S-18: Pass pre-decoded bytes to avoid redundant base64 decode
+                if (!HashUtil.verifyHashChain(op.prevHash, payloadBytes, op.currentHash)) {
                     throw ApiException(409, "HASH_MISMATCH", "currentHash does not match computed hash")
                 }
 

@@ -51,7 +51,8 @@ object NetworkModule {
     @Singleton
     fun provideOkHttpClient(
         authInterceptor: AuthInterceptor,
-        loggingInterceptor: HttpLoggingInterceptor
+        loggingInterceptor: HttpLoggingInterceptor,
+        @Named("baseUrl") baseUrl: String
     ): OkHttpClient {
         // SEC3-A-12: Enforce TLS 1.2+ to prevent protocol downgrade attacks.
         // This ConnectionSpec restricts to modern TLS versions and strong cipher suites.
@@ -60,7 +61,8 @@ object NetworkModule {
             .build()
 
         val builder = OkHttpClient.Builder()
-            .connectionSpecs(listOf(tlsSpec, ConnectionSpec.CLEARTEXT))
+            // SEC4-A-01: Only allow TLS connections. CLEARTEXT (HTTP) is not permitted.
+            .connectionSpecs(listOf(tlsSpec, ConnectionSpec.COMPATIBLE_TLS))
             .addInterceptor(authInterceptor)
             .addInterceptor(loggingInterceptor)
             .connectTimeout(30, TimeUnit.SECONDS)
@@ -77,11 +79,26 @@ object NetworkModule {
             require(BuildConfig.CERT_PIN_PRIMARY != "PLACEHOLDER" && BuildConfig.CERT_PIN_BACKUP != "PLACEHOLDER") {
                 "Release builds require real certificate pins. Set CERT_PIN_PRIMARY and CERT_PIN_BACKUP in build config."
             }
-            val certificatePinner = CertificatePinner.Builder()
-                .add("api.kidsync.app", "sha256/${BuildConfig.CERT_PIN_PRIMARY}")
-                .add("api.kidsync.app", "sha256/${BuildConfig.CERT_PIN_BACKUP}")
-                .build()
-            builder.certificatePinner(certificatePinner)
+            // SEC4-A-03: Pin certificates for ALL connections (not just *.kidsync.app).
+            // All API traffic goes through this single OkHttpClient, so pinning the
+            // kidsync.app domain ensures all server communication is pinned. If the user
+            // configures a custom server URL, add its host to the pinner as well.
+            val pinnerBuilder = CertificatePinner.Builder()
+                .add("*.kidsync.app", "sha256/${BuildConfig.CERT_PIN_PRIMARY}")
+                .add("*.kidsync.app", "sha256/${BuildConfig.CERT_PIN_BACKUP}")
+
+            // SEC4-A-03: Also pin the configured server host if it differs from kidsync.app.
+            // This ensures that even self-hosted servers get cert pinning. Operators must
+            // set CERT_PIN_PRIMARY/BACKUP to pins matching their server's certificate chain.
+            val serverHost = try {
+                java.net.URL(baseUrl).host
+            } catch (_: Exception) { null }
+            if (serverHost != null && !serverHost.endsWith("kidsync.app")) {
+                pinnerBuilder.add(serverHost, "sha256/${BuildConfig.CERT_PIN_PRIMARY}")
+                pinnerBuilder.add(serverHost, "sha256/${BuildConfig.CERT_PIN_BACKUP}")
+            }
+
+            builder.certificatePinner(pinnerBuilder.build())
         }
 
         return builder.build()

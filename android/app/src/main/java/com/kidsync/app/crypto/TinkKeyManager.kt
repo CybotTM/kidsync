@@ -465,10 +465,11 @@ class TinkKeyManager(
         return Pair(publicKey, seed)
     }
 
+    // SEC4-A-06: The returned x25519Private ByteArray contains sensitive key material.
+    // Callers MUST zero it in a finally block after use: `x25519Private.zeroOut()`.
+    // We cannot zero it here because the caller needs the value.
     override fun deriveEncryptionKeyPair(seed: ByteArray): Pair<ByteArray, ByteArray> {
         val x25519Private = cryptoManager.ed25519PrivateToX25519(seed)
-        // SEC2-A-02: Caller is responsible for zeroing x25519Private after use.
-        // Note: the returned ByteArray must be zeroed by the caller when done.
         // Derive public from Ed25519 public -> X25519 public
         val ed25519Public = deriveSigningKeyPair(seed).first
         val x25519Public = cryptoManager.ed25519PublicToX25519(ed25519Public)

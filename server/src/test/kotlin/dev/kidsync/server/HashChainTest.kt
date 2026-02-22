@@ -69,10 +69,10 @@ class HashChainTest {
         assertTrue(hash2 != hash3)
         assertTrue(hash1 != hash3)
 
-        // Verify each link
-        assertTrue(HashUtil.verifyHashChain(sentinel, payload1, hash1))
-        assertTrue(HashUtil.verifyHashChain(hash1, payload2, hash2))
-        assertTrue(HashUtil.verifyHashChain(hash2, payload3, hash3))
+        // Verify each link (verifyHashChain now takes decoded bytes)
+        assertTrue(HashUtil.verifyHashChain(sentinel, Base64.getDecoder().decode(payload1), hash1))
+        assertTrue(HashUtil.verifyHashChain(hash1, Base64.getDecoder().decode(payload2), hash2))
+        assertTrue(HashUtil.verifyHashChain(hash2, Base64.getDecoder().decode(payload3), hash3))
     }
 
     @Test
@@ -83,8 +83,8 @@ class HashChainTest {
 
         val hashForOriginal = computeHash(prevHash, originalPayload)
 
-        // Verification with tampered payload should fail
-        assertFalse(HashUtil.verifyHashChain(prevHash, tamperedPayload, hashForOriginal))
+        // Verification with tampered payload should fail (verifyHashChain takes decoded bytes)
+        assertFalse(HashUtil.verifyHashChain(prevHash, Base64.getDecoder().decode(tamperedPayload), hashForOriginal))
     }
 
     @Test
@@ -94,7 +94,7 @@ class HashChainTest {
         val correctHash = computeHash(prevHash, payload)
 
         val wrongPrevHash = "a".repeat(64)
-        assertFalse(HashUtil.verifyHashChain(wrongPrevHash, payload, correctHash))
+        assertFalse(HashUtil.verifyHashChain(wrongPrevHash, Base64.getDecoder().decode(payload), correctHash))
     }
 
     @Test

@@ -186,6 +186,16 @@ class SessionUtil(private val config: AppConfig) {
     }
 
     /**
+     * SEC4-S-07: Delete all sessions for a specific device.
+     * Used when a device is revoked from its last bucket to ensure session invalidation.
+     */
+    suspend fun deleteSessionsByDevice(deviceId: String) {
+        dbQuery {
+            Sessions.deleteWhere { Sessions.deviceId eq deviceId }
+        }
+    }
+
+    /**
      * Remove expired sessions and challenges. Called periodically.
      */
     suspend fun cleanup() {

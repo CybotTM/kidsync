@@ -53,7 +53,7 @@ fun Application.module(config: AppConfig = AppConfig()) {
     // Initialize utilities and services
     val sessionUtil = SessionUtil(config)
     val wsManager = WebSocketManager()
-    val bucketService = BucketService(config.blobStoragePath, config.snapshotStoragePath, wsManager)
+    val bucketService = BucketService(config.blobStoragePath, config.snapshotStoragePath, wsManager, sessionUtil)
     val keyService = KeyService()
     val syncService = SyncService(config)
     val blobService = BlobService(config)
@@ -123,14 +123,12 @@ fun Application.module(config: AppConfig = AppConfig()) {
         val isModifying = method == HttpMethod.Post || method == HttpMethod.Put || method == HttpMethod.Patch
         val contentType = call.request.contentType()
         val isMultipart = contentType.match(ContentType.MultiPart.FormData)
+        // SEC4-S-06: Require Content-Length for ALL non-multipart modifying requests,
+        // regardless of Transfer-Encoding presence, to prevent size limit bypass.
         if (isModifying && !isMultipart && contentLength == null) {
-            // Require Content-Length for non-multipart modifying requests
-            val transferEncoding = call.request.header(HttpHeaders.TransferEncoding)
-            if (transferEncoding != null) {
-                call.respond(HttpStatusCode.LengthRequired)
-                finish()
-                return@intercept
-            }
+            call.respond(HttpStatusCode.LengthRequired)
+            finish()
+            return@intercept
         }
     }
 

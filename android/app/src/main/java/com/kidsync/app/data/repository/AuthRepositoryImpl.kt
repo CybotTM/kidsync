@@ -72,7 +72,11 @@ class AuthRepositoryImpl(
         // SEC3-A-17: Enforce exponential backoff on repeated auth failures
         val now = System.currentTimeMillis()
         if (consecutiveFailures > 0) {
-            val backoffMs = minOf(BASE_BACKOFF_MS shl (consecutiveFailures - 1), MAX_BACKOFF_MS)
+            // SEC4-A-08: Cap the shift amount to prevent Long overflow. Shifting a Long by >= 63
+            // produces negative values, causing minOf to return a negative backoff (no wait).
+            // Limit shift to 20 (1000 * 2^20 = ~1M ms > MAX_BACKOFF_MS) so the cap always applies.
+            val shift = minOf(consecutiveFailures - 1, 20)
+            val backoffMs = minOf(BASE_BACKOFF_MS shl shift, MAX_BACKOFF_MS)
             val elapsed = now - lastAttemptTimeMs
             if (elapsed < backoffMs) {
                 return Result.failure(

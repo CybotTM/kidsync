@@ -325,19 +325,18 @@ class KeyTest {
     }
 
     @Test
-    fun `attestations for unknown device returns empty list`() = testApplication {
+    fun `attestations for unknown device returns 403 - no shared bucket`() = testApplication {
         application { module(testConfig()) }
         val client = createJsonClient()
 
         val device = TestHelper.setupDeviceWithBucket(client)
 
+        // SEC4-S-03: Querying attestations for a device with no shared bucket should be denied
         val response = client.get("/keys/attestations/00000000-0000-0000-0000-000000000000") {
             header(HttpHeaders.Authorization, "Bearer ${device.sessionToken}")
         }
 
-        assertEquals(HttpStatusCode.OK, response.status)
-        val attestations = response.body<AttestationListResponse>().attestations
-        assertEquals(0, attestations.size)
+        assertEquals(HttpStatusCode.Forbidden, response.status)
     }
 
     // ================================================================

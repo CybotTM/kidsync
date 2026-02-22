@@ -161,6 +161,10 @@ object InviteTokens : Table("invite_tokens") {
 // SEC3-S-01: Session tokens are stored as SHA-256 hashes, not plaintext.
 // The raw token is returned to the client; only the hash is persisted.
 
+// SEC4-S-16: TODO - The signingKey column is redundant here since it can be looked up
+// via the Devices table using deviceId. Removing it would reduce storage and eliminate
+// a potential data inconsistency if the device's signing key is rotated. This requires
+// a DB migration and should be addressed when migration tooling is added.
 object Sessions : Table("sessions") {
     val tokenHash = varchar("token_hash", 64)
     val deviceId = varchar("device_id", 36)

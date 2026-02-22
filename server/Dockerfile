@@ -21,4 +21,10 @@ ENV KIDSYNC_PORT=8080
 
 EXPOSE 8080
 
-ENTRYPOINT ["java", "-jar", "app.jar"]
+# SEC4-S-13: JVM security and performance hardening flags
+ENTRYPOINT ["java", \
+    "-XX:MaxRAMPercentage=75.0", \
+    "-XX:+UseG1GC", \
+    "-Dcom.sun.management.jmxremote=false", \
+    "-Djava.security.egd=file:/dev/urandom", \
+    "-jar", "app.jar"]

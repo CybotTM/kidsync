@@ -10,12 +10,17 @@ import org.slf4j.LoggerFactory
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.ConcurrentHashMap
 
 class KeyService {
 
     private val logger = LoggerFactory.getLogger(KeyService::class.java)
 
     private val isoFormatter = DateTimeFormatter.ISO_INSTANT
+
+    // SEC4-S-14: Rate limit recovery blob overwrites (max 1 per hour per device)
+    private val recoveryBlobOverwriteTimestamps = ConcurrentHashMap<String, Long>()
+    private val recoveryBlobOverwriteIntervalMs = 3_600_000L // 1 hour
 
     // ---- Wrapped Keys ----
     // SEC3-S-17: TODO - No key rotation mechanism exists. When a device is revoked from a
@@ -182,9 +187,27 @@ class KeyService {
 
     /**
      * Get all attestations for a given device (i.e., attestations where that device is the attested party).
+     * SEC4-S-03: The caller must share at least one active bucket with the attested device.
      */
-    suspend fun getAttestations(attestedDeviceId: String): AttestationListResponse {
+    suspend fun getAttestations(callerDeviceId: String, attestedDeviceId: String): AttestationListResponse {
         return dbQuery {
+            // SEC4-S-03: Verify caller shares at least one active bucket with the attested device
+            val callerBuckets = BucketAccess.selectAll()
+                .where { (BucketAccess.deviceId eq callerDeviceId) and BucketAccess.revokedAt.isNull() }
+                .map { it[BucketAccess.bucketId] }
+
+            val sharedBucket = BucketAccess.selectAll()
+                .where {
+                    (BucketAccess.deviceId eq attestedDeviceId) and
+                        BucketAccess.revokedAt.isNull() and
+                        (BucketAccess.bucketId inList callerBuckets)
+                }
+                .firstOrNull()
+
+            if (sharedBucket == null) {
+                throw ApiException(403, "BUCKET_ACCESS_DENIED", "Devices must share a bucket to query attestations")
+            }
+
             val attestations = KeyAttestations.selectAll()
                 .where { KeyAttestations.attestedDevice eq attestedDeviceId }
                 .map { row ->
@@ -208,8 +231,9 @@ class KeyService {
     /**
      * Upload an encrypted recovery blob for the authenticated device.
      * SEC3-S-12: Tracks version counter for overwrites and logs changes.
-     * TODO: In production, re-authentication should be required before allowing
-     * recovery blob overwrites to prevent unauthorized replacement.
+     * SEC4-S-14: Rate limits overwrites to max 1 per hour per device.
+     * Full re-authentication would require protocol changes, so rate limiting
+     * is the pragmatic mitigation.
      */
     suspend fun uploadRecoveryBlob(deviceId: String, request: RecoveryBlobRequest) {
         if (request.encryptedBlob.length > 1_048_576) {
@@ -224,8 +248,18 @@ class KeyService {
 
             val newVersion = if (existing != null) {
                 val oldVersion = existing[RecoveryBlobs.version]
+
+                // SEC4-S-14: Rate limit recovery blob overwrites (max 1 per hour per device)
+                val now = System.currentTimeMillis()
+                val lastOverwrite = recoveryBlobOverwriteTimestamps[deviceId]
+                if (lastOverwrite != null && (now - lastOverwrite) < recoveryBlobOverwriteIntervalMs) {
+                    logger.warn("Recovery blob overwrite rate limited: device={}", deviceId)
+                    throw ApiException(429, "RATE_LIMITED", "Recovery blob can only be overwritten once per hour")
+                }
+
                 RecoveryBlobs.deleteWhere { RecoveryBlobs.deviceId eq deviceId }
-                logger.info("Recovery blob overwritten: device={} oldVersion={} newVersion={}", deviceId, oldVersion, oldVersion + 1)
+                logger.warn("Recovery blob overwritten: device={} oldVersion={} newVersion={}", deviceId, oldVersion, oldVersion + 1)
+                recoveryBlobOverwriteTimestamps[deviceId] = now
                 oldVersion + 1
             } else {
                 1

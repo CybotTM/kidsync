@@ -33,6 +33,13 @@ data class AuthUiState(
     val setupProgress: String = "",
 
     // Recovery
+    // SEC4-A-05: Recovery words are stored as JVM Strings, which are immutable and cannot be
+    // explicitly zeroed from memory. This is a systemic JVM/Kotlin limitation. The words are
+    // held only while displayed to the user and cleared (replaced with emptyList()) as soon as
+    // the user confirms they have saved them. On the JVM, the previous String objects become
+    // eligible for GC but may linger in the heap until collected. Using CharArray instead is
+    // impractical here because Compose UI text rendering requires String objects. The exposure
+    // window is minimized by clearing the list immediately on navigation away.
     val recoveryWords: List<String> = emptyList(),
     val recoveryPassphrase: String = "",
     val hasSavedRecoveryKey: Boolean = false,

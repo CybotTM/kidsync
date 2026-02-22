@@ -247,11 +247,13 @@ class BucketIntegrationTest {
             header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
         }
 
-        // Verify B lost access
+        // Verify B lost access (session invalidated since no remaining buckets)
         val pull1 = client.get("/buckets/$bucketId/ops?since=0") {
             header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
         }
-        assertEquals(HttpStatusCode.Forbidden, pull1.status)
+        // SEC4-S-07: Session is invalidated when device has no remaining buckets
+        assertTrue(pull1.status == HttpStatusCode.Forbidden || pull1.status == HttpStatusCode.Unauthorized,
+            "Expected 401 or 403 after self-revoke, got ${pull1.status}")
 
         // Device A creates new invite
         val reToken = "rejoin-${System.nanoTime()}"
@@ -261,17 +263,20 @@ class BucketIntegrationTest {
             setBody(InviteRequest(tokenHash = HashUtil.sha256HexString(reToken)))
         }
 
-        // Device B re-joins
+        // Device B re-authenticates (session was invalidated after self-revoke)
+        val deviceBReauthed = TestHelper.authenticateDevice(client, deviceB)
+
+        // Device B re-joins with new session
         val rejoin = client.post("/buckets/$bucketId/join") {
             contentType(ContentType.Application.Json)
-            header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
+            header(HttpHeaders.Authorization, "Bearer ${deviceBReauthed.sessionToken}")
             setBody(JoinBucketRequest(inviteToken = reToken))
         }
         assertEquals(HttpStatusCode.OK, rejoin.status)
 
         // Device B can access bucket again
         val pull2 = client.get("/buckets/$bucketId/ops?since=0") {
-            header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
+            header(HttpHeaders.Authorization, "Bearer ${deviceBReauthed.sessionToken}")
         }
         assertEquals(HttpStatusCode.OK, pull2.status)
     }

@@ -119,6 +119,19 @@ class SettingsViewModel @Inject constructor(
             _uiState.update { it.copy(error = "Server URL is required") }
             return
         }
+        // SEC4-A-02: Require HTTPS to prevent cleartext credential transmission
+        if (url.startsWith("http://")) {
+            _uiState.update {
+                it.copy(error = "Insecure HTTP connections are not allowed. Use HTTPS instead.")
+            }
+            return
+        }
+        if (!url.startsWith("https://")) {
+            _uiState.update {
+                it.copy(error = "Server URL must use HTTPS (e.g., https://api.example.com)")
+            }
+            return
+        }
         // SEC2-A-09: Store server URL in encrypted prefs consistently with AuthRepositoryImpl
         encryptedPrefs.edit().putString(PREF_SERVER_URL, url).apply()
     }

@@ -138,68 +138,68 @@ class HashUtilUnitTest {
     @Test
     fun `verifyHashChain with valid chain returns true`() {
         val prevHash = "0".repeat(64)
-        val payload = Base64.getEncoder().encodeToString("data".toByteArray())
+        val payloadBytes = "data".toByteArray()
         val currentHash = HashUtil.sha256Hex(
             HashUtil.hexToBytes(prevHash),
-            Base64.getDecoder().decode(payload),
+            payloadBytes,
         )
-        assertTrue(HashUtil.verifyHashChain(prevHash, payload, currentHash))
+        assertTrue(HashUtil.verifyHashChain(prevHash, payloadBytes, currentHash))
     }
 
     @Test
     fun `verifyHashChain with tampered payload returns false`() {
         val prevHash = "0".repeat(64)
-        val originalPayload = Base64.getEncoder().encodeToString("original".toByteArray())
-        val tamperedPayload = Base64.getEncoder().encodeToString("tampered".toByteArray())
+        val originalBytes = "original".toByteArray()
+        val tamperedBytes = "tampered".toByteArray()
         val currentHash = HashUtil.sha256Hex(
             HashUtil.hexToBytes(prevHash),
-            Base64.getDecoder().decode(originalPayload),
+            originalBytes,
         )
-        assertFalse(HashUtil.verifyHashChain(prevHash, tamperedPayload, currentHash))
+        assertFalse(HashUtil.verifyHashChain(prevHash, tamperedBytes, currentHash))
     }
 
     @Test
     fun `verifyHashChain with wrong prevHash returns false`() {
         val correctPrev = "0".repeat(64)
         val wrongPrev = "a".repeat(64)
-        val payload = Base64.getEncoder().encodeToString("data".toByteArray())
+        val payloadBytes = "data".toByteArray()
         val currentHash = HashUtil.sha256Hex(
             HashUtil.hexToBytes(correctPrev),
-            Base64.getDecoder().decode(payload),
+            payloadBytes,
         )
-        assertFalse(HashUtil.verifyHashChain(wrongPrev, payload, currentHash))
+        assertFalse(HashUtil.verifyHashChain(wrongPrev, payloadBytes, currentHash))
     }
 
     @Test
     fun `verifyHashChain with wrong currentHash returns false`() {
         val prevHash = "0".repeat(64)
-        val payload = Base64.getEncoder().encodeToString("data".toByteArray())
+        val payloadBytes = "data".toByteArray()
         val wrongCurrent = "b".repeat(64)
-        assertFalse(HashUtil.verifyHashChain(prevHash, payload, wrongCurrent))
+        assertFalse(HashUtil.verifyHashChain(prevHash, payloadBytes, wrongCurrent))
     }
 
     @Test
     fun `verifyHashChain with genesis hash (all zeros prev)`() {
         val genesis = "0".repeat(64)
-        val payload = Base64.getEncoder().encodeToString("first-op".toByteArray())
+        val payloadBytes = "first-op".toByteArray()
         val hash = HashUtil.sha256Hex(
             HashUtil.hexToBytes(genesis),
-            Base64.getDecoder().decode(payload),
+            payloadBytes,
         )
-        assertTrue(HashUtil.verifyHashChain(genesis, payload, hash))
+        assertTrue(HashUtil.verifyHashChain(genesis, payloadBytes, hash))
     }
 
     @Test
     fun `verifyHashChain multi-hop chain integrity`() {
         val sentinel = "0".repeat(64)
-        val payloads = (1..5).map { Base64.getEncoder().encodeToString("op-$it".toByteArray()) }
+        val payloadBytesList = (1..5).map { "op-$it".toByteArray() }
 
         var prev = sentinel
         val hashes = mutableListOf<String>()
-        for (payload in payloads) {
+        for (payloadBytes in payloadBytesList) {
             val hash = HashUtil.sha256Hex(
                 HashUtil.hexToBytes(prev),
-                Base64.getDecoder().decode(payload),
+                payloadBytes,
             )
             hashes.add(hash)
             prev = hash
@@ -207,8 +207,8 @@ class HashUtilUnitTest {
 
         // Verify each link in the chain
         prev = sentinel
-        for (i in payloads.indices) {
-            assertTrue(HashUtil.verifyHashChain(prev, payloads[i], hashes[i]),
+        for (i in payloadBytesList.indices) {
+            assertTrue(HashUtil.verifyHashChain(prev, payloadBytesList[i], hashes[i]),
                 "Chain link $i should verify")
             prev = hashes[i]
         }
@@ -217,19 +217,19 @@ class HashUtilUnitTest {
     @Test
     fun `verifyHashChain broken mid-chain detected`() {
         val sentinel = "0".repeat(64)
-        val payload1 = Base64.getEncoder().encodeToString("op-1".toByteArray())
+        val payload1Bytes = "op-1".toByteArray()
         val hash1 = HashUtil.sha256Hex(
             HashUtil.hexToBytes(sentinel),
-            Base64.getDecoder().decode(payload1),
+            payload1Bytes,
         )
-        val payload2 = Base64.getEncoder().encodeToString("op-2".toByteArray())
+        val payload2Bytes = "op-2".toByteArray()
         val hash2 = HashUtil.sha256Hex(
             HashUtil.hexToBytes(hash1),
-            Base64.getDecoder().decode(payload2),
+            payload2Bytes,
         )
 
         // Tamper: try to verify op-2 with sentinel instead of hash1
-        assertFalse(HashUtil.verifyHashChain(sentinel, payload2, hash2),
+        assertFalse(HashUtil.verifyHashChain(sentinel, payload2Bytes, hash2),
             "Using wrong prevHash should fail verification")
     }
 

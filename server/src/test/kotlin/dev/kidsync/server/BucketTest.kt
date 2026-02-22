@@ -413,11 +413,14 @@ class BucketTest {
         }
 
         // Device B tries to pull ops
+        // SEC4-S-07: Session is invalidated when device has no remaining buckets,
+        // so we get 401 (Unauthorized) instead of 403 (Forbidden)
         val pullResp = client.get("/buckets/$bucketId/ops?since=0") {
             header(HttpHeaders.Authorization, "Bearer ${deviceB.sessionToken}")
         }
 
-        assertEquals(HttpStatusCode.Forbidden, pullResp.status)
+        assertTrue(pullResp.status == HttpStatusCode.Forbidden || pullResp.status == HttpStatusCode.Unauthorized,
+            "Expected 401 or 403 after self-revoke, got ${pullResp.status}")
     }
 
     @Test

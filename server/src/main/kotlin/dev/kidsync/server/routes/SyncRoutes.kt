@@ -18,6 +18,7 @@ import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
 import io.ktor.utils.io.*
 import io.ktor.websocket.*
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.*
 import org.jetbrains.exposed.sql.*
@@ -29,6 +30,46 @@ import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.*
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
+
+/**
+ * SEC4-S-10: IP-based rate limiter for WebSocket upgrade attempts.
+ * Limits each IP to MAX_WS_CONNECTIONS_PER_IP_PER_MINUTE WebSocket connections per minute.
+ */
+private object WebSocketConnectionRateLimiter {
+    private const val MAX_WS_CONNECTIONS_PER_IP_PER_MINUTE = 10
+    private const val WINDOW_MS = 60_000L
+
+    private data class IpWindow(val count: AtomicInteger = AtomicInteger(0), val windowStart: AtomicLong = AtomicLong(0))
+    private val windows = ConcurrentHashMap<String, IpWindow>()
+
+    fun checkAndIncrement(ip: String): Boolean {
+        cleanup()
+        val now = System.currentTimeMillis()
+        val window = windows.computeIfAbsent(ip) { IpWindow() }
+
+        synchronized(window) {
+            val start = window.windowStart.get()
+            if (now - start > WINDOW_MS) {
+                window.windowStart.set(now)
+                window.count.set(1)
+                return true
+            }
+            val current = window.count.incrementAndGet()
+            return current <= MAX_WS_CONNECTIONS_PER_IP_PER_MINUTE
+        }
+    }
+
+    private fun cleanup() {
+        val now = System.currentTimeMillis()
+        val threshold = now - (2 * WINDOW_MS)
+        windows.entries.removeIf { (_, window) ->
+            window.windowStart.get() < threshold
+        }
+    }
+}
 
 fun Route.syncRoutes(
     config: AppConfig,
@@ -74,7 +115,14 @@ fun Route.syncRoutes(
                     if (since < 0) {
                         throw ApiException(400, "INVALID_REQUEST", "'since' parameter must be >= 0")
                     }
-                    val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 100
+                    // SEC4-S-20: Validate limit parameter consistently with since
+                    val limitParam = call.request.queryParameters["limit"]
+                    val limit = if (limitParam != null) {
+                        limitParam.toIntOrNull()
+                            ?: throw ApiException(400, "INVALID_REQUEST", "Invalid 'limit' parameter: must be an integer")
+                    } else {
+                        100
+                    }
 
                     val pullResponse = syncService.pullOps(bucketId, principal.deviceId, since, limit)
                     call.respond(HttpStatusCode.OK, pullResponse)
@@ -193,6 +241,10 @@ fun Route.syncRoutes(
                     val sizeBytes = blob.size.toLong()
                     val now = LocalDateTime.now(ZoneOffset.UTC)
 
+                    // SEC4-S-11: TODO - If the server crashes between writing the file to disk
+                    // and committing the DB row, an orphaned file remains. A background cleanup
+                    // job should periodically scan the snapshot directory for files not referenced
+                    // in the Snapshots table and delete them after a grace period (e.g., 1 hour).
                     val snapshotId = UUID.randomUUID().toString()
                     val snapshotDir = File(config.snapshotStoragePath)
                     snapshotDir.mkdirs()
@@ -279,6 +331,13 @@ fun Route.syncRoutes(
 
     // WebSocket /buckets/{id}/ws
     webSocket("/buckets/{id}/ws") {
+        // SEC4-S-10: IP-based rate limiting for WebSocket upgrade attempts
+        val clientIp = call.request.local.remoteAddress
+        if (!WebSocketConnectionRateLimiter.checkAndIncrement(clientIp)) {
+            close(CloseReason(4003, "Rate limit exceeded"))
+            return@webSocket
+        }
+
         val json = Json { ignoreUnknownKeys = true }
         val bucketId = call.parameters["id"]
         if (bucketId == null || !ValidationUtil.isValidUUID(bucketId)) {
@@ -287,6 +346,7 @@ fun Route.syncRoutes(
         }
 
         var connection: WebSocketManager.WsConnection? = null
+        var sessionToken: String? = null
 
         try {
             // Wait for auth message with timeout
@@ -328,6 +388,8 @@ fun Route.syncRoutes(
                 close(CloseReason(4001, "Auth failed"))
                 return@webSocket
             }
+
+            sessionToken = token
 
             // Verify bucket access
             val hasAccess = try {
@@ -376,6 +438,9 @@ fun Route.syncRoutes(
             // SEC3-S-19: Simple counter-based rate limiter (max 10 messages per second)
             var messageCount = 0
             var windowStart = System.currentTimeMillis()
+            // SEC4-S-01: Track last session re-validation time for periodic checks
+            var lastRevalidation = System.currentTimeMillis()
+            val revalidationIntervalMs = 60_000L // Re-validate every 60 seconds
 
             for (frame in incoming) {
                 if (frame is Frame.Text) {
@@ -389,6 +454,26 @@ fun Route.syncRoutes(
                     if (messageCount > 10) {
                         // Drop excess messages silently
                         continue
+                    }
+
+                    // SEC4-S-01: Periodic session and bucket access re-validation
+                    if (now - lastRevalidation > revalidationIntervalMs) {
+                        lastRevalidation = now
+                        val revalidatedSession = sessionUtil.validateSession(sessionToken!!)
+                        if (revalidatedSession == null) {
+                            close(CloseReason(4001, "Session expired"))
+                            return@webSocket
+                        }
+                        val stillHasAccess = try {
+                            dbQuery { BucketService.requireBucketAccess(bucketId, revalidatedSession.deviceId) }
+                            true
+                        } catch (_: ApiException) {
+                            false
+                        }
+                        if (!stillHasAccess) {
+                            close(CloseReason(CloseReason.Codes.VIOLATED_POLICY.code, "Access revoked"))
+                            return@webSocket
+                        }
                     }
 
                     val text = frame.readText()

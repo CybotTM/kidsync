@@ -4,8 +4,10 @@ import dev.kidsync.server.db.*
 import dev.kidsync.server.db.DatabaseFactory.dbQuery
 import dev.kidsync.server.models.*
 import dev.kidsync.server.util.HashUtil
+import dev.kidsync.server.util.SessionUtil
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.slf4j.LoggerFactory
 import java.io.File
 import java.time.LocalDateTime
 import java.time.ZoneOffset
@@ -17,11 +19,18 @@ class BucketService(
     private val snapshotStoragePath: String,
     // SEC3-S-05: Reference to WebSocketManager to disconnect devices on revocation
     private val wsManager: WebSocketManager? = null,
+    // SEC4-S-07: Reference to SessionUtil to invalidate sessions on revocation
+    private val sessionUtil: SessionUtil? = null,
 ) {
+
+    private val logger = LoggerFactory.getLogger(BucketService::class.java)
 
     companion object {
         // SEC3-S-15: Maximum number of buckets a single device can create
         const val MAX_BUCKETS_PER_DEVICE = 10
+
+        // SEC4-S-19: Maximum number of devices that can join a single bucket
+        const val MAX_DEVICES_PER_BUCKET = 10
 
         /**
          * Verify that a device has active (non-revoked) access to a bucket.
@@ -250,6 +259,15 @@ class BucketService(
                 throw ApiException(409, "INVALID_REQUEST", "Device already has access to this bucket")
             }
 
+            // SEC4-S-19: Enforce maximum devices per bucket limit
+            val activeDeviceCount = BucketAccess.selectAll().where {
+                (BucketAccess.bucketId eq bucketId) and BucketAccess.revokedAt.isNull()
+            }.count()
+
+            if (activeDeviceCount >= MAX_DEVICES_PER_BUCKET) {
+                throw ApiException(429, "RATE_LIMITED", "Maximum number of devices ($MAX_DEVICES_PER_BUCKET) per bucket reached")
+            }
+
             // SEC2-S-01: Atomic invite consumption -- use UPDATE with WHERE usedAt IS NULL
             // to prevent race conditions. Only the first concurrent request will match.
             val updatedRows = InviteTokens.update({
@@ -316,12 +334,11 @@ class BucketService(
     /**
      * Self-revoke: device removes its own access from a bucket.
      *
-     * SEC-S-17: TODO - When a device is revoked from a bucket, its existing session
-     * remains valid until expiry. Future improvement: invalidate sessions for the
-     * revoked device or add per-request bucket access re-validation.
+     * SEC4-S-07: When a device is revoked from its LAST bucket, all its sessions
+     * are invalidated to prevent continued access with stale tokens.
      */
     suspend fun selfRevoke(bucketId: String, deviceId: String) {
-        dbQuery {
+        val remainingBucketCount = dbQuery {
             val access = BucketAccess.selectAll().where {
                 (BucketAccess.bucketId eq bucketId) and
                     (BucketAccess.deviceId eq deviceId) and
@@ -336,9 +353,20 @@ class BucketService(
             }) {
                 it[revokedAt] = LocalDateTime.now(ZoneOffset.UTC)
             }
+
+            // Check remaining active bucket memberships for this device
+            BucketAccess.selectAll().where {
+                (BucketAccess.deviceId eq deviceId) and BucketAccess.revokedAt.isNull()
+            }.count()
         }
 
         // SEC3-S-05: Terminate WebSocket connections for the revoked device
         wsManager?.disconnectDevice(bucketId, deviceId)
+
+        // SEC4-S-07: If device has no remaining bucket memberships, invalidate all sessions
+        if (remainingBucketCount == 0L) {
+            logger.info("Device {} revoked from last bucket, invalidating all sessions", deviceId)
+            sessionUtil?.deleteSessionsByDevice(deviceId)
+        }
     }
 }

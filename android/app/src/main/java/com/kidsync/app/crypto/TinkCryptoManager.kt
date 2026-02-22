@@ -57,6 +57,10 @@ class TinkCryptoManager(
         return Pair(publicKeyParams.encoded, seed)
     }
 
+    // SEC4-A-06: The privateKey parameter is NOT zeroed here because ownership belongs to the
+    // caller (e.g., AuthRepositoryImpl, SnapshotUseCase) which zeros it in their own finally blocks.
+    // Zeroing the caller's array here would corrupt their reference if they need it for multiple
+    // operations within a single try block.
     override fun signEd25519(message: ByteArray, privateKey: ByteArray): ByteArray {
         val privateKeyParams = Ed25519PrivateKeyParameters(privateKey, 0)
         val signer = Ed25519Signer()
@@ -240,6 +244,15 @@ class TinkCryptoManager(
         }
     }
 
+    // TODO(SEC4-A-07): Add cross-signature validation for wrapped DEKs. Currently, any device
+    // in the bucket can wrap a DEK for any other device without proof of authorization. A future
+    // protocol enhancement should include a signature from the wrapping device over the wrapped
+    // payload, allowing the recipient to verify that the DEK was wrapped by an authorized
+    // (attested) device. This requires:
+    // 1. The wrapper signs (wrappedDekBlob || recipientDeviceId || keyEpoch) with its Ed25519 key
+    // 2. The signature is transmitted alongside the wrapped DEK
+    // 3. The recipient verifies the signature against the wrapper's attested signing key
+    // 4. Key attestation chain must be validated before trusting the signature
     override fun unwrapDek(
         wrappedDek: String,
         devicePrivateKey: PrivateKey,
@@ -365,32 +378,47 @@ class TinkCryptoManager(
         val nonce = ByteArray(AES_GCM_NONCE_SIZE)
         SecureRandom().nextBytes(nonce)
 
-        val cipher = Cipher.getInstance(ALGORITHM_AES_GCM)
-        val keySpec = SecretKeySpec(blobKey, "AES")
-        val gcmSpec = GCMParameterSpec(AES_GCM_TAG_SIZE, nonce)
-        cipher.init(Cipher.ENCRYPT_MODE, keySpec, gcmSpec)
-        cipher.updateAAD(blobId.toByteArray(Charsets.UTF_8))
-        val encrypted = cipher.doFinal(data)
+        try {
+            val cipher = Cipher.getInstance(ALGORITHM_AES_GCM)
+            val keySpec = SecretKeySpec(blobKey, "AES")
+            val gcmSpec = GCMParameterSpec(AES_GCM_TAG_SIZE, nonce)
+            cipher.init(Cipher.ENCRYPT_MODE, keySpec, gcmSpec)
+            cipher.updateAAD(blobId.toByteArray(Charsets.UTF_8))
+            val encrypted = cipher.doFinal(data)
 
-        // nonce || ciphertext || tag
-        val result = ByteArray(nonce.size + encrypted.size)
-        System.arraycopy(nonce, 0, result, 0, nonce.size)
-        System.arraycopy(encrypted, 0, result, nonce.size, encrypted.size)
+            // nonce || ciphertext || tag
+            val result = ByteArray(nonce.size + encrypted.size)
+            System.arraycopy(nonce, 0, result, 0, nonce.size)
+            System.arraycopy(encrypted, 0, result, nonce.size, encrypted.size)
 
-        return Pair(result, blobKey)
+            // SEC4-A-04: Return a copy of blobKey for the caller; zero the local copy.
+            // The caller is responsible for zeroing the returned key after storing/transmitting it.
+            val blobKeyCopy = blobKey.copyOf()
+            return Pair(result, blobKeyCopy)
+        } finally {
+            // SEC4-A-04: Zero blob key from local scope after use
+            blobKey.zeroOut()
+            nonce.zeroOut()
+        }
     }
 
     override fun decryptBlob(encryptedData: ByteArray, key: ByteArray, blobId: String): ByteArray {
         val nonce = encryptedData.sliceArray(0 until AES_GCM_NONCE_SIZE)
         val ciphertextAndTag = encryptedData.sliceArray(AES_GCM_NONCE_SIZE until encryptedData.size)
 
-        val cipher = Cipher.getInstance(ALGORITHM_AES_GCM)
-        val keySpec = SecretKeySpec(key, "AES")
-        val gcmSpec = GCMParameterSpec(AES_GCM_TAG_SIZE, nonce)
-        cipher.init(Cipher.DECRYPT_MODE, keySpec, gcmSpec)
-        cipher.updateAAD(blobId.toByteArray(Charsets.UTF_8))
+        try {
+            val cipher = Cipher.getInstance(ALGORITHM_AES_GCM)
+            val keySpec = SecretKeySpec(key, "AES")
+            val gcmSpec = GCMParameterSpec(AES_GCM_TAG_SIZE, nonce)
+            cipher.init(Cipher.DECRYPT_MODE, keySpec, gcmSpec)
+            cipher.updateAAD(blobId.toByteArray(Charsets.UTF_8))
 
-        return cipher.doFinal(ciphertextAndTag)
+            return cipher.doFinal(ciphertextAndTag)
+        } finally {
+            // SEC4-A-04: Zero the blob key after decryption. The caller passed us the key,
+            // but we zero it here defensively. Callers should not reuse the array after this call.
+            key.zeroOut()
+        }
     }
 
     // ─── Invite Token ────────────────────────────────────────────────────────────

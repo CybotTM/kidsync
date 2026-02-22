@@ -25,6 +25,11 @@ fun Route.keyRoutes(keyService: KeyService) {
                         throw ApiException(400, "INVALID_REQUEST", "targetDevice and wrappedDek are required")
                     }
 
+                    // SEC4-S-04: Validate targetDevice is a valid UUID format
+                    if (!ValidationUtil.isValidUUID(request.targetDevice)) {
+                        throw ApiException(400, "INVALID_REQUEST", "targetDevice must be a valid UUID")
+                    }
+
                     keyService.uploadWrappedKey(principal.deviceId, request)
                     call.respond(HttpStatusCode.Created)
                 }
@@ -47,15 +52,22 @@ fun Route.keyRoutes(keyService: KeyService) {
                         throw ApiException(400, "INVALID_REQUEST", "All fields are required")
                     }
 
+                    // SEC4-S-04: Validate attestedDevice is a valid UUID format
+                    if (!ValidationUtil.isValidUUID(request.attestedDevice)) {
+                        throw ApiException(400, "INVALID_REQUEST", "attestedDevice must be a valid UUID")
+                    }
+
                     keyService.uploadAttestation(principal.deviceId, request)
                     call.respond(HttpStatusCode.Created)
                 }
 
                 // GET /keys/attestations/{deviceId}
                 get("/attestations/{deviceId}") {
+                    val principal = call.devicePrincipal()
                     val deviceId = ValidationUtil.requireUuidPathParam(call, "deviceId", "device id")
 
-                    val attestations = keyService.getAttestations(deviceId)
+                    // SEC4-S-03: Pass caller device ID for bucket-sharing access check
+                    val attestations = keyService.getAttestations(principal.deviceId, deviceId)
                     call.respond(HttpStatusCode.OK, attestations)
                 }
             }

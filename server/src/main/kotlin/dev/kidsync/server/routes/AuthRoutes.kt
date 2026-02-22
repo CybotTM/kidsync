@@ -73,6 +73,12 @@ fun Route.authRoutes(config: AppConfig, sessionUtil: SessionUtil) {
             /**
              * POST /auth/challenge
              * Request a nonce for challenge-response authentication.
+             *
+             * SEC4-S-08: KNOWN BEHAVIOR - The device existence check before nonce generation
+             * creates a timing difference between registered and unregistered signing keys.
+             * This is accepted because signing keys are public (stored in the Devices table
+             * as public keys), so their existence is not a secret. The per-key rate limiter
+             * further mitigates any enumeration concerns.
              */
             post("/challenge") {
                 val request = call.receive<ChallengeRequest>()
@@ -118,6 +124,13 @@ fun Route.authRoutes(config: AppConfig, sessionUtil: SessionUtil) {
              * the client possesses the private key corresponding to the registered public key.
              *
              * The challenge message the client signs is: nonce || signingKey || serverOrigin || timestamp
+             *
+             * SEC4-S-17: DESIGN NOTE - Challenge nonces are not bound to the client's IP address.
+             * This is partially mitigated by: (1) TLS preventing MITM interception of nonces,
+             * (2) the 60-second TTL limiting the replay window, (3) one-time use enforcement
+             * (nonce is consumed on verification attempt), and (4) the signature including the
+             * server origin which prevents cross-origin replay. IP binding was considered but
+             * would break mobile clients that switch networks (WiFi<->cellular) mid-auth.
              */
             post("/verify") {
                 val request = call.receive<VerifyRequest>()

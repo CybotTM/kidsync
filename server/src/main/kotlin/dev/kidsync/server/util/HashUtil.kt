@@ -17,12 +17,12 @@ object HashUtil {
     }
 
     /**
-     * Verify hash chain: currentHash == SHA256(bytes(prevHash) + base64Decode(encryptedPayload))
+     * Verify hash chain: currentHash == SHA256(bytes(prevHash) + payloadBytes)
      * SEC-S-03: Uses constant-time comparison to prevent timing side-channel attacks.
+     * SEC4-S-18: Accepts pre-decoded payload bytes to avoid redundant base64 decoding.
      */
-    fun verifyHashChain(prevHash: String, encryptedPayload: String, expectedCurrentHash: String): Boolean {
+    fun verifyHashChain(prevHash: String, payloadBytes: ByteArray, expectedCurrentHash: String): Boolean {
         val prevHashBytes = hexToBytes(prevHash)
-        val payloadBytes = Base64.getDecoder().decode(encryptedPayload)
         val computed = sha256Hex(prevHashBytes, payloadBytes)
         return MessageDigest.isEqual(computed.toByteArray(), expectedCurrentHash.toByteArray())
     }
