@@ -78,6 +78,16 @@ class P2PSyncManager(
         private const val HMAC_ALGORITHM = "HmacSHA256"
         private const val BATCH_SIZE = 50
         private const val HANDSHAKE_TIMESTAMP_TOLERANCE_MS = 30_000L // 30 seconds
+
+        /**
+         * Compute HMAC-SHA256 and return base64-encoded result.
+         */
+        fun hmacSha256(key: ByteArray, data: ByteArray): String {
+            val mac = Mac.getInstance(HMAC_ALGORITHM)
+            mac.init(SecretKeySpec(key, HMAC_ALGORITHM))
+            val result = mac.doFinal(data)
+            return Base64.getEncoder().encodeToString(result)
+        }
     }
 
     // ── Public API ───────────────────────────────────────────────────────────
@@ -509,16 +519,4 @@ class P2PSyncManager(
         peerLastSequence = -1
     }
 
-    companion object HmacHelper {
-        /**
-         * Compute HMAC-SHA256 and return base64-encoded result.
-         * Extracted as a companion function for testability.
-         */
-        fun hmacSha256(key: ByteArray, data: ByteArray): String {
-            val mac = Mac.getInstance(HMAC_ALGORITHM)
-            mac.init(SecretKeySpec(key, HMAC_ALGORITHM))
-            val result = mac.doFinal(data)
-            return Base64.getEncoder().encodeToString(result)
-        }
-    }
 }
