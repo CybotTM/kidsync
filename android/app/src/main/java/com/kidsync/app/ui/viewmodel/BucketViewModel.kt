@@ -66,7 +66,12 @@ data class BucketUiState(
     val isJoined: Boolean = false,
     val isWaitingForDek: Boolean = false,
     val joinProgress: String = "",
-    val peerFingerprint: String? = null
+    val peerFingerprint: String? = null,
+
+    // SEC5-A-07: Server URL confirmation dialog
+    val showServerUrlConfirmation: Boolean = false,
+    val pendingServerUrl: String? = null,
+    val pendingQrPayload: QrPairingPayload? = null
 )
 
 @HiltViewModel
@@ -256,121 +261,25 @@ class BucketViewModel @Inject constructor(
                     )
                 }
 
-                // Configure server URL from QR
-                // TODO(SEC5-A-07): Show a confirmation dialog to the user before accepting a server
-                // URL from the QR code, especially for non-kidsync.app domains. This prevents a
-                // malicious QR code from silently redirecting the app to a rogue server that could
-                // intercept wrapped DEKs or auth tokens. The dialog should display the URL and
-                // require explicit user approval.
-                authRepository.setServerUrl(payload.s)
-
-                // Register device if not already registered
-                if (!keyManager.hasExistingKeys()) {
-                    _uiState.update { it.copy(joinProgress = "Generating device keys...") }
-
-                    val (signingPublicKey, _) = keyManager.getOrCreateSigningKeyPair()
-                    val encryptionKeyPair = keyManager.getEncryptionKeyPair()
-
-                    _uiState.update { it.copy(joinProgress = "Registering device...") }
-
-                    val signingKeyBase64 = Base64.getEncoder().encodeToString(signingPublicKey)
-                    val encryptionKeyBase64 = Base64.getEncoder().encodeToString(
-                        encryptionKeyPair.public.encoded
-                    )
-
-                    val registerResult = authRepository.register(signingKeyBase64, encryptionKeyBase64)
-                    val deviceId = registerResult.getOrThrow()
-                    keyManager.storeDeviceId(deviceId)
-                }
-
-                // Authenticate via challenge-response
-                _uiState.update { it.copy(joinProgress = "Authenticating...") }
-                val authResult = authRepository.authenticate()
-                authResult.getOrThrow()
-
-                // Redeem invite token (join bucket)
-                _uiState.update { it.copy(joinProgress = "Joining bucket...") }
-                val joinResult = bucketRepository.joinBucket(
-                    bucketId = payload.b,
-                    inviteToken = payload.t
-                )
-                joinResult.getOrThrow()
-
-                // Verify initiator's key fingerprint from QR
-                _uiState.update {
-                    it.copy(
-                        joinProgress = "Verifying peer key...",
-                        peerFingerprint = payload.f
-                    )
-                }
-                val peerDevicesResult = bucketRepository.getBucketDevices(payload.b)
-                val peerDevices = peerDevicesResult.getOrThrow()
-                val peerVerified = peerDevices.any { device ->
-                    cryptoManager.computeKeyFingerprint(device.encryptionKey) == payload.f
-                }
-
-                if (!peerVerified) {
+                // SEC5-A-07: Show confirmation dialog before accepting a server URL from the QR code.
+                // This prevents a malicious QR code from silently redirecting the app to a rogue
+                // server that could intercept wrapped DEKs or auth tokens.
+                val currentServerUrl = authRepository.getServerUrl()
+                if (payload.s != currentServerUrl) {
                     _uiState.update {
                         it.copy(
                             isLoading = false,
-                            error = "Could not verify initiator's key fingerprint. Pairing may be compromised."
+                            showServerUrlConfirmation = true,
+                            pendingServerUrl = payload.s,
+                            pendingQrPayload = payload,
+                            joinProgress = ""
                         )
                     }
                     return@launch
                 }
 
-                // Wait for wrapped DEK from initiator
-                _uiState.update {
-                    it.copy(
-                        isWaitingForDek = true,
-                        joinProgress = "Waiting for encryption key..."
-                    )
-                }
-
-                val wrappedDek = bucketRepository.waitForWrappedDek(
-                    bucketId = payload.b
-                )
-
-                // Unwrap DEK with our private key
-                val encryptionKeyPair = keyManager.getEncryptionKeyPair()
-                cryptoManager.unwrapAndStoreDek(
-                    bucketId = payload.b,
-                    wrappedDek = wrappedDek.wrappedDek,
-                    senderPublicKey = wrappedDek.wrappedBy,
-                    privateKey = encryptionKeyPair.private
-                )
-
-                // Cross-sign the peer's key
-                val peerDevice = peerDevices.first { device ->
-                    cryptoManager.computeKeyFingerprint(device.encryptionKey) == payload.f
-                }
-                val attestation = keyManager.createKeyAttestation(
-                    attestedDeviceId = peerDevice.deviceId,
-                    attestedEncryptionKey = Base64.getDecoder().decode(peerDevice.encryptionKey)
-                )
-                bucketRepository.uploadKeyAttestation(attestation)
-
-                // Store local name and track accessible bucket
-                bucketRepository.storeLocalBucketName(payload.b, "Shared Bucket")
-
-                val bucketInfo = BucketInfo(
-                    bucketId = payload.b,
-                    localName = bucketRepository.getLocalBucketName(payload.b) ?: "Shared Bucket"
-                )
-
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        isJoined = true,
-                        isWaitingForDek = false,
-                        currentBucket = bucketInfo,
-                        buckets = it.buckets + bucketInfo,
-                        joinProgress = "",
-                        // SEC3-A-11: Clear invite token after pairing completes
-                        inviteToken = null,
-                        qrPayload = null
-                    )
-                }
+                // Server URL matches current -- proceed directly
+                continueJoinBucket(payload)
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(
@@ -381,6 +290,170 @@ class BucketViewModel @Inject constructor(
                     )
                 }
             }
+        }
+    }
+
+    /**
+     * SEC5-A-07: User confirmed the server URL from the QR code.
+     * Apply the URL and continue the join flow.
+     */
+    fun confirmServerUrl() {
+        val payload = _uiState.value.pendingQrPayload ?: return
+        val pendingUrl = _uiState.value.pendingServerUrl ?: return
+
+        _uiState.update {
+            it.copy(
+                showServerUrlConfirmation = false,
+                pendingServerUrl = null,
+                pendingQrPayload = null,
+                isLoading = true,
+                joinProgress = "Connecting to server..."
+            )
+        }
+
+        viewModelScope.launch {
+            try {
+                authRepository.setServerUrl(pendingUrl)
+                continueJoinBucket(payload)
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        error = e.message ?: "Failed to join bucket",
+                        joinProgress = ""
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * SEC5-A-07: User rejected the server URL from the QR code.
+     * Cancel the join flow.
+     */
+    fun rejectServerUrl() {
+        _uiState.update {
+            it.copy(
+                showServerUrlConfirmation = false,
+                pendingServerUrl = null,
+                pendingQrPayload = null,
+                isLoading = false,
+                error = "Server URL was rejected. Join cancelled.",
+                joinProgress = ""
+            )
+        }
+    }
+
+    /**
+     * Continue the join flow after server URL has been confirmed or matched.
+     */
+    private suspend fun continueJoinBucket(payload: QrPairingPayload) {
+        // Register device if not already registered
+        if (!keyManager.hasExistingKeys()) {
+            _uiState.update { it.copy(joinProgress = "Generating device keys...") }
+
+            val (signingPublicKey, _) = keyManager.getOrCreateSigningKeyPair()
+            val encryptionKeyPair = keyManager.getEncryptionKeyPair()
+
+            _uiState.update { it.copy(joinProgress = "Registering device...") }
+
+            val signingKeyBase64 = Base64.getEncoder().encodeToString(signingPublicKey)
+            val encryptionKeyBase64 = Base64.getEncoder().encodeToString(
+                encryptionKeyPair.public.encoded
+            )
+
+            val registerResult = authRepository.register(signingKeyBase64, encryptionKeyBase64)
+            val deviceId = registerResult.getOrThrow()
+            keyManager.storeDeviceId(deviceId)
+        }
+
+        // Authenticate via challenge-response
+        _uiState.update { it.copy(joinProgress = "Authenticating...") }
+        val authResult = authRepository.authenticate()
+        authResult.getOrThrow()
+
+        // Redeem invite token (join bucket)
+        _uiState.update { it.copy(joinProgress = "Joining bucket...") }
+        val joinResult = bucketRepository.joinBucket(
+            bucketId = payload.b,
+            inviteToken = payload.t
+        )
+        joinResult.getOrThrow()
+
+        // Verify initiator's key fingerprint from QR
+        _uiState.update {
+            it.copy(
+                joinProgress = "Verifying peer key...",
+                peerFingerprint = payload.f
+            )
+        }
+        val peerDevicesResult = bucketRepository.getBucketDevices(payload.b)
+        val peerDevices = peerDevicesResult.getOrThrow()
+        val peerVerified = peerDevices.any { device ->
+            cryptoManager.computeKeyFingerprint(device.encryptionKey) == payload.f
+        }
+
+        if (!peerVerified) {
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    error = "Could not verify initiator's key fingerprint. Pairing may be compromised."
+                )
+            }
+            return
+        }
+
+        // Wait for wrapped DEK from initiator
+        _uiState.update {
+            it.copy(
+                isWaitingForDek = true,
+                joinProgress = "Waiting for encryption key..."
+            )
+        }
+
+        val wrappedDek = bucketRepository.waitForWrappedDek(
+            bucketId = payload.b
+        )
+
+        // Unwrap DEK with our private key
+        val encryptionKeyPair = keyManager.getEncryptionKeyPair()
+        cryptoManager.unwrapAndStoreDek(
+            bucketId = payload.b,
+            wrappedDek = wrappedDek.wrappedDek,
+            senderPublicKey = wrappedDek.wrappedBy,
+            privateKey = encryptionKeyPair.private
+        )
+
+        // Cross-sign the peer's key
+        val peerDevice = peerDevices.first { device ->
+            cryptoManager.computeKeyFingerprint(device.encryptionKey) == payload.f
+        }
+        val attestation = keyManager.createKeyAttestation(
+            attestedDeviceId = peerDevice.deviceId,
+            attestedEncryptionKey = Base64.getDecoder().decode(peerDevice.encryptionKey)
+        )
+        bucketRepository.uploadKeyAttestation(attestation)
+
+        // Store local name and track accessible bucket
+        bucketRepository.storeLocalBucketName(payload.b, "Shared Bucket")
+
+        val bucketInfo = BucketInfo(
+            bucketId = payload.b,
+            localName = bucketRepository.getLocalBucketName(payload.b) ?: "Shared Bucket"
+        )
+
+        _uiState.update {
+            it.copy(
+                isLoading = false,
+                isJoined = true,
+                isWaitingForDek = false,
+                currentBucket = bucketInfo,
+                buckets = it.buckets + bucketInfo,
+                joinProgress = "",
+                // SEC3-A-11: Clear invite token after pairing completes
+                inviteToken = null,
+                qrPayload = null
+            )
         }
     }
 

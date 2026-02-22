@@ -9,15 +9,11 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import kotlinx.serialization.json.Json
-import okhttp3.CertificatePinner
-import okhttp3.ConnectionSpec
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
-import okhttp3.TlsVersion
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
-import java.util.concurrent.TimeUnit
 import javax.inject.Named
 import javax.inject.Singleton
 
@@ -47,65 +43,26 @@ object NetworkModule {
         }
     }
 
-    // TODO(SEC6-A-03): When the user changes the server URL in SettingsViewModel, the
-    // OkHttpClient and CertificatePinner are not rebuilt. The pinner remains configured for
-    // the original host. Either rebuild the OkHttpClient on URL change or use a dynamic
-    // pinner that re-evaluates the host on each request.
+    @Provides
+    @Singleton
+    fun provideOkHttpClientManager(
+        authInterceptor: AuthInterceptor,
+        loggingInterceptor: HttpLoggingInterceptor
+    ): OkHttpClientManager {
+        return OkHttpClientManager(authInterceptor, loggingInterceptor)
+    }
+
+    /**
+     * SEC6-A-03: The OkHttpClient is now managed by [OkHttpClientManager], which
+     * rebuilds it (including CertificatePinner) when the server URL changes.
+     * This provider returns the current client from the manager.
+     */
     @Provides
     @Singleton
     fun provideOkHttpClient(
-        authInterceptor: AuthInterceptor,
-        loggingInterceptor: HttpLoggingInterceptor,
-        @Named("baseUrl") baseUrl: String
+        clientManager: OkHttpClientManager
     ): OkHttpClient {
-        // SEC3-A-12: Enforce TLS 1.2+ to prevent protocol downgrade attacks.
-        // This ConnectionSpec restricts to modern TLS versions and strong cipher suites.
-        val tlsSpec = ConnectionSpec.Builder(ConnectionSpec.MODERN_TLS)
-            .tlsVersions(TlsVersion.TLS_1_2, TlsVersion.TLS_1_3)
-            .build()
-
-        val builder = OkHttpClient.Builder()
-            // SEC4-A-01: Only allow TLS connections. CLEARTEXT (HTTP) is not permitted.
-            .connectionSpecs(listOf(tlsSpec))
-            .addInterceptor(authInterceptor)
-            .addInterceptor(loggingInterceptor)
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
-
-        // SEC2-A-01: Certificate pinning for production builds only.
-        // In debug builds, pinning is disabled to allow proxy/MITM debugging.
-        // For release builds, real pins MUST be set in BuildConfig before shipping.
-        // TODO: Derive real pins before release using:
-        //   openssl s_client -connect api.kidsync.app:443 | openssl x509 -pubkey -noout | \
-        //     openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | openssl enc -base64
-        if (!BuildConfig.DEBUG) {
-            require(BuildConfig.CERT_PIN_PRIMARY != "PLACEHOLDER" && BuildConfig.CERT_PIN_BACKUP != "PLACEHOLDER") {
-                "Release builds require real certificate pins. Set CERT_PIN_PRIMARY and CERT_PIN_BACKUP in build config."
-            }
-            // SEC4-A-03: Pin certificates for ALL connections (not just *.kidsync.app).
-            // All API traffic goes through this single OkHttpClient, so pinning the
-            // kidsync.app domain ensures all server communication is pinned. If the user
-            // configures a custom server URL, add its host to the pinner as well.
-            val pinnerBuilder = CertificatePinner.Builder()
-                .add("*.kidsync.app", "sha256/${BuildConfig.CERT_PIN_PRIMARY}")
-                .add("*.kidsync.app", "sha256/${BuildConfig.CERT_PIN_BACKUP}")
-
-            // SEC4-A-03: Also pin the configured server host if it differs from kidsync.app.
-            // This ensures that even self-hosted servers get cert pinning. Operators must
-            // set CERT_PIN_PRIMARY/BACKUP to pins matching their server's certificate chain.
-            val serverHost = try {
-                java.net.URL(baseUrl).host
-            } catch (_: Exception) { null }
-            if (serverHost != null && !serverHost.endsWith("kidsync.app")) {
-                pinnerBuilder.add(serverHost, "sha256/${BuildConfig.CERT_PIN_PRIMARY}")
-                pinnerBuilder.add(serverHost, "sha256/${BuildConfig.CERT_PIN_BACKUP}")
-            }
-
-            builder.certificatePinner(pinnerBuilder.build())
-        }
-
-        return builder.build()
+        return clientManager.getClient()
     }
 
     @Provides
