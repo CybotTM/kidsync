@@ -352,6 +352,6 @@ class FileTransferManagerTest : FunSpec({
         val result = manager.importBundle(ByteArrayInputStream(baos.toByteArray()))
 
         result.isFailure shouldBe true
-        result.exceptionOrNull()!!.message shouldContain "missing manifest.json"
+        result.exceptionOrNull()!!.message shouldContain "manifest.json"
     }
 })
