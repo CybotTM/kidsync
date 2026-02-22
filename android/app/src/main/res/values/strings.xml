@@ -129,6 +129,19 @@
     <string name="settings_version">Version %1$s</string>
     <string name="settings_logout">Sign Out</string>
 
+    <!-- File Transfer Screen -->
+    <string name="file_transfer_title">Export / Import Data</string>
+    <string name="file_transfer_export_button">Export Bucket</string>
+    <string name="file_transfer_import_button">Import Bundle</string>
+    <string name="file_transfer_select_bucket">Select bucket to export</string>
+    <string name="file_transfer_exporting">Exporting\u2026</string>
+    <string name="file_transfer_importing">Importing\u2026</string>
+    <string name="file_transfer_export_success">Exported %1$d ops successfully</string>
+    <string name="file_transfer_import_success">Imported %1$d new ops (%2$d duplicates skipped)</string>
+    <string name="file_transfer_error">Error: %1$s</string>
+    <string name="settings_file_transfer">Export / Import Data</string>
+    <string name="settings_file_transfer_subtitle">Share data via .kidsync files</string>
+
     <!-- Device List Screen -->
     <string name="devices_title">Devices</string>
     <string name="devices_loading">Loading devices\u2026</string>
@@ -419,4 +432,44 @@
     <string name="info_bank_note_title">Title</string>
     <string name="info_bank_note_content">Content</string>
     <string name="info_bank_note_tag">Category Tag</string>
+
+    <!-- WebDAV Settings -->
+    <string name="webdav_settings_title">WebDAV Sync</string>
+    <string name="webdav_server_url">Server URL</string>
+    <string name="webdav_server_url_hint">https://cloud.example.com/remote.php/dav/files/user/</string>
+    <string name="webdav_username">Username</string>
+    <string name="webdav_password">Password</string>
+    <string name="webdav_test_connection">Test Connection</string>
+    <string name="webdav_testing">Testing\u2026</string>
+    <string name="webdav_connected">Connected</string>
+    <string name="webdav_connection_failed">Connection failed: %s</string>
+    <string name="webdav_enable_sync">Enable WebDAV Sync</string>
+    <string name="webdav_sync_interval">Sync Interval</string>
+    <string name="webdav_sync_now">Sync Now</string>
+    <string name="webdav_syncing">Syncing\u2026</string>
+    <string name="webdav_last_sync">Last sync: %s</string>
+    <string name="settings_webdav">WebDAV Sync</string>
+    <string name="settings_webdav_subtitle">Sync via NextCloud or WebDAV server</string>
+
+    <!-- P2P Sync -->
+    <string name="p2p_title">P2P Sync</string>
+    <string name="p2p_subtitle">Sync directly with nearby devices</string>
+    <string name="p2p_select_bucket">Select bucket to sync</string>
+    <string name="p2p_advertise">Share Data</string>
+    <string name="p2p_advertise_desc">Make this device visible to nearby devices</string>
+    <string name="p2p_discover">Receive Data</string>
+    <string name="p2p_discover_desc">Find nearby devices sharing data</string>
+    <string name="p2p_advertising">Waiting for nearby device\u2026</string>
+    <string name="p2p_discovering">Searching for nearby devices\u2026</string>
+    <string name="p2p_connecting">Connecting to %1$s\u2026</string>
+    <string name="p2p_verifying">Verifying device\u2026</string>
+    <string name="p2p_syncing">Syncing\u2026 %.0f%%</string>
+    <string name="p2p_complete">Sync complete! Sent %1$d, received %2$d ops</string>
+    <string name="p2p_error">Error: %1$s</string>
+    <string name="p2p_stop">Stop</string>
+    <string name="p2p_retry">Retry</string>
+    <string name="p2p_permissions_needed">Nearby device permissions are required for P2P sync</string>
+    <string name="p2p_grant_permissions">Grant Permissions</string>
+    <string name="settings_p2p_sync">P2P Sync</string>
+    <string name="settings_p2p_sync_subtitle">Sync directly with nearby devices</string>
 </resources>

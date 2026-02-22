@@ -69,6 +69,15 @@ interface OpLogDao {
     @Query("SELECT COUNT(*) FROM oplog WHERE bucketId = :bucketId AND isPending = 1")
     suspend fun getPendingOpsCount(bucketId: String): Int
 
+    @Query("SELECT * FROM oplog WHERE bucketId = :bucketId AND deviceId = :deviceId AND deviceSequence = :deviceSequence LIMIT 1")
+    suspend fun findOp(bucketId: String, deviceId: String, deviceSequence: Long): OpLogEntryEntity?
+
+    @Query("SELECT COUNT(*) FROM oplog WHERE bucketId = :bucketId")
+    suspend fun getOpsCountForBucket(bucketId: String): Long
+
+    @Query("SELECT * FROM oplog WHERE bucketId = :bucketId ORDER BY globalSequence DESC LIMIT 1")
+    suspend fun getLastOpForBucket(bucketId: String): OpLogEntryEntity?
+
     @Query("DELETE FROM oplog")
     suspend fun deleteAll()
 }

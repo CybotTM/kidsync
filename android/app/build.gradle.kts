@@ -180,6 +180,9 @@ dependencies {
     // re-add it with a specific use case justification.
     implementation(libs.bouncycastle)
 
+    // P2P Sync (Nearby Connections)
+    implementation("com.google.android.gms:play-services-nearby:19.3.0")
+
     // QR Code
     implementation(libs.zxing.core)
 
@@ -211,4 +214,5 @@ dependencies {
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.room.testing)
     testImplementation(libs.androidx.work.testing)
+    testImplementation(libs.okhttp.mockwebserver)
 }

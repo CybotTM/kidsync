@@ -18,11 +18,14 @@ import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CurrencyExchange
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.ImportExport
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -57,6 +60,9 @@ import com.kidsync.app.ui.viewmodel.SettingsViewModel
 fun SettingsScreen(
     onNavigateToDeviceList: () -> Unit,
     onNavigateToServerConfig: () -> Unit,
+    onNavigateToFileTransfer: () -> Unit = {},
+    onNavigateToWebDavSettings: () -> Unit = {},
+    onNavigateToP2PSync: () -> Unit = {},
     onInviteCoParent: () -> Unit = {},
     onLogout: () -> Unit,
     onBack: () -> Unit,
@@ -145,6 +151,27 @@ fun SettingsScreen(
                 title = stringResource(R.string.settings_server_config),
                 subtitle = uiState.serverUrl,
                 onClick = onNavigateToServerConfig
+            )
+
+            SettingsItem(
+                icon = Icons.Filled.Storage,
+                title = stringResource(R.string.settings_webdav),
+                subtitle = stringResource(R.string.settings_webdav_subtitle),
+                onClick = onNavigateToWebDavSettings
+            )
+
+            SettingsItem(
+                icon = Icons.Filled.Wifi,
+                title = stringResource(R.string.settings_p2p_sync),
+                subtitle = stringResource(R.string.settings_p2p_sync_subtitle),
+                onClick = onNavigateToP2PSync
+            )
+
+            SettingsItem(
+                icon = Icons.Filled.ImportExport,
+                title = stringResource(R.string.settings_file_transfer),
+                subtitle = stringResource(R.string.settings_file_transfer_subtitle),
+                onClick = onNavigateToFileTransfer
             )
 
             HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))

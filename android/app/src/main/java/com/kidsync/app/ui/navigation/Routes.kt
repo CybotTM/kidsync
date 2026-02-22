@@ -70,4 +70,7 @@ sealed class Routes(val route: String) {
     data object Settings : Routes("settings")
     data object DeviceList : Routes("device_list")
     data object ServerConfig : Routes("server_config")
+    data object FileTransfer : Routes("file_transfer")
+    data object WebDavSettings : Routes("webdav_settings")
+    data object P2PSync : Routes("p2p_sync")
 }

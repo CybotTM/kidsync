@@ -6,6 +6,7 @@ import com.kidsync.app.crypto.KeyManager
 import com.kidsync.app.data.local.dao.BucketDao
 import com.kidsync.app.data.local.dao.ExpenseDao
 import com.kidsync.app.data.local.dao.KeyAttestationDao
+import android.content.Context
 import com.kidsync.app.data.local.dao.OpLogDao
 import com.kidsync.app.data.local.dao.SyncStateDao
 import com.kidsync.app.data.remote.api.ApiService
@@ -19,10 +20,15 @@ import com.kidsync.app.domain.repository.BlobRepository
 import com.kidsync.app.domain.repository.BucketRepository
 import com.kidsync.app.domain.repository.ExpenseRepository
 import com.kidsync.app.domain.repository.SyncRepository
+import com.kidsync.app.sync.filetransfer.FileTransferManager
+import com.kidsync.app.sync.p2p.P2PSyncManager
+import com.kidsync.app.sync.webdav.WebDavSyncManager
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import kotlinx.serialization.json.Json
 import javax.inject.Named
 import javax.inject.Singleton
 
@@ -78,6 +84,41 @@ object RepositoryModule {
         apiService: ApiService
     ): BlobRepository {
         return BlobRepositoryImpl(apiService)
+    }
+
+    @Provides
+    @Singleton
+    fun provideFileTransferManager(
+        opLogDao: OpLogDao,
+        keyManager: KeyManager
+    ): FileTransferManager {
+        return FileTransferManager(opLogDao, keyManager)
+    }
+
+    @Provides
+    @Singleton
+    fun provideWebDavSyncManager(
+        opLogDao: OpLogDao,
+        syncStateDao: SyncStateDao,
+        json: Json
+    ): WebDavSyncManager {
+        return WebDavSyncManager(opLogDao, syncStateDao, json)
+    }
+
+    @Provides
+    @Singleton
+    fun provideP2PSyncManager(
+        @ApplicationContext context: Context,
+        opLogDao: OpLogDao,
+        keyManager: KeyManager,
+        cryptoManager: CryptoManager
+    ): P2PSyncManager {
+        return P2PSyncManager(
+            context = context,
+            opLogDao = opLogDao,
+            keyManager = keyManager,
+            cryptoManager = cryptoManager
+        )
     }
 
     @Provides

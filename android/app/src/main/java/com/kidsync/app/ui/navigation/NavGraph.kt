@@ -36,8 +36,11 @@ import com.kidsync.app.ui.screens.infobank.InfoBankDetailScreen
 import com.kidsync.app.ui.screens.infobank.InfoBankFormScreen
 import com.kidsync.app.ui.screens.infobank.InfoBankScreen
 import com.kidsync.app.ui.screens.settings.DeviceListScreen
+import com.kidsync.app.ui.screens.settings.FileTransferScreen
+import com.kidsync.app.ui.screens.settings.P2PSyncScreen
 import com.kidsync.app.ui.screens.settings.ServerConfigScreen
 import com.kidsync.app.ui.screens.settings.SettingsScreen
+import com.kidsync.app.ui.screens.settings.WebDavSettingsScreen
 import com.kidsync.app.ui.viewmodel.AuthViewModel
 
 /**
@@ -461,6 +464,15 @@ fun KidSyncNavGraph(
                     onNavigateToServerConfig = {
                         navController.navigate(Routes.ServerConfig.route)
                     },
+                    onNavigateToFileTransfer = {
+                        navController.navigate(Routes.FileTransfer.route)
+                    },
+                    onNavigateToWebDavSettings = {
+                        navController.navigate(Routes.WebDavSettings.route)
+                    },
+                    onNavigateToP2PSync = {
+                        navController.navigate(Routes.P2PSync.route)
+                    },
                     onInviteCoParent = {
                         navController.navigate(Routes.Pairing.route)
                     },
@@ -485,6 +497,30 @@ fun KidSyncNavGraph(
         composable(Routes.ServerConfig.route) {
             AuthenticatedRoute(authViewModel, navController) {
                 ServerConfigScreen(
+                    onBack = { navController.popBackStack() }
+                )
+            }
+        }
+
+        composable(Routes.FileTransfer.route) {
+            AuthenticatedRoute(authViewModel, navController) {
+                FileTransferScreen(
+                    onBack = { navController.popBackStack() }
+                )
+            }
+        }
+
+        composable(Routes.WebDavSettings.route) {
+            AuthenticatedRoute(authViewModel, navController) {
+                WebDavSettingsScreen(
+                    onBack = { navController.popBackStack() }
+                )
+            }
+        }
+
+        composable(Routes.P2PSync.route) {
+            AuthenticatedRoute(authViewModel, navController) {
+                P2PSyncScreen(
                     onBack = { navController.popBackStack() }
                 )
             }
