@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  security-events: write  # Required for SARIF upload (Detekt code scanning)
 
 jobs:
   server-tests:
@@ -32,6 +33,15 @@ jobs:
       - name: Run tests
         run: ./gradlew test --no-daemon
 
+      - name: Generate coverage report
+        if: success()
+        run: ./gradlew koverXmlReport koverHtmlReport --no-daemon
+
+      - name: Run Detekt
+        if: always()
+        run: ./gradlew detekt --no-daemon
+        continue-on-error: true
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -39,6 +49,21 @@ jobs:
           name: server-test-results
           path: server/build/reports/tests/
           retention-days: 14
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: server-coverage
+          path: server/build/reports/kover/
+          retention-days: 14
+
+      - name: Upload Detekt SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@89a39a4e59826350b863aa6b6252a07ad50cf83e # v4.32.4
+        with:
+          sarif_file: server/build/reports/detekt/detekt.sarif
+          category: server-detekt
 
   android-build:
     name: Android Build
@@ -78,6 +103,15 @@ jobs:
           path: android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
 
+      - name: Generate coverage report
+        if: success()
+        run: ./gradlew koverXmlReportCustom koverHtmlReportCustom --no-daemon
+
+      - name: Run Detekt
+        if: always()
+        run: ./gradlew detekt --no-daemon
+        continue-on-error: true
+
       - name: Upload lint report
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -93,6 +127,21 @@ jobs:
           name: android-test-results
           path: android/app/build/reports/tests/
           retention-days: 14
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: android-coverage
+          path: android/app/build/reports/kover/
+          retention-days: 14
+
+      - name: Upload Detekt SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@89a39a4e59826350b863aa6b6252a07ad50cf83e # v4.32.4
+        with:
+          sarif_file: android/app/build/reports/detekt/detekt.sarif
+          category: android-detekt
 
   conformance-tests:
     name: Conformance Tests
