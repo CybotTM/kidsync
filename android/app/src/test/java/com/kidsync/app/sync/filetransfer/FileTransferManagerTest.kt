@@ -89,7 +89,7 @@ class FileTransferManagerTest : FunSpec({
 
         // Verify ZIP contents
         val zipBytes = outputStream.toByteArray()
-        zipBytes.size shouldBeGreaterThan 0
+        zipBytes.size.toLong() shouldBeGreaterThan 0L
 
         val zipIn = ZipInputStream(ByteArrayInputStream(zipBytes))
         val entries = mutableMapOf<String, String>()
