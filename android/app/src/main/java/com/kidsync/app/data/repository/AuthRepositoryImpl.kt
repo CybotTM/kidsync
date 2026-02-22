@@ -8,6 +8,7 @@ import com.kidsync.app.data.remote.dto.ChallengeRequest
 import com.kidsync.app.data.remote.dto.RegisterRequest
 import com.kidsync.app.data.remote.dto.VerifyRequest
 import com.kidsync.app.data.remote.interceptor.AuthInterceptor
+import com.kidsync.app.di.OkHttpClientManager
 import com.kidsync.app.domain.model.DeviceSession
 import com.kidsync.app.domain.repository.AuthRepository
 import java.time.Instant
@@ -33,7 +34,8 @@ class AuthRepositoryImpl(
     private val keyManager: KeyManager,
     private val encryptedPrefs: SharedPreferences,
     private val prefs: SharedPreferences,
-    private val serverOrigin: String
+    private val serverOrigin: String,
+    private val okHttpClientManager: OkHttpClientManager? = null
 ) : AuthRepository {
 
     companion object {
@@ -199,10 +201,13 @@ class AuthRepositoryImpl(
         return encryptedPrefs.getString(PREF_SERVER_URL, serverOrigin) ?: serverOrigin
     }
 
+    // SEC6-A-03: Notify OkHttpClientManager when the server URL changes so it can
+    // rebuild the OkHttpClient with updated CertificatePinner for the new host.
     override fun setServerUrl(url: String) {
         encryptedPrefs.edit()
             .putString(PREF_SERVER_URL, url)
-            .apply()
+            .commit()
+        okHttpClientManager?.onServerUrlChanged(url)
     }
 
     override suspend fun testConnection() {
@@ -223,26 +228,22 @@ class AuthRepositoryImpl(
 
     /**
      * Build the challenge message to sign.
-     * Format: nonce (32 bytes raw) || signingKey (32 bytes raw) || serverOrigin (UTF-8) || timestamp (UTF-8)
-     * Raw byte concatenation as specified in the authentication protocol.
      *
-     * SEC3-A-25: This message format uses simple concatenation without length-prefix encoding.
-     * The nonce (32 bytes) and signingKey (32 bytes) are fixed-length, so they are unambiguous.
-     * However, serverOrigin and timestamp are variable-length UTF-8 strings without a delimiter,
-     * which means a boundary ambiguity exists between them (e.g., origin="a.comT" + timestamp="123"
-     * vs origin="a.com" + timestamp="T123"). In practice this is safe because:
-     * 1. The server validates the nonce it issued, so the message must match exactly.
-     * 2. The timestamp is ISO-8601 format (always starts with a digit), while origins
-     *    never end with a digit.
-     * 3. Both parties (client and server) use the same concatenation order.
-     * A future protocol version could add length prefixes or a delimiter for defense in depth.
+     * SEC5-A-14: Uses length-prefix encoding for variable-length fields to prevent
+     * boundary ambiguity attacks. Each variable-length field is preceded by a 4-byte
+     * big-endian length prefix. Fixed-length fields (nonce: 32 bytes, signingKey: 32 bytes)
+     * are not prefixed since their boundaries are unambiguous.
      *
-     * TODO(SEC5-A-14): Consider adding length-prefix encoding to the challenge message format
-     * (e.g., 4-byte big-endian length prefix before each variable-length field). This would
-     * eliminate the theoretical boundary ambiguity between serverOrigin and timestamp, making
-     * the protocol robust against any future changes to timestamp format or origin conventions.
+     * Format:
+     *   nonce (32 bytes raw)
+     *   || signingKey (32 bytes raw)
+     *   || len(serverOrigin) (4 bytes big-endian) || serverOrigin (UTF-8)
+     *   || len(timestamp) (4 bytes big-endian) || timestamp (UTF-8)
+     *
+     * This eliminates the theoretical boundary ambiguity between serverOrigin and
+     * timestamp that existed in the old simple concatenation format.
      */
-    private fun buildChallengeMessage(
+    internal fun buildChallengeMessage(
         nonce: String,
         signingKey: String,
         serverOrigin: String,
@@ -255,7 +256,24 @@ class AuthRepositoryImpl(
         require(keyBytes.size == 32) { "Invalid signing key size: ${keyBytes.size}" }
         val originBytes = serverOrigin.toByteArray(Charsets.UTF_8)
         val timestampBytes = timestamp.toByteArray(Charsets.UTF_8)
-        return nonceBytes + keyBytes + originBytes + timestampBytes
+
+        // SEC5-A-14: Length-prefix variable-length fields with 4-byte big-endian length
+        return nonceBytes + keyBytes +
+            lengthPrefix(originBytes) + originBytes +
+            lengthPrefix(timestampBytes) + timestampBytes
+    }
+
+    /**
+     * Encode a 4-byte big-endian length prefix for a byte array.
+     */
+    private fun lengthPrefix(data: ByteArray): ByteArray {
+        val len = data.size
+        return byteArrayOf(
+            (len shr 24 and 0xFF).toByte(),
+            (len shr 16 and 0xFF).toByte(),
+            (len shr 8 and 0xFF).toByte(),
+            (len and 0xFF).toByte()
+        )
     }
 }
 

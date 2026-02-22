@@ -36,6 +36,17 @@ class TinkKeyManager(
         private const val PREF_SIGNING_PUBLIC_KEY = "signing_public_key"
         private const val PREF_DEK_PREFIX = "dek_"
         private const val PREF_CURRENT_EPOCH_PREFIX = "current_epoch_"
+
+        /**
+         * SEC5-A-06: Build the AAD string for recovery blob encryption/decryption.
+         * Format: "recovery:v1:{bucketId}" to bind the blob to a specific bucket.
+         */
+        internal fun buildRecoveryAad(bucketId: String): String = "recovery:v1:$bucketId"
+
+        /**
+         * Legacy AAD format for backward compatibility with older recovery blobs.
+         */
+        internal const val LEGACY_RECOVERY_AAD = "recovery"
     }
 
     // SEC2-A-14: Lock to prevent concurrent key generation race conditions
@@ -268,11 +279,6 @@ class TinkKeyManager(
         }
     }
 
-    // TODO(SEC5-A-06): The recovery blob AAD is currently hardcoded as "recovery". It should
-    // include the bucket ID to bind the blob to a specific bucket, preventing cross-bucket
-    // recovery blob substitution attacks. Change AAD to "recovery:$bucketId" and update
-    // both wrapDekWithRecoveryKey and unwrapDekWithRecoveryKey accordingly.
-
     /**
      * Create a recovery blob containing ALL epoch DEKs and the device seed.
      *
@@ -289,7 +295,8 @@ class TinkKeyManager(
      * ```
      *
      * The encrypted output is: nonce (12 bytes) || ciphertext+tag
-     * AAD = "recovery"
+     * SEC5-A-06: AAD = "recovery:v1:{bucketId}" to bind the blob to a specific bucket
+     * and prevent cross-bucket recovery blob substitution attacks.
      */
     override suspend fun wrapDekWithRecoveryKey(bucketId: String, recoveryKey: ByteArray) {
         val encoder = Base64.getEncoder()
@@ -335,7 +342,9 @@ class TinkKeyManager(
             val keySpec = javax.crypto.spec.SecretKeySpec(recoveryKey, "AES")
             val gcmSpec = javax.crypto.spec.GCMParameterSpec(128, nonce)
             cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, keySpec, gcmSpec)
-            cipher.updateAAD("recovery".toByteArray())
+            // SEC5-A-06: Include format prefix and bucketId in AAD to prevent
+            // cross-bucket and cross-payload-type substitution attacks
+            cipher.updateAAD(buildRecoveryAad(bucketId).toByteArray())
             val encrypted = cipher.doFinal(blobJson.toByteArray(Charsets.UTF_8))
 
             val result = ByteArray(nonce.size + encrypted.size)
@@ -375,12 +384,13 @@ class TinkKeyManager(
         var seed: ByteArray? = null
         val dekBytesList = mutableListOf<ByteArray>()
         try {
-            val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
-            val keySpec = javax.crypto.spec.SecretKeySpec(recoveryKey, "AES")
-            val gcmSpec = javax.crypto.spec.GCMParameterSpec(128, nonce)
-            cipher.init(javax.crypto.Cipher.DECRYPT_MODE, keySpec, gcmSpec)
-            cipher.updateAAD("recovery".toByteArray())
-            decrypted = cipher.doFinal(encrypted)
+            // SEC5-A-06: Try new AAD format first, fall back to legacy for backward compatibility
+            decrypted = try {
+                decryptRecoveryBlob(recoveryKey, nonce, encrypted, buildRecoveryAad(bucketId))
+            } catch (_: javax.crypto.AEADBadTagException) {
+                // Backward compatibility: try legacy AAD format "recovery"
+                decryptRecoveryBlob(recoveryKey, nonce, encrypted, LEGACY_RECOVERY_AAD)
+            }
 
             // Parse JSON blob
             val blobJson = org.json.JSONObject(String(decrypted, Charsets.UTF_8))
@@ -530,6 +540,24 @@ class TinkKeyManager(
         val bitString = byteArrayOf(0x03, 0x21, 0x00) + rawPublicKey
         val totalLength = algorithmIdentifier.size + bitString.size
         return byteArrayOf(0x30, totalLength.toByte()) + algorithmIdentifier + bitString
+    }
+
+    /**
+     * SEC5-A-06: Decrypt recovery blob with the given AAD string.
+     * Used to support both new and legacy AAD formats.
+     */
+    private fun decryptRecoveryBlob(
+        recoveryKey: ByteArray,
+        nonce: ByteArray,
+        encrypted: ByteArray,
+        aad: String
+    ): ByteArray {
+        val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+        val keySpec = javax.crypto.spec.SecretKeySpec(recoveryKey, "AES")
+        val gcmSpec = javax.crypto.spec.GCMParameterSpec(128, nonce)
+        cipher.init(javax.crypto.Cipher.DECRYPT_MODE, keySpec, gcmSpec)
+        cipher.updateAAD(aad.toByteArray())
+        return cipher.doFinal(encrypted)
     }
 
     /**

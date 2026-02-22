@@ -165,12 +165,27 @@ interface KeyManager {
      * @param seed The 32-byte seed
      * @return Pair of (publicKey, privateKey)
      */
-    // TODO(SEC5-A-09): Wrap the returned Pair in a Closeable/AutoCloseable wrapper that zeros
-    // the private key ByteArray on close(). Currently callers must manually zero x25519Private
-    // in a finally block, which is easy to forget. A Closeable wrapper would enable use() blocks:
-    //   deriveEncryptionKeyPair(seed).use { (pub, priv) -> ... }
-    // and automatically zero the private key when the scope exits.
     fun deriveEncryptionKeyPair(seed: ByteArray): Pair<ByteArray, ByteArray>
+
+    /**
+     * SEC5-A-09: Derive an X25519 encryption key pair wrapped in a [SensitivePair]
+     * that zeros the private key ByteArray on [SensitivePair.close].
+     *
+     * Usage:
+     * ```kotlin
+     * deriveEncryptionKeyPairSafe(seed).use { (publicKey, privateKey) ->
+     *     // Use the keys...
+     * }
+     * // privateKey is automatically zeroed on scope exit
+     * ```
+     *
+     * @param seed The 32-byte seed
+     * @return SensitivePair of (publicKey, privateKey)
+     */
+    fun deriveEncryptionKeyPairSafe(seed: ByteArray): SensitivePair<ByteArray, ByteArray> {
+        val (publicKey, privateKey) = deriveEncryptionKeyPair(seed)
+        return SensitivePair(publicKey, privateKey)
+    }
 
     /**
      * Encode a public key to Base64 string for transmission.
