@@ -143,8 +143,10 @@ class WebSocketManager {
                 }.firstOrNull() != null
             }
         } catch (_: Exception) {
-            // On DB errors, assume still valid to avoid disconnecting on transient failures
-            true
+            // Fail-closed: on DB errors, deny access. A transient DB failure will
+            // disconnect the user, but they'll reconnect automatically when the DB recovers.
+            // This is safer than fail-open, which would let revoked devices keep connections.
+            false
         }
 
         if (!hasAccess) {

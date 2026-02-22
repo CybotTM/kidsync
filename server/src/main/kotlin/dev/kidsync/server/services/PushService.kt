@@ -153,7 +153,8 @@ class PushService(private val encryptionKeyBase64: String? = null) {
 
                 // In production, this would call the actual push API
                 // Payload is opaque: { "type": "sync", "bucket": bucketId }
-                logger.info(
+                // SEC: Use debug level to avoid leaking device-bucket correlation in logs
+                logger.debug(
                     "PUSH [{}] -> device={} bucket={} latestSeq={}",
                     platform,
                     tokenRow[PushTokens.deviceId],

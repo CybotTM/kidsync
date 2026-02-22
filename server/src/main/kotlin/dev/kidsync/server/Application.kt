@@ -79,6 +79,11 @@ fun Application.module(config: AppConfig = AppConfig()) {
             } catch (e: Exception) {
                 LoggerFactory.getLogger("Application").warn("Session cleanup failed: {}", e.message)
             }
+            try {
+                bucketService.cleanupExpiredInvites()
+            } catch (e: Exception) {
+                LoggerFactory.getLogger("Application").warn("Invite token cleanup failed: {}", e.message)
+            }
         }
     }
 

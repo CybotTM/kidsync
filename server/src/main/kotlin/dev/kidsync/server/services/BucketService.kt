@@ -410,6 +410,24 @@ class BucketService(
     }
 
     /**
+     * Remove expired invite tokens to prevent unbounded table growth.
+     * Deletes all tokens that have expired, regardless of whether they were used.
+     * Called periodically from the application cleanup loop.
+     */
+    suspend fun cleanupExpiredInvites(): Long {
+        return dbQuery {
+            val now = LocalDateTime.now(ZoneOffset.UTC)
+            val deleted = InviteTokens.deleteWhere {
+                InviteTokens.expiresAt less now
+            }.toLong()
+            if (deleted > 0) {
+                logger.info("Cleaned up {} expired invite tokens", deleted)
+            }
+            deleted
+        }
+    }
+
+    /**
      * SEC5-S-08: Creator-driven device revocation. Only the bucket creator can remove
      * another device from the bucket. Removes bucket access and deletes wrapped keys
      * for the target device in this bucket's context.
