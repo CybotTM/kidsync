@@ -89,8 +89,6 @@ kover {
         verify {
             rule("Minimum line coverage") {
                 minBound(60)
-                // Warning only -- this is a new baseline, not a hard gate
-                isEnabled = true
             }
         }
     }
