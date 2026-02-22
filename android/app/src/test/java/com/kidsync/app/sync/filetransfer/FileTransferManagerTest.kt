@@ -3,6 +3,7 @@ package com.kidsync.app.sync.filetransfer
 import com.kidsync.app.data.local.dao.OpLogDao
 import com.kidsync.app.data.local.entity.OpLogEntryEntity
 import com.kidsync.app.crypto.KeyManager
+import com.kidsync.app.domain.usecase.sync.HashChainVerifier
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.longs.shouldBeGreaterThan
 import io.kotest.matchers.shouldBe
@@ -11,6 +12,7 @@ import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.types.shouldBeInstanceOf
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import kotlinx.serialization.json.Json
@@ -41,6 +43,11 @@ class FileTransferManagerTest : FunSpec({
             serverTimestamp = "2026-01-01T00:00:0${i}Z",
             isPending = false
         )
+    }
+
+    // Mock HashChainVerifier that always passes verification (test data uses dummy hashes)
+    val hashChainVerifier = mockk<HashChainVerifier>().apply {
+        every { verifyChains(any(), any()) } returns Result.success(Unit)
     }
 
     fun createMockDeps(
@@ -80,7 +87,7 @@ class FileTransferManagerTest : FunSpec({
     test("export creates valid ZIP with manifest.json and ops.jsonl") {
         val ops = createTestOps(3)
         val (opLogDao, keyManager) = createMockDeps(ops)
-        val manager = FileTransferManager(opLogDao, keyManager)
+        val manager = FileTransferManager(opLogDao, keyManager, hashChainVerifier)
 
         val outputStream = ByteArrayOutputStream()
         val result = manager.exportBucket(testBucketId, outputStream)
@@ -145,7 +152,7 @@ class FileTransferManagerTest : FunSpec({
         }
 
         val zipBytes = buildZipBundle(manifest, opsJsonl)
-        val manager = FileTransferManager(opLogDao, keyManager)
+        val manager = FileTransferManager(opLogDao, keyManager, hashChainVerifier)
 
         val result = manager.importBundle(ByteArrayInputStream(zipBytes))
 
@@ -162,7 +169,7 @@ class FileTransferManagerTest : FunSpec({
     test("roundtrip: export then import produces same data") {
         val ops = createTestOps(5)
         val (opLogDao, keyManager) = createMockDeps(ops)
-        val manager = FileTransferManager(opLogDao, keyManager)
+        val manager = FileTransferManager(opLogDao, keyManager, hashChainVerifier)
 
         // Export
         val exportStream = ByteArrayOutputStream()
@@ -235,7 +242,7 @@ class FileTransferManagerTest : FunSpec({
         }
 
         val zipBytes = buildZipBundle(manifest, opsJsonl)
-        val manager = FileTransferManager(opLogDao, keyManager)
+        val manager = FileTransferManager(opLogDao, keyManager, hashChainVerifier)
 
         val result = manager.importBundle(ByteArrayInputStream(zipBytes))
 
@@ -261,7 +268,7 @@ class FileTransferManagerTest : FunSpec({
         )
 
         val zipBytes = buildZipBundle(manifest, "")
-        val manager = FileTransferManager(opLogDao, keyManager)
+        val manager = FileTransferManager(opLogDao, keyManager, hashChainVerifier)
 
         val result = manager.importBundle(ByteArrayInputStream(zipBytes))
 
@@ -287,7 +294,7 @@ class FileTransferManagerTest : FunSpec({
         )
 
         val zipBytes = buildZipBundle(manifest, "")
-        val manager = FileTransferManager(opLogDao, keyManager)
+        val manager = FileTransferManager(opLogDao, keyManager, hashChainVerifier)
 
         val result = manager.importBundle(ByteArrayInputStream(zipBytes))
 
@@ -299,7 +306,7 @@ class FileTransferManagerTest : FunSpec({
 
     test("export with empty bucket produces valid ZIP with zero ops") {
         val (opLogDao, keyManager) = createMockDeps(emptyList())
-        val manager = FileTransferManager(opLogDao, keyManager)
+        val manager = FileTransferManager(opLogDao, keyManager, hashChainVerifier)
 
         val outputStream = ByteArrayOutputStream()
         val result = manager.exportBucket(testBucketId, outputStream)
@@ -328,7 +335,7 @@ class FileTransferManagerTest : FunSpec({
         val keyManager = mockk<KeyManager>(relaxed = true)
         coEvery { keyManager.getDeviceId() } returns null
 
-        val manager = FileTransferManager(opLogDao, keyManager)
+        val manager = FileTransferManager(opLogDao, keyManager, hashChainVerifier)
         val outputStream = ByteArrayOutputStream()
 
         val result = manager.exportBucket(testBucketId, outputStream)
@@ -348,7 +355,7 @@ class FileTransferManagerTest : FunSpec({
             zipOut.closeEntry()
         }
 
-        val manager = FileTransferManager(opLogDao, keyManager)
+        val manager = FileTransferManager(opLogDao, keyManager, hashChainVerifier)
         val result = manager.importBundle(ByteArrayInputStream(baos.toByteArray()))
 
         result.isFailure shouldBe true

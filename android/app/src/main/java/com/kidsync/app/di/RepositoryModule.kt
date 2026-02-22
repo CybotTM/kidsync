@@ -20,6 +20,7 @@ import com.kidsync.app.domain.repository.BlobRepository
 import com.kidsync.app.domain.repository.BucketRepository
 import com.kidsync.app.domain.repository.ExpenseRepository
 import com.kidsync.app.domain.repository.SyncRepository
+import com.kidsync.app.domain.usecase.sync.HashChainVerifier
 import com.kidsync.app.sync.filetransfer.FileTransferManager
 import com.kidsync.app.sync.p2p.P2PSyncManager
 import com.kidsync.app.sync.webdav.WebDavSyncManager
@@ -92,9 +93,10 @@ object RepositoryModule {
     @Singleton
     fun provideFileTransferManager(
         opLogDao: OpLogDao,
-        keyManager: KeyManager
+        keyManager: KeyManager,
+        hashChainVerifier: HashChainVerifier
     ): FileTransferManager {
-        return FileTransferManager(opLogDao, keyManager)
+        return FileTransferManager(opLogDao, keyManager, hashChainVerifier)
     }
 
     @Provides
@@ -102,9 +104,10 @@ object RepositoryModule {
     fun provideWebDavSyncManager(
         opLogDao: OpLogDao,
         syncStateDao: SyncStateDao,
-        json: Json
+        json: Json,
+        hashChainVerifier: HashChainVerifier
     ): WebDavSyncManager {
-        return WebDavSyncManager(opLogDao, syncStateDao, json)
+        return WebDavSyncManager(opLogDao, syncStateDao, json, hashChainVerifier)
     }
 
     @Provides
@@ -113,13 +116,15 @@ object RepositoryModule {
         @ApplicationContext context: Context,
         opLogDao: OpLogDao,
         keyManager: KeyManager,
-        cryptoManager: CryptoManager
+        cryptoManager: CryptoManager,
+        hashChainVerifier: HashChainVerifier
     ): P2PSyncManager {
         return P2PSyncManager(
             context = context,
             opLogDao = opLogDao,
             keyManager = keyManager,
-            cryptoManager = cryptoManager
+            cryptoManager = cryptoManager,
+            hashChainVerifier = hashChainVerifier
         )
     }
 

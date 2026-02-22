@@ -4,6 +4,7 @@ import com.kidsync.app.data.local.dao.OpLogDao
 import com.kidsync.app.data.local.dao.SyncStateDao
 import com.kidsync.app.data.local.entity.OpLogEntryEntity
 import com.kidsync.app.domain.model.OpLogEntry
+import com.kidsync.app.domain.usecase.sync.HashChainVerifier
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.collections.shouldHaveSize
@@ -14,6 +15,7 @@ import io.kotest.matchers.types.shouldBeInstanceOf
 import io.mockk.clearAllMocks
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
 import kotlinx.serialization.json.Json
 import okhttp3.mockwebserver.MockResponse
@@ -37,6 +39,10 @@ class WebDavSyncManagerTest : FunSpec({
     val opLogDao = mockk<OpLogDao>(relaxed = true)
     val syncStateDao = mockk<SyncStateDao>(relaxed = true)
     val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    // Mock HashChainVerifier that always passes (test data uses dummy hashes)
+    val hashChainVerifier = mockk<HashChainVerifier>().apply {
+        every { verifyChains(any(), any()) } returns Result.success(Unit)
+    }
 
     val bucketId = "bucket-aaaa-bbbb-cccc-dddddddddddd"
     val deviceId = "aaaaaaaa-1111-2222-3333-444444444444"
@@ -46,10 +52,13 @@ class WebDavSyncManagerTest : FunSpec({
 
     beforeEach {
         clearAllMocks()
+        // Re-stub after clearAllMocks
+        every { hashChainVerifier.verifyChains(any(), any()) } returns Result.success(Unit)
+
         server = MockWebServer()
         server.start()
 
-        manager = WebDavSyncManager(opLogDao, syncStateDao, json)
+        manager = WebDavSyncManager(opLogDao, syncStateDao, json, hashChainVerifier)
         val config = WebDavConfig(
             serverUrl = server.url("/remote.php/dav/files/user/").toString(),
             username = "testuser",
@@ -568,7 +577,7 @@ class WebDavSyncManagerTest : FunSpec({
     }
 
     test("unconfigured manager throws IllegalStateException") {
-        val unconfigured = WebDavSyncManager(opLogDao, syncStateDao, json)
+        val unconfigured = WebDavSyncManager(opLogDao, syncStateDao, json, hashChainVerifier)
         val result = unconfigured.testConnection()
         result.isFailure shouldBe true
         result.exceptionOrNull().shouldBeInstanceOf<IllegalStateException>()

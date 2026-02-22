@@ -80,4 +80,31 @@ interface OpLogDao {
 
     @Query("DELETE FROM oplog")
     suspend fun deleteAll()
+
+    /**
+     * Get the maximum deviceSequence for each device within a bucket.
+     * Used by P2P sendHandshake to avoid loading all ops.
+     */
+    @Query("SELECT MAX(globalSequence) FROM oplog WHERE bucketId = :bucketId")
+    suspend fun getMaxGlobalSequenceForBucket(bucketId: String): Long?
+
+    /**
+     * Get the last known currentHash for each device in a bucket.
+     * Used by hash chain verification when receiving ops from external sources
+     * (P2P, WebDAV, file import) to verify chain continuity against local state.
+     *
+     * Returns a list of entities (one per device); callers should extract
+     * deviceId -> currentHash from the result.
+     */
+    @Query("""
+        SELECT o.* FROM oplog o
+        INNER JOIN (
+            SELECT deviceId, MAX(deviceSequence) AS maxSeq
+            FROM oplog
+            WHERE bucketId = :bucketId
+            GROUP BY deviceId
+        ) latest ON o.deviceId = latest.deviceId AND o.deviceSequence = latest.maxSeq
+        WHERE o.bucketId = :bucketId
+    """)
+    suspend fun getLastOpsPerDeviceForBucket(bucketId: String): List<OpLogEntryEntity>
 }

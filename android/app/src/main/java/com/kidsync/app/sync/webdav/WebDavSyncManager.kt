@@ -1,21 +1,28 @@
 package com.kidsync.app.sync.webdav
 
+import android.util.Log
+import com.kidsync.app.BuildConfig
 import com.kidsync.app.data.local.dao.OpLogDao
 import com.kidsync.app.data.local.dao.SyncStateDao
 import com.kidsync.app.data.local.entity.OpLogEntryEntity
 import com.kidsync.app.data.local.entity.SyncStateEntity
 import com.kidsync.app.domain.model.OpLogEntry
+import com.kidsync.app.domain.usecase.sync.HashChainVerifier
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import okhttp3.ConnectionSpec
 import okhttp3.Credentials
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.xmlpull.v1.XmlPullParser
+import org.xmlpull.v1.XmlPullParserFactory
 import java.io.IOException
+import java.io.StringReader
 import java.time.Instant
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.ReentrantLock
@@ -49,14 +56,17 @@ import kotlin.concurrent.withLock
 class WebDavSyncManager @Inject constructor(
     private val opLogDao: OpLogDao,
     private val syncStateDao: SyncStateDao,
-    private val json: Json
+    private val json: Json,
+    private val hashChainVerifier: HashChainVerifier = HashChainVerifier()
 ) {
     private val lock = ReentrantLock()
     @Volatile private var client: OkHttpClient? = null
     @Volatile private var config: WebDavConfig? = null
 
     companion object {
+        private const val TAG = "WebDavSyncManager"
         private const val PROPFIND_DEPTH_1 = "1"
+        private const val MAX_OP_FILE_SIZE_BYTES = 10 * 1024 * 1024L // 10 MB per op file
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
         private val TEXT_MEDIA_TYPE = "text/plain; charset=utf-8".toMediaType()
         private val XML_MEDIA_TYPE = "application/xml; charset=utf-8".toMediaType()
@@ -76,13 +86,28 @@ class WebDavSyncManager @Inject constructor(
     /**
      * Configure the WebDAV client with server credentials.
      * Creates a new OkHttpClient with Basic auth for the given config.
+     *
+     * SEC7: Enforces HTTPS in release builds and prevents HTTPS->HTTP downgrade
+     * via redirect following. Uses MODERN_TLS connection spec to reject weak ciphers.
      */
     fun configure(config: WebDavConfig) = lock.withLock {
+        val scheme = java.net.URI(config.serverUrl).scheme?.lowercase()
+        val isHttps = scheme == "https"
+
+        // SEC7: Reject non-HTTPS URLs in release builds
+        if (!BuildConfig.DEBUG && !isHttps) {
+            throw IllegalArgumentException(
+                "WebDAV server URL must use HTTPS in release builds. Got: $scheme"
+            )
+        }
+
         this.config = config
-        this.client = OkHttpClient.Builder()
+        val builder = OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
             .writeTimeout(60, TimeUnit.SECONDS)
+            // SEC7: Prevent HTTPS->HTTP downgrade via redirect
+            .followRedirects(false)
             .addInterceptor { chain ->
                 val original = chain.request()
                 val authenticated = original.newBuilder()
@@ -90,7 +115,15 @@ class WebDavSyncManager @Inject constructor(
                     .build()
                 chain.proceed(authenticated)
             }
-            .build()
+
+        // SEC7: Enforce modern TLS for HTTPS connections (skip for HTTP in debug)
+        if (isHttps) {
+            builder.connectionSpecs(listOf(ConnectionSpec.MODERN_TLS))
+        } else {
+            builder.connectionSpecs(listOf(ConnectionSpec.CLEARTEXT))
+        }
+
+        this.client = builder.build()
     }
 
     /**
@@ -260,36 +293,54 @@ class WebDavSyncManager @Inject constructor(
             for ((filename, _) in relevantFiles) {
                 val content = getFile("$opsDir$filename")
                 if (content != null) {
+                    // SEC7: Check response body size to prevent oversized op files
+                    if (content.length > MAX_OP_FILE_SIZE_BYTES) {
+                        Log.w(TAG, "Skipping oversized op file: $filename (${content.length} bytes)")
+                        continue
+                    }
+
                     val webDavOp = json.decodeFromString<WebDavOp>(content)
 
                     // Reject ops with mismatched bucketId (cross-bucket injection protection)
                     if (webDavOp.bucketId != bucketId) {
-                        android.util.Log.w(
-                            "WebDavSyncManager",
-                            "Skipping op with mismatched bucketId: expected=$bucketId, got=${webDavOp.bucketId}"
-                        )
+                        Log.w(TAG, "Skipping op with mismatched bucketId: expected=$bucketId, got=${webDavOp.bucketId}")
                         continue
                     }
 
                     val opLogEntry = webDavOp.toOpLogEntry()
                     newOps.add(opLogEntry)
+                }
+            }
 
-                    // Insert into local database
-                    opLogDao.insertOpLogEntry(
-                        OpLogEntryEntity(
-                            globalSequence = webDavOp.lamportTimestamp,
-                            bucketId = webDavOp.bucketId,
-                            deviceId = webDavOp.deviceId,
-                            deviceSequence = webDavOp.deviceSequence,
-                            keyEpoch = webDavOp.keyEpoch,
-                            encryptedPayload = webDavOp.encryptedPayload,
-                            devicePrevHash = webDavOp.devicePrevHash,
-                            currentHash = webDavOp.currentHash,
-                            serverTimestamp = webDavOp.serverTimestamp,
-                            isPending = false
-                        )
+            // SEC7: Verify hash chain integrity before inserting any ops
+            if (newOps.isNotEmpty()) {
+                val localLastOps = opLogDao.getLastOpsPerDeviceForBucket(bucketId)
+                val localLastHashes = localLastOps.associate { it.deviceId to it.currentHash }
+
+                val verifyResult = hashChainVerifier.verifyChains(newOps, localLastHashes)
+                if (verifyResult.isFailure) {
+                    return@withContext Result.failure(
+                        WebDavException("Hash chain verification failed: ${verifyResult.exceptionOrNull()?.message}")
                     )
                 }
+            }
+
+            // Insert verified ops into local database
+            for (op in newOps) {
+                opLogDao.insertOpLogEntry(
+                    OpLogEntryEntity(
+                        globalSequence = op.globalSequence,
+                        bucketId = op.bucketId,
+                        deviceId = op.deviceId,
+                        deviceSequence = op.deviceSequence,
+                        keyEpoch = op.keyEpoch,
+                        encryptedPayload = op.encryptedPayload,
+                        devicePrevHash = op.devicePrevHash,
+                        currentHash = op.currentHash,
+                        serverTimestamp = op.serverTimestamp?.toString(),
+                        isPending = false
+                    )
+                )
             }
 
             // Update sync state
@@ -421,6 +472,9 @@ class WebDavSyncManager @Inject constructor(
     /**
      * Download a file from the WebDAV server (GET).
      * Returns null if the file doesn't exist (404).
+     *
+     * SEC7: Checks Content-Length header against MAX_OP_FILE_SIZE_BYTES to
+     * reject oversized responses before reading the body.
      */
     internal fun getFile(url: String): String? {
         val (httpClient, _) = requireConfigured()
@@ -431,7 +485,16 @@ class WebDavSyncManager @Inject constructor(
 
         httpClient.newCall(request).execute().use { response ->
             return when {
-                response.isSuccessful -> response.body?.string()
+                response.isSuccessful -> {
+                    // SEC7: Check Content-Length before reading body
+                    val contentLength = response.body?.contentLength() ?: -1L
+                    if (contentLength > MAX_OP_FILE_SIZE_BYTES) {
+                        throw WebDavException(
+                            "GET $url: response too large ($contentLength bytes, max: $MAX_OP_FILE_SIZE_BYTES)"
+                        )
+                    }
+                    response.body?.string()
+                }
                 response.code == 404 -> null
                 else -> throw WebDavException("GET $url failed: HTTP ${response.code}")
             }
@@ -464,15 +527,75 @@ class WebDavSyncManager @Inject constructor(
     /**
      * Parse a PROPFIND XML response to extract file/directory names.
      *
-     * Extracts href values from <d:href> or <D:href> elements, filters out
+     * SEC7: Uses XmlPullParser instead of regex for robust XML parsing,
+     * preventing injection via crafted XML responses.
+     *
+     * Extracts href values from DAV: namespace href elements, filters out
      * the parent directory itself, and returns just the filename portion.
      */
     internal fun parsePropfindResponse(xml: String, parentUrl: String): List<String> {
         val results = mutableListOf<String>()
-        // Simple regex-based parsing of href elements from PROPFIND response.
-        // This avoids pulling in a full XML parser dependency.
-        val hrefPattern = Regex("""<[dD]:href>([^<]+)</[dD]:href>""")
         val parentPath = java.net.URI(parentUrl).path.trimEnd('/')
+
+        try {
+            val factory = XmlPullParserFactory.newInstance()
+            factory.isNamespaceAware = true
+            val parser = factory.newPullParser()
+            parser.setInput(StringReader(xml))
+
+            var insideHref = false
+            var eventType = parser.eventType
+
+            while (eventType != XmlPullParser.END_DOCUMENT) {
+                when (eventType) {
+                    XmlPullParser.START_TAG -> {
+                        // Match <d:href>, <D:href>, or <href> in DAV: namespace
+                        if (parser.name == "href" &&
+                            (parser.namespace == "DAV:" || parser.namespace.isNullOrEmpty())) {
+                            insideHref = true
+                        }
+                    }
+                    XmlPullParser.TEXT -> {
+                        if (insideHref) {
+                            val href = parser.text?.trim() ?: ""
+                            val hrefPath = try {
+                                java.net.URI(href).path.trimEnd('/')
+                            } catch (_: Exception) {
+                                href.trimEnd('/')
+                            }
+
+                            // Skip the parent directory itself
+                            if (hrefPath != parentPath && hrefPath.isNotEmpty()) {
+                                val filename = hrefPath.substringAfterLast('/')
+                                if (filename.isNotBlank()) {
+                                    results.add(filename)
+                                }
+                            }
+                        }
+                    }
+                    XmlPullParser.END_TAG -> {
+                        if (parser.name == "href") {
+                            insideHref = false
+                        }
+                    }
+                }
+                eventType = parser.next()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse PROPFIND response with XmlPullParser, falling back to regex", e)
+            // Fallback: simple regex-based parsing as last resort
+            return parsePropfindResponseRegexFallback(xml, parentPath)
+        }
+
+        return results
+    }
+
+    /**
+     * Regex fallback for PROPFIND parsing in case XmlPullParser is unavailable.
+     */
+    private fun parsePropfindResponseRegexFallback(xml: String, parentPath: String): List<String> {
+        val results = mutableListOf<String>()
+        val hrefPattern = Regex("""<[dD]:href>([^<]+)</[dD]:href>""")
 
         for (match in hrefPattern.findAll(xml)) {
             val href = match.groupValues[1].trim()
@@ -482,10 +605,8 @@ class WebDavSyncManager @Inject constructor(
                 href.trimEnd('/')
             }
 
-            // Skip the parent directory itself
             if (hrefPath == parentPath || hrefPath.isEmpty()) continue
 
-            // Extract just the filename
             val filename = hrefPath.substringAfterLast('/')
             if (filename.isNotBlank()) {
                 results.add(filename)

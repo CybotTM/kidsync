@@ -20,6 +20,8 @@ import com.kidsync.app.crypto.CryptoManager
 import com.kidsync.app.crypto.KeyManager
 import com.kidsync.app.data.local.dao.OpLogDao
 import com.kidsync.app.data.local.entity.OpLogEntryEntity
+import com.kidsync.app.domain.model.OpLogEntry
+import com.kidsync.app.domain.usecase.sync.HashChainVerifier
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -29,6 +31,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.security.MessageDigest
 import java.util.Base64
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
@@ -50,7 +53,8 @@ class P2PSyncManager(
     private val context: Context,
     private val opLogDao: OpLogDao,
     private val keyManager: KeyManager,
-    private val cryptoManager: CryptoManager
+    private val cryptoManager: CryptoManager,
+    private val hashChainVerifier: HashChainVerifier = HashChainVerifier()
 ) {
     private val connectionsClient: ConnectionsClient by lazy {
         Nearby.getConnectionsClient(context)
@@ -78,6 +82,7 @@ class P2PSyncManager(
         private const val HMAC_ALGORITHM = "HmacSHA256"
         private const val BATCH_SIZE = 50
         private const val HANDSHAKE_TIMESTAMP_TOLERANCE_MS = 30_000L // 30 seconds
+        private const val MAX_PAYLOAD_SIZE_BYTES = 10 * 1024 * 1024 // 10 MB
 
         /**
          * Compute HMAC-SHA256 and return base64-encoded result.
@@ -105,13 +110,16 @@ class P2PSyncManager(
             .setStrategy(Strategy.P2P_POINT_TO_POINT)
             .build()
 
+        // Use SHA-256 hash of bucketId (first 8 chars) to avoid leaking raw bucketId
+        val advertisingName = hashBucketIdForAdvertising(bucketId)
+
         connectionsClient.startAdvertising(
-            bucketId.take(8),
+            advertisingName,
             SERVICE_ID,
             connectionLifecycleCallback,
             options
         ).addOnSuccessListener {
-            Log.d(TAG, "Advertising started for bucket ${bucketId.take(8)}")
+            Log.d(TAG, "Advertising started for bucket $advertisingName")
         }.addOnFailureListener { e ->
             Log.e(TAG, "Failed to start advertising", e)
             _state.value = P2PState.Error("Failed to start advertising: ${e.message}")
@@ -135,7 +143,7 @@ class P2PSyncManager(
             endpointDiscoveryCallback,
             options
         ).addOnSuccessListener {
-            Log.d(TAG, "Discovery started for bucket ${bucketId.take(8)}")
+            Log.d(TAG, "Discovery started for bucket ${hashBucketIdForAdvertising(bucketId)}")
         }.addOnFailureListener { e ->
             Log.e(TAG, "Failed to start discovery", e)
             _state.value = P2PState.Error("Failed to start discovery: ${e.message}")
@@ -298,7 +306,7 @@ class P2PSyncManager(
             Log.d(TAG, "Endpoint found: ${info.endpointName} ($endpointId)")
             _state.value = P2PState.Connecting(info.endpointName)
             connectionsClient.requestConnection(
-                currentBucketId?.take(8) ?: "kidsync",
+                currentBucketId?.let { hashBucketIdForAdvertising(it) } ?: "kidsync",
                 endpointId,
                 connectionLifecycleCallback
             ).addOnFailureListener { e ->
@@ -317,6 +325,17 @@ class P2PSyncManager(
     private val payloadCallback = object : PayloadCallback() {
         override fun onPayloadReceived(endpointId: String, payload: Payload) {
             val bytes = payload.asBytes() ?: return
+
+            // SEC7: Reject oversized payloads to prevent DoS
+            if (bytes.size > MAX_PAYLOAD_SIZE_BYTES) {
+                Log.w(TAG, "Rejecting oversized payload: ${bytes.size} bytes (max: $MAX_PAYLOAD_SIZE_BYTES)")
+                scope.launch {
+                    sendMessage(endpointId, P2PMessage.Error("PAYLOAD_TOO_LARGE", "Payload exceeds ${MAX_PAYLOAD_SIZE_BYTES / (1024 * 1024)}MB limit"))
+                    _state.value = P2PState.Error("Received oversized payload")
+                }
+                return
+            }
+
             scope.launch {
                 handleReceivedMessage(endpointId, bytes)
             }
@@ -335,8 +354,8 @@ class P2PSyncManager(
             val deviceId = keyManager.getDeviceId() ?: "unknown"
             val timestamp = System.currentTimeMillis()
             val hmac = computeHandshakeHmac(bucketId, timestamp)
-            val allOps = opLogDao.getAllOpsForBucket(bucketId)
-            val lastSeq = allOps.maxOfOrNull { it.globalSequence } ?: 0L
+            // SEC7: Query only max sequence instead of loading all ops
+            val lastSeq = opLogDao.getMaxGlobalSequenceForBucket(bucketId) ?: 0L
 
             val handshake = P2PMessage.Handshake(
                 deviceId = deviceId,
@@ -398,7 +417,7 @@ class P2PSyncManager(
         // Verify HMAC: proves the peer has the same DEK
         try {
             val expectedHmac = computeHandshakeHmac(bucketId, handshake.timestamp)
-            if (handshake.hmac != expectedHmac) {
+            if (!MessageDigest.isEqual(handshake.hmac.toByteArray(), expectedHmac.toByteArray())) {
                 sendMessage(endpointId, P2PMessage.Error("HMAC_MISMATCH", "HMAC verification failed"))
                 _state.value = P2PState.Error("HMAC verification failed - device not in same bucket")
                 connectionsClient.disconnectFromEndpoint(endpointId)
@@ -435,6 +454,33 @@ class P2PSyncManager(
             }
         } else {
             payload.ops
+        }
+
+        // SEC7: Verify hash chain integrity before inserting ops
+        if (validOps.isNotEmpty() && bucketId != null) {
+            val opLogEntries = validOps.map { op ->
+                OpLogEntry(
+                    globalSequence = op.globalSequence,
+                    bucketId = op.bucketId,
+                    deviceId = op.deviceId,
+                    deviceSequence = op.deviceSequence,
+                    keyEpoch = op.keyEpoch,
+                    encryptedPayload = op.encryptedPayload,
+                    devicePrevHash = op.devicePrevHash,
+                    currentHash = op.currentHash,
+                    serverTimestamp = null
+                )
+            }
+
+            // Build local last hashes map for chain continuity verification
+            val localLastOps = opLogDao.getLastOpsPerDeviceForBucket(bucketId)
+            val localLastHashes = localLastOps.associate { it.deviceId to it.currentHash }
+
+            val verifyResult = hashChainVerifier.verifyChains(opLogEntries, localLastHashes)
+            if (verifyResult.isFailure) {
+                Log.e(TAG, "Hash chain verification failed for P2P ops: ${verifyResult.exceptionOrNull()?.message}")
+                return
+            }
         }
 
         val entities = validOps.map { p2pOpToEntity(it) }
@@ -517,6 +563,16 @@ class P2PSyncManager(
         opsSentCount = 0
         opsReceivedCount = 0
         peerLastSequence = -1
+    }
+
+    /**
+     * SEC7: Hash the bucketId for use as Nearby Connections advertising name.
+     * Uses SHA-256 and takes first 8 hex chars to avoid leaking raw bucketId.
+     */
+    private fun hashBucketIdForAdvertising(bucketId: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val hash = digest.digest(bucketId.toByteArray(Charsets.UTF_8))
+        return hash.joinToString("") { "%02x".format(it) }.take(8)
     }
 
 }
