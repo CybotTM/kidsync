@@ -7,6 +7,8 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.kover)
+    alias(libs.plugins.detekt)
 }
 
 val localProperties = Properties().apply {
@@ -215,4 +217,62 @@ dependencies {
     testImplementation(libs.androidx.room.testing)
     testImplementation(libs.androidx.work.testing)
     testImplementation(libs.okhttp.mockwebserver)
+}
+
+kover {
+    currentProject {
+        createVariant("custom") {
+            add("debug")
+        }
+    }
+
+    reports {
+        variant("custom") {
+            filters {
+                excludes {
+                    // Generated Hilt/Dagger code
+                    classes(
+                        "dagger.hilt.*",
+                        "hilt_aggregated_deps.*",
+                        "*_HiltModules*",
+                        "*_Factory*",
+                        "*_MembersInjector*",
+                        "*_ComponentTreeDeps*",
+                        "*_GeneratedInjector*",
+                    )
+                    // Generated Room code
+                    classes(
+                        "*_Impl",
+                        "*_Impl\$*",
+                    )
+                    // BuildConfig
+                    classes("com.kidsync.app.BuildConfig")
+                    // Compose preview functions
+                    annotatedBy("androidx.compose.ui.tooling.preview.Preview")
+                }
+            }
+
+            verify {
+                rule("Minimum line coverage") {
+                    minBound(50)
+                    // Warning only -- Android coverage is harder due to UI code
+                    isEnabled = true
+                }
+            }
+        }
+    }
+}
+
+detekt {
+    config.setFrom(files("${rootProject.projectDir}/detekt.yml"))
+    buildUponDefaultConfig = true
+    parallel = true
+}
+
+tasks.withType<io.gitlab.arturbosch.detekt.Detekt>().configureEach {
+    reports {
+        sarif.required.set(true)
+        html.required.set(true)
+        xml.required.set(false)
+    }
 }

@@ -30,6 +30,8 @@ zxing = "3.5.3"
 camerax = "1.4.1"
 mlkit-barcode = "17.3.0"
 bouncycastle = "1.83"
+kover = "0.9.7"
+detekt = "1.23.8"
 
 [libraries]
 # AndroidX Core
@@ -117,3 +119,5 @@ kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", versi
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
+kover = { id = "org.jetbrains.kotlinx.kover", version.ref = "kover" }
+detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }

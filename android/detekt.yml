@@ -1,0 +1,100 @@
+build:
+  maxIssues: -1  # Report all issues without failing (baseline phase)
+
+complexity:
+  LongMethod:
+    threshold: 60
+  LongParameterList:
+    functionThreshold: 10
+    constructorThreshold: 12
+    # Composable functions often have many parameters for state + callbacks
+    ignoreAnnotated:
+      - 'androidx.compose.runtime.Composable'
+  TooManyFunctions:
+    thresholdInFiles: 25
+    thresholdInClasses: 25
+    thresholdInInterfaces: 20
+  CyclomaticComplexMethod:
+    threshold: 20
+  NestedBlockDepth:
+    threshold: 5
+
+formatting:
+  active: true
+  MaximumLineLength:
+    active: true
+    maxLineLength: 150
+    excludeCommentStatements: true
+
+naming:
+  FunctionNaming:
+    active: true
+    # Allow backtick-quoted test function names
+    excludes: ['**/test/**', '**/androidTest/**']
+    # Allow PascalCase for @Composable functions
+    ignoreAnnotated:
+      - 'androidx.compose.runtime.Composable'
+  TopLevelPropertyNaming:
+    active: true
+    constantPattern: '[A-Z][A-Za-z0-9_]*'
+  MatchingDeclarationName:
+    active: false  # Screen files often contain multiple composables
+
+style:
+  MagicNumber:
+    active: true
+    excludes: ['**/test/**', '**/androidTest/**']
+    ignoreNumbers:
+      - '-1'
+      - '0'
+      - '1'
+      - '2'
+      - '10'
+      - '100'
+    ignoreHashCodeFunction: true
+    ignorePropertyDeclaration: true
+    ignoreLocalVariableDeclaration: true
+    ignoreConstantDeclaration: true
+    ignoreCompanionObjectPropertyDeclaration: true
+    ignoreAnnotation: true
+    ignoreEnums: true
+    # Composable UI code uses many dimension/color literals
+    ignoreAnnotated:
+      - 'androidx.compose.runtime.Composable'
+  MaxLineLength:
+    active: true
+    maxLineLength: 150
+    excludeCommentStatements: true
+  WildcardImport:
+    active: true
+    excludeImports:
+      - 'kotlinx.coroutines.*'
+      - 'androidx.compose.foundation.layout.*'
+      - 'androidx.compose.material3.*'
+      - 'androidx.compose.ui.*'
+      - 'androidx.compose.runtime.*'
+  ReturnCount:
+    max: 5
+  ForbiddenComment:
+    active: false  # Allow TODO/FIXME comments during development
+  UnusedPrivateMember:
+    active: true
+    allowedNames: 'serialVersionUID'
+
+exceptions:
+  TooGenericExceptionCaught:
+    active: true
+    exceptionNames:
+      - 'ArrayIndexOutOfBoundsException'
+      - 'Error'
+      - 'IllegalMonitorStateException'
+      - 'NullPointerException'
+      - 'IndexOutOfBoundsException'
+    allowedExceptionNameRegex: ''
+  SwallowedException:
+    active: true
+    ignoredExceptionTypes:
+      - 'InterruptedException'
+      - 'MalformedURLException'
+      - 'NumberFormatException'
+      - 'ParseException'
