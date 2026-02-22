@@ -19,13 +19,6 @@ complexity:
   NestedBlockDepth:
     threshold: 5
 
-formatting:
-  active: true
-  MaximumLineLength:
-    active: true
-    maxLineLength: 150
-    excludeCommentStatements: true
-
 naming:
   FunctionNaming:
     active: true

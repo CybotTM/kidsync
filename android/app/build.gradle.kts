@@ -255,8 +255,6 @@ kover {
             verify {
                 rule("Minimum line coverage") {
                     minBound(50)
-                    // Warning only -- Android coverage is harder due to UI code
-                    isEnabled = true
                 }
             }
         }
