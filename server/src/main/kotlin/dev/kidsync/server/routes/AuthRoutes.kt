@@ -14,6 +14,7 @@ import io.ktor.server.routing.*
 import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters
 import org.bouncycastle.crypto.signers.Ed25519Signer
 import org.jetbrains.exposed.sql.selectAll
+import dev.kidsync.server.util.CHALLENGE_TOKEN_PREFIX
 import java.time.Instant
 import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
@@ -123,7 +124,8 @@ fun Route.authRoutes(config: AppConfig, sessionUtil: SessionUtil) {
              * The server verifies the Ed25519 signature using BouncyCastle to prove
              * the client possesses the private key corresponding to the registered public key.
              *
-             * The challenge message the client signs is: nonce || signingKey || serverOrigin || timestamp
+             * The challenge message the client signs uses length-prefix encoding:
+             * nonce (32B) || signingKey (32B) || len(origin) (4B BE) || origin || len(ts) (4B BE) || ts
              *
              * SEC4-S-17: DESIGN NOTE - Challenge nonces are not bound to the client's IP address.
              * This is partially mitigated by: (1) TLS preventing MITM interception of nonces,
@@ -160,11 +162,17 @@ fun Route.authRoutes(config: AppConfig, sessionUtil: SessionUtil) {
                     ?: throw ApiException(401, "NONCE_EXPIRED", "Invalid, expired, or already-used nonce")
 
                 // Verify Ed25519 signature
-                // Challenge message is binary concatenation:
-                // base64Decode(nonce) || base64Decode(signingKey) || utf8(serverOrigin) || utf8(timestamp)
+                // SEC7-S-01: Strip "chal_" prefix before Base64 decoding the nonce.
+                // The nonce has "chal_" prefix (from SEC6-S-05) for cross-use prevention,
+                // but the raw bytes for the challenge message are the 32 decoded bytes only.
+                val nonceBase64 = if (request.nonce.startsWith(CHALLENGE_TOKEN_PREFIX)) {
+                    request.nonce.removePrefix(CHALLENGE_TOKEN_PREFIX)
+                } else {
+                    request.nonce
+                }
                 val nonceBytes = try {
-                    // Nonce is base64url-encoded (no padding)
-                    Base64.getUrlDecoder().decode(request.nonce)
+                    // Nonce is base64url-encoded (no padding) — use URL-safe decoder
+                    Base64.getUrlDecoder().decode(nonceBase64)
                 } catch (_: Exception) {
                     throw ApiException(400, "INVALID_REQUEST", "Invalid nonce encoding")
                 }
@@ -173,9 +181,19 @@ fun Route.authRoutes(config: AppConfig, sessionUtil: SessionUtil) {
                 } catch (_: Exception) {
                     throw ApiException(400, "INVALID_REQUEST", "Invalid signing key encoding")
                 }
+
+                // SEC7-S-02: Match the client's length-prefix encoding for the challenge message.
+                // Format: nonce (32 bytes raw) || signingKey (32 bytes raw)
+                //         || len(serverOrigin) (4 bytes big-endian) || serverOrigin (UTF-8)
+                //         || len(timestamp) (4 bytes big-endian) || timestamp (UTF-8)
+                // Fixed-length fields (nonce, signingKey) are unprefixed; variable-length fields
+                // (serverOrigin, timestamp) get 4-byte big-endian length prefixes to prevent
+                // boundary ambiguity attacks.
                 val originBytes = config.serverOrigin.toByteArray(Charsets.UTF_8)
                 val timestampBytes = request.timestamp.toByteArray(Charsets.UTF_8)
-                val messageBytes = nonceBytes + signingKeyBytes + originBytes + timestampBytes
+                val messageBytes = nonceBytes + signingKeyBytes +
+                    lengthPrefix(originBytes) + originBytes +
+                    lengthPrefix(timestampBytes) + timestampBytes
 
                 val signatureBytes = try {
                     Base64.getDecoder().decode(request.signature)
@@ -239,4 +257,18 @@ fun Route.authRoutes(config: AppConfig, sessionUtil: SessionUtil) {
             }
         }
     }
+}
+
+/**
+ * SEC7-S-02: Encode a 4-byte big-endian length prefix for a byte array.
+ * Matches the client's length-prefix encoding in AuthRepositoryImpl.buildChallengeMessage().
+ */
+private fun lengthPrefix(data: ByteArray): ByteArray {
+    val len = data.size
+    return byteArrayOf(
+        (len shr 24 and 0xFF).toByte(),
+        (len shr 16 and 0xFF).toByte(),
+        (len shr 8 and 0xFF).toByte(),
+        (len and 0xFF).toByte()
+    )
 }

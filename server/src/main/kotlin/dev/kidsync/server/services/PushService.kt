@@ -69,9 +69,14 @@ class PushService(private val encryptionKeyBase64: String? = null) {
 
     /**
      * SEC6-S-13: Decrypt a push token from AES-256-GCM "IV:ciphertext" format.
-     * If encryption is not configured or decryption fails, returns the raw value.
+     * If encryption is not configured, returns the raw value.
+     * If the value looks like plaintext (no ':'), returns it directly (legacy/unencrypted).
+     *
+     * SEC7-S-05: Returns null on decryption failure instead of returning the raw ciphertext.
+     * Callers must handle null (skip sending to that device) rather than accidentally
+     * using encrypted data as a push token.
      */
-    fun decryptToken(stored: String): String {
+    fun decryptToken(stored: String): String? {
         if (encryptionKey == null) return stored
         if (!stored.contains(':')) return stored // Plaintext (legacy/unencrypted)
 
@@ -85,8 +90,8 @@ class PushService(private val encryptionKeyBase64: String? = null) {
             cipher.init(Cipher.DECRYPT_MODE, encryptionKey, GCMParameterSpec(128, iv))
             String(cipher.doFinal(ciphertext), Charsets.UTF_8)
         } catch (e: Exception) {
-            logger.warn("Failed to decrypt push token, returning as-is: {}", e.message)
-            stored
+            logger.error("Failed to decrypt push token for device, skipping: {}", e.message)
+            null
         }
     }
 
@@ -143,7 +148,8 @@ class PushService(private val encryptionKeyBase64: String? = null) {
             for (tokenRow in tokens) {
                 val platform = tokenRow[PushTokens.platform]
                 // SEC6-S-13: Decrypt token for use
-                val pushToken = decryptToken(tokenRow[PushTokens.token])
+                // SEC7-S-05: Skip devices whose token cannot be decrypted
+                val pushToken = decryptToken(tokenRow[PushTokens.token]) ?: continue
 
                 // In production, this would call the actual push API
                 // Payload is opaque: { "type": "sync", "bucket": bucketId }

@@ -155,21 +155,23 @@ fun Route.syncRoutes(
                     val principal = call.devicePrincipal()
                     val bucketId = ValidationUtil.requireUuidPathParam(call, "id", "bucket id")
 
-                    // Verify bucket access
-                    dbQuery { BucketService.requireBucketAccess(bucketId, principal.deviceId) }
+                    // SEC7-S-04: Verify bucket access and enforce snapshot quota in a single
+                    // transaction to prevent TOCTOU race where concurrent uploads both pass
+                    // the quota check before either insert completes.
+                    dbQuery {
+                        BucketService.requireBucketAccess(bucketId, principal.deviceId)
 
-                    // SEC6-S-06: Enforce per-bucket snapshot quota
-                    val snapshotCount = dbQuery {
-                        Snapshots.selectAll()
+                        // SEC6-S-06: Enforce per-bucket snapshot quota
+                        val snapshotCount = Snapshots.selectAll()
                             .where { Snapshots.bucketId eq bucketId }
                             .count()
-                    }
-                    if (snapshotCount >= config.maxSnapshotsPerBucket) {
-                        throw ApiException(
-                            409,
-                            "SNAPSHOT_QUOTA_EXCEEDED",
-                            "Maximum number of snapshots (${config.maxSnapshotsPerBucket}) per bucket reached"
-                        )
+                        if (snapshotCount >= config.maxSnapshotsPerBucket) {
+                            throw ApiException(
+                                409,
+                                "SNAPSHOT_QUOTA_EXCEEDED",
+                                "Maximum number of snapshots (${config.maxSnapshotsPerBucket}) per bucket reached"
+                            )
+                        }
                     }
 
                     val multipart = call.receiveMultipart()

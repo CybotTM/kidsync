@@ -85,8 +85,11 @@ object TestHelper {
 
     /**
      * Sign a challenge message with an Ed25519 private key.
-     * Message format: base64Decode(nonce) || base64Decode(signingKey) || utf8(serverOrigin) || utf8(timestamp)
-     * Binary concatenation of raw bytes.
+     *
+     * SEC7-S-01/S-02: Strips "chal_" prefix before base64url-decoding the nonce,
+     * and uses length-prefix encoding for variable-length fields to match the
+     * server's updated format:
+     *   nonce (32B) || signingKey || len(origin) (4B BE) || origin || len(ts) (4B BE) || ts
      */
     fun signChallenge(
         privateKey: PrivateKey,
@@ -95,16 +98,34 @@ object TestHelper {
         serverOrigin: String = "https://test.kidsync.app",
         timestamp: String = Instant.now().toString(),
     ): Pair<String, String> {
-        val nonceBytes = Base64.getUrlDecoder().decode(nonce)
+        // Strip "chal_" prefix before base64url-decoding
+        val nonceBase64 = if (nonce.startsWith("chal_")) nonce.removePrefix("chal_") else nonce
+        val nonceBytes = Base64.getUrlDecoder().decode(nonceBase64)
         val signingKeyBytes = decoder.decode(signingKeyBase64)
         val originBytes = serverOrigin.toByteArray(Charsets.UTF_8)
         val timestampBytes = timestamp.toByteArray(Charsets.UTF_8)
-        val message = nonceBytes + signingKeyBytes + originBytes + timestampBytes
+        // Length-prefix encoding for variable-length fields
+        val message = nonceBytes + signingKeyBytes +
+            lengthPrefix(originBytes) + originBytes +
+            lengthPrefix(timestampBytes) + timestampBytes
         val signer = Signature.getInstance("Ed25519")
         signer.initSign(privateKey)
         signer.update(message)
         val signatureBytes = signer.sign()
         return Pair(encoder.encodeToString(signatureBytes), timestamp)
+    }
+
+    /**
+     * Encode a 4-byte big-endian length prefix for a byte array.
+     */
+    private fun lengthPrefix(data: ByteArray): ByteArray {
+        val len = data.size
+        return byteArrayOf(
+            (len shr 24 and 0xFF).toByte(),
+            (len shr 16 and 0xFF).toByte(),
+            (len shr 8 and 0xFF).toByte(),
+            (len and 0xFF).toByte()
+        )
     }
 
     // ---- Hash Chain ----

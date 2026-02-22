@@ -14,6 +14,7 @@ import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.deleteWhere
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.selectAll
@@ -79,9 +80,12 @@ fun Route.deviceRoutes(sessionUtil: SessionUtil) {
         rateLimit(RateLimitName("general")) {
             /**
              * DELETE /devices/me
-             * Permanently deregister the authenticated device, cleaning up all associated data:
-             * sessions, bucket access records, wrapped keys, attestations, recovery blobs,
-             * push tokens, and the device record itself.
+             * Permanently deregister the authenticated device.
+             *
+             * SEC7-S-03: Preserves shared buckets and their data (ops, blobs, snapshots)
+             * for other members' hash chain integrity. Only deletes buckets with no other
+             * active members. Removes: sessions, bucket memberships, wrapped keys,
+             * attestations, recovery blobs, push tokens, and the device record itself.
              */
             delete("/devices/me") {
                 val principal = call.devicePrincipal()
@@ -91,17 +95,13 @@ fun Route.deviceRoutes(sessionUtil: SessionUtil) {
                 sessionUtil.deleteSessionsByDevice(deviceId)
 
                 dbQuery {
-                    // Remove bucket access records
+                    // SEC7-S-03: Remove this device's bucket memberships, but preserve
+                    // shared buckets and their ops for other members' hash chain integrity.
                     BucketAccess.deleteWhere { BucketAccess.deviceId eq deviceId }
 
-                    // Remove ops uploaded by this device
-                    Ops.deleteWhere { Ops.deviceId eq deviceId }
-
-                    // Remove blobs uploaded by this device
-                    Blobs.deleteWhere { Blobs.uploadedBy eq deviceId }
-
-                    // Remove snapshots uploaded by this device
-                    Snapshots.deleteWhere { Snapshots.deviceId eq deviceId }
+                    // SEC7-S-03: Do NOT delete ops, blobs, or snapshots uploaded by this
+                    // device — they are part of the shared hash chain and must remain
+                    // for other members' data integrity.
 
                     // Remove wrapped keys (both as target and wrapper)
                     WrappedKeys.deleteWhere { WrappedKeys.targetDevice eq deviceId }
@@ -125,21 +125,26 @@ fun Route.deviceRoutes(sessionUtil: SessionUtil) {
                         Challenges.deleteWhere { Challenges.signingKey eq device[Devices.signingKey] }
                     }
 
-                    // Handle buckets created by this device:
-                    // Delete empty buckets, transfer creator for non-empty ones is not supported.
-                    // For now, delete buckets created by this device (cascading all related data).
+                    // SEC7-S-03: Only delete buckets that have NO other active members.
+                    // Shared buckets (with other members) are preserved — only this
+                    // device's membership was removed above.
                     val createdBuckets = Buckets.selectAll()
                         .where { Buckets.createdBy eq deviceId }
                         .map { it[Buckets.id] }
                     for (bId in createdBuckets) {
-                        // Clean up bucket data
-                        Ops.deleteWhere { Ops.bucketId eq bId }
-                        Checkpoints.deleteWhere { Checkpoints.bucketId eq bId }
-                        Blobs.deleteWhere { Blobs.bucketId eq bId }
-                        Snapshots.deleteWhere { Snapshots.bucketId eq bId }
-                        InviteTokens.deleteWhere { InviteTokens.bucketId eq bId }
-                        BucketAccess.deleteWhere { BucketAccess.bucketId eq bId }
-                        Buckets.deleteWhere { Buckets.id eq bId }
+                        val otherMembers = BucketAccess.selectAll()
+                            .where { (BucketAccess.bucketId eq bId) and BucketAccess.revokedAt.isNull() }
+                            .count()
+                        if (otherMembers == 0L) {
+                            // No other members — safe to delete the entire bucket
+                            Ops.deleteWhere { Ops.bucketId eq bId }
+                            Checkpoints.deleteWhere { Checkpoints.bucketId eq bId }
+                            Blobs.deleteWhere { Blobs.bucketId eq bId }
+                            Snapshots.deleteWhere { Snapshots.bucketId eq bId }
+                            InviteTokens.deleteWhere { InviteTokens.bucketId eq bId }
+                            BucketAccess.deleteWhere { BucketAccess.bucketId eq bId }
+                            Buckets.deleteWhere { Buckets.id eq bId }
+                        }
                     }
 
                     // Finally, delete the device record
