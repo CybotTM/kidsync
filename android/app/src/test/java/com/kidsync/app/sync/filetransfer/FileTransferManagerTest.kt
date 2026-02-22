@@ -54,6 +54,12 @@ class FileTransferManagerTest : FunSpec({
         coEvery { opLogDao.getOpsCountForBucket(testBucketId) } returns ops.size.toLong()
         coEvery { opLogDao.getLastOpForBucket(testBucketId) } returns ops.lastOrNull()
 
+        // Batched export: first call returns all ops, second returns empty
+        coEvery { opLogDao.getOpsAfterSequence(testBucketId, 0L, any()) } returns ops
+        if (ops.isNotEmpty()) {
+            coEvery { opLogDao.getOpsAfterSequence(testBucketId, ops.last().globalSequence, any()) } returns emptyList()
+        }
+
         return Pair(opLogDao, keyManager)
     }
 
@@ -150,7 +156,7 @@ class FileTransferManagerTest : FunSpec({
         importResult.newOps shouldBe 2L
         importResult.skippedDuplicates shouldBe 0L
 
-        coVerify(exactly = 2) { opLogDao.insertOpLogEntry(any()) }
+        coVerify(exactly = 1) { opLogDao.insertOpLogEntries(match { it.size == 2 }) }
     }
 
     test("roundtrip: export then import produces same data") {
@@ -165,8 +171,8 @@ class FileTransferManagerTest : FunSpec({
 
         // Import (all ops should be new since findOp returns null)
         coEvery { opLogDao.findOp(any(), any(), any()) } returns null
-        val capturedEntities = mutableListOf<OpLogEntryEntity>()
-        coEvery { opLogDao.insertOpLogEntry(capture(capturedEntities)) } returns Unit
+        val capturedBatch = slot<List<OpLogEntryEntity>>()
+        coEvery { opLogDao.insertOpLogEntries(capture(capturedBatch)) } returns Unit
 
         val importResult = manager.importBundle(ByteArrayInputStream(exportStream.toByteArray()))
 
@@ -177,6 +183,8 @@ class FileTransferManagerTest : FunSpec({
         result.skippedDuplicates shouldBe 0L
 
         // Verify all ops were imported with correct data
+        capturedBatch.isCaptured shouldBe true
+        val capturedEntities = capturedBatch.captured
         capturedEntities.size shouldBe 5
         capturedEntities.forEachIndexed { index, entity ->
             val original = ops[index]
@@ -237,7 +245,7 @@ class FileTransferManagerTest : FunSpec({
         importResult.newOps shouldBe 1L
         importResult.skippedDuplicates shouldBe 1L
 
-        coVerify(exactly = 1) { opLogDao.insertOpLogEntry(any()) }
+        coVerify(exactly = 1) { opLogDao.insertOpLogEntries(match { it.size == 1 }) }
     }
 
     test("import with empty bundle (no ops)") {
@@ -263,7 +271,7 @@ class FileTransferManagerTest : FunSpec({
         importResult.newOps shouldBe 0L
         importResult.skippedDuplicates shouldBe 0L
 
-        coVerify(exactly = 0) { opLogDao.insertOpLogEntry(any()) }
+        coVerify(exactly = 0) { opLogDao.insertOpLogEntries(any()) }
     }
 
     test("import rejects unknown formatVersion") {
