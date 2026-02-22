@@ -248,7 +248,7 @@ class KeyManagerTest : FunSpec({
             km.storeDeviceId("device-xyz")
 
             verify { prefsEditor.putString("device_id", "device-xyz") }
-            verify { prefsEditor.apply() }
+            verify { prefsEditor.commit() }
         }
     }
 
