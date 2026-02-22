@@ -23,6 +23,8 @@ class BucketService(
     private val wsManager: WebSocketManager? = null,
     // SEC4-S-07: Reference to SessionUtil to invalidate sessions on revocation
     private val sessionUtil: SessionUtil? = null,
+    // SEC4-S-19: Maximum number of devices that can join a single bucket (configurable)
+    private val maxDevicesPerBucket: Int = MAX_DEVICES_PER_BUCKET_DEFAULT,
 ) {
 
     private val logger = LoggerFactory.getLogger(BucketService::class.java)
@@ -31,8 +33,8 @@ class BucketService(
         // SEC3-S-15: Maximum number of buckets a single device can create
         const val MAX_BUCKETS_PER_DEVICE = 10
 
-        // SEC4-S-19: Maximum number of devices that can join a single bucket
-        const val MAX_DEVICES_PER_BUCKET = 10
+        // SEC4-S-19: Default maximum number of devices that can join a single bucket
+        const val MAX_DEVICES_PER_BUCKET_DEFAULT = 10
 
         /**
          * Verify that a device has active (non-revoked) access to a bucket.
@@ -109,12 +111,23 @@ class BucketService(
                 deviceIdsInBucket.add(row[BucketAccess.deviceId])
             }
 
-            // Wrapped keys for devices in this bucket are intentionally NOT deleted here.
-            // They are harmless since the bucket's data is already deleted, and deleting
-            // them would over-delete keys for devices that have access to other buckets.
-            // SEC3-S-24: TODO - Bucket deletion doesn't clean up orphaned wrapped keys or
-            // attestations that reference only this bucket's devices. Consider a background
-            // cleanup job for production deployments.
+            // SEC3-S-24: Cascade-delete wrapped keys and key attestations for devices
+            // that ONLY had access through this bucket (no other active buckets).
+            // For devices with other bucket memberships, their keys remain intact.
+            val deviceIdsOnlyInThisBucket = deviceIdsInBucket.filter { devId ->
+                val otherBucketCount = BucketAccess.selectAll().where {
+                    (BucketAccess.deviceId eq devId) and
+                        (BucketAccess.bucketId neq bucketId) and
+                        BucketAccess.revokedAt.isNull()
+                }.count()
+                otherBucketCount == 0L
+            }
+            for (devId in deviceIdsOnlyInThisBucket) {
+                WrappedKeys.deleteWhere { (WrappedKeys.targetDevice eq devId) or (WrappedKeys.wrappedBy eq devId) }
+                KeyAttestations.deleteWhere {
+                    (KeyAttestations.signerDevice eq devId) or (KeyAttestations.attestedDevice eq devId)
+                }
+            }
 
             // Delete all related data
             Ops.deleteWhere { Ops.bucketId eq bucketId }
@@ -289,8 +302,8 @@ class BucketService(
                 (BucketAccess.bucketId eq bucketId) and BucketAccess.revokedAt.isNull()
             }.count()
 
-            if (activeDeviceCount >= MAX_DEVICES_PER_BUCKET) {
-                throw ApiException(429, "RATE_LIMITED", "Maximum number of devices ($MAX_DEVICES_PER_BUCKET) per bucket reached")
+            if (activeDeviceCount >= maxDevicesPerBucket) {
+                throw ApiException(429, "RATE_LIMITED", "Maximum number of devices ($maxDevicesPerBucket) per bucket reached")
             }
 
             // SEC2-S-01: Atomic invite consumption -- use UPDATE with WHERE usedAt IS NULL
@@ -393,6 +406,60 @@ class BucketService(
         if (remainingBucketCount == 0L) {
             logger.info("Device {} revoked from last bucket, invalidating all sessions", deviceId)
             sessionUtil?.deleteSessionsByDevice(deviceId)
+        }
+    }
+
+    /**
+     * SEC5-S-08: Creator-driven device revocation. Only the bucket creator can remove
+     * another device from the bucket. Removes bucket access and deletes wrapped keys
+     * for the target device in this bucket's context.
+     */
+    suspend fun creatorRevoke(bucketId: String, callerDeviceId: String, targetDeviceId: String) {
+        if (callerDeviceId == targetDeviceId) {
+            throw ApiException(400, "INVALID_REQUEST", "Use DELETE /buckets/{id}/devices/me to revoke yourself")
+        }
+
+        val remainingBucketCount = dbQuery {
+            val bucket = Buckets.selectAll().where { Buckets.id eq bucketId }.firstOrNull()
+                ?: throw ApiException(404, "NOT_FOUND", "Bucket not found")
+
+            if (bucket[Buckets.createdBy] != callerDeviceId) {
+                throw ApiException(403, "NOT_BUCKET_CREATOR", "Only the bucket creator can revoke devices")
+            }
+
+            // Verify target device has active access
+            val access = BucketAccess.selectAll().where {
+                (BucketAccess.bucketId eq bucketId) and
+                    (BucketAccess.deviceId eq targetDeviceId) and
+                    BucketAccess.revokedAt.isNull()
+            }.firstOrNull()
+                ?: throw ApiException(404, "NOT_FOUND", "Device does not have active access to this bucket")
+
+            // Revoke access
+            BucketAccess.update({
+                (BucketAccess.bucketId eq bucketId) and
+                    (BucketAccess.deviceId eq targetDeviceId) and
+                    BucketAccess.revokedAt.isNull()
+            }) {
+                it[revokedAt] = LocalDateTime.now(ZoneOffset.UTC)
+            }
+
+            // Delete wrapped keys for the target device
+            WrappedKeys.deleteWhere { WrappedKeys.targetDevice eq targetDeviceId }
+
+            // Check remaining active bucket memberships for the target device
+            BucketAccess.selectAll().where {
+                (BucketAccess.deviceId eq targetDeviceId) and BucketAccess.revokedAt.isNull()
+            }.count()
+        }
+
+        // SEC3-S-05: Terminate WebSocket connections for the revoked device
+        wsManager?.disconnectDevice(bucketId, targetDeviceId)
+
+        // SEC4-S-07: If device has no remaining bucket memberships, invalidate all sessions
+        if (remainingBucketCount == 0L) {
+            logger.info("Device {} revoked by creator from last bucket, invalidating all sessions", targetDeviceId)
+            sessionUtil?.deleteSessionsByDevice(targetDeviceId)
         }
     }
 }

@@ -1,11 +1,12 @@
 package dev.kidsync.server.plugins
 
+import dev.kidsync.server.AppConfig
 import io.ktor.server.application.*
 import io.ktor.server.plugins.ratelimit.*
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
-fun Application.configureRateLimit() {
+fun Application.configureRateLimit(config: AppConfig = AppConfig()) {
     install(RateLimit) {
         register(RateLimitName("auth")) {
             rateLimiter(limit = 10, refillPeriod = 1.minutes)
@@ -45,7 +46,7 @@ fun Application.configureRateLimit() {
             }
         }
         register(RateLimitName("snapshot")) {
-            rateLimiter(limit = 1, refillPeriod = 60.minutes)
+            rateLimiter(limit = config.snapshotRateLimitPerHour, refillPeriod = 60.minutes)
             requestKey { call ->
                 call.request.local.remoteAddress
             }

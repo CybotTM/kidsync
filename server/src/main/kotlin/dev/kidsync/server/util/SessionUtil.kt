@@ -15,12 +15,16 @@ import java.util.*
 // SEC3-S-01: Session tokens are hashed with SHA-256 before storage.
 // The raw token is returned to the client; only the hash is persisted in the DB.
 
-// SEC6-S-05: TODO - Add a type prefix to session tokens (e.g., "sess_") and challenge tokens
-// (e.g., "chal_") to prevent cross-use attacks where a challenge token is submitted as a
-// session token or vice versa.
+// SEC6-S-05: Session tokens are prefixed with "sess_" and challenge nonces with "chal_"
+// to prevent cross-use attacks where a challenge token is submitted as a session token
+// or vice versa.
 
 /** SEC2-S-07: Maximum number of concurrent sessions per device */
 private const val MAX_SESSIONS_PER_DEVICE = 5
+
+/** SEC6-S-05: Token type prefixes to prevent cross-use */
+const val SESSION_TOKEN_PREFIX = "sess_"
+const val CHALLENGE_TOKEN_PREFIX = "chal_"
 
 /**
  * Session data stored server-side for authenticated devices.
@@ -59,7 +63,8 @@ class SessionUtil(private val config: AppConfig) {
     suspend fun createChallenge(signingKey: String): PendingChallenge {
         val nonceBytes = ByteArray(32)
         random.nextBytes(nonceBytes)
-        val nonce = Base64.getUrlEncoder().withoutPadding().encodeToString(nonceBytes)
+        // SEC6-S-05: Prefix challenge nonces with "chal_" to prevent cross-use as session tokens
+        val nonce = CHALLENGE_TOKEN_PREFIX + Base64.getUrlEncoder().withoutPadding().encodeToString(nonceBytes)
         val now = Instant.now()
         val challenge = PendingChallenge(
             nonce = nonce,
@@ -91,6 +96,8 @@ class SessionUtil(private val config: AppConfig) {
      * doesn't match or the nonce is expired, it is left for the legitimate holder.
      */
     suspend fun consumeChallenge(nonce: String, signingKey: String): PendingChallenge? {
+        // SEC6-S-05: Reject nonces without the challenge prefix (prevents session token cross-use)
+        if (!nonce.startsWith(CHALLENGE_TOKEN_PREFIX)) return null
         return dbQuery {
             val row = Challenges.selectAll()
                 .where { Challenges.nonce eq nonce }
@@ -125,7 +132,8 @@ class SessionUtil(private val config: AppConfig) {
     suspend fun createSession(deviceId: String, signingKey: String): Pair<String, Session> {
         val tokenBytes = ByteArray(32)
         random.nextBytes(tokenBytes)
-        val token = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes)
+        // SEC6-S-05: Prefix session tokens with "sess_" to prevent cross-use as challenge nonces
+        val token = SESSION_TOKEN_PREFIX + Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes)
         val now = Instant.now()
         val session = Session(
             deviceId = deviceId,
@@ -175,6 +183,8 @@ class SessionUtil(private val config: AppConfig) {
      * SEC3-S-01: Hashes the input token with SHA-256 and queries against the stored hash.
      */
     suspend fun validateSession(token: String): Session? {
+        // SEC6-S-05: Reject tokens without the session prefix (prevents challenge token cross-use)
+        if (!token.startsWith(SESSION_TOKEN_PREFIX)) return null
         val hashedToken = HashUtil.sha256HexString(token)
         return dbQuery {
             val row = Sessions.selectAll()
@@ -184,6 +194,31 @@ class SessionUtil(private val config: AppConfig) {
             val expiresAt = Instant.ofEpochSecond(row[Sessions.expiresAt])
             if (Instant.now().isAfter(expiresAt)) {
                 Sessions.deleteWhere { Sessions.tokenHash eq hashedToken }
+                return@dbQuery null
+            }
+
+            Session(
+                deviceId = row[Sessions.deviceId],
+                signingKey = row[Sessions.signingKey],
+                createdAt = Instant.ofEpochSecond(row[Sessions.createdAt]),
+                expiresAt = expiresAt,
+            )
+        }
+    }
+
+    /**
+     * SEC6-S-07: Validate a session by its pre-computed SHA-256 hash.
+     * Used by WebSocket connections that store only the hash to avoid holding raw tokens in memory.
+     */
+    suspend fun validateSessionByHash(tokenHash: String): Session? {
+        return dbQuery {
+            val row = Sessions.selectAll()
+                .where { Sessions.tokenHash eq tokenHash }
+                .firstOrNull() ?: return@dbQuery null
+
+            val expiresAt = Instant.ofEpochSecond(row[Sessions.expiresAt])
+            if (Instant.now().isAfter(expiresAt)) {
+                Sessions.deleteWhere { Sessions.tokenHash eq tokenHash }
                 return@dbQuery null
             }
 

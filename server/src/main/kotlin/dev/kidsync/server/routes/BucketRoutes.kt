@@ -16,10 +16,7 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import org.jetbrains.exposed.sql.selectAll
 
-// SEC5-S-08: TODO - Add creator-driven device revocation endpoint (DELETE /buckets/{id}/devices/{deviceId}).
-// Currently only self-revoke is supported. The bucket creator should be able to remove other
-// devices from the bucket, which would revoke their access, invalidate relevant sessions,
-// disconnect WebSocket connections, and trigger key rotation for remaining devices.
+// SEC5-S-08: Creator-driven device revocation endpoint added as DELETE /buckets/{id}/devices/{deviceId}.
 
 fun Route.bucketRoutes(bucketService: BucketService, wsManager: WebSocketManager) {
     authenticate("auth-session") {
@@ -130,6 +127,20 @@ fun Route.bucketRoutes(bucketService: BucketService, wsManager: WebSocketManager
                         val bucketId = ValidationUtil.requireUuidPathParam(call, "id", "bucket id")
 
                         bucketService.selfRevoke(bucketId, principal.deviceId)
+                        call.respond(HttpStatusCode.NoContent)
+                    }
+
+                    /**
+                     * DELETE /buckets/{id}/devices/{deviceId}
+                     * SEC5-S-08: Creator-driven device revocation. Only the bucket creator
+                     * can remove another device from the bucket.
+                     */
+                    delete("/devices/{deviceId}") {
+                        val principal = call.devicePrincipal()
+                        val bucketId = ValidationUtil.requireUuidPathParam(call, "id", "bucket id")
+                        val targetDeviceId = ValidationUtil.requireUuidPathParam(call, "deviceId", "device id")
+
+                        bucketService.creatorRevoke(bucketId, principal.deviceId, targetDeviceId)
                         call.respond(HttpStatusCode.NoContent)
                     }
                 }
