@@ -376,7 +376,7 @@ class BucketViewModelTest : FunSpec({
                 signature = "sig",
                 createdAt = Instant.now().toString()
             )
-            coEvery { bucketRepository.uploadKeyAttestation(any()) } just Runs
+            coEvery { bucketRepository.uploadKeyAttestation(any()) } returns Result.success(Unit)
             coEvery { bucketRepository.storeLocalBucketName(any(), any()) } just Runs
             coEvery { bucketRepository.getLocalBucketName(any()) } returns "Shared Bucket"
             coEvery { authRepository.getServerUrl() } returns "https://api.kidsync.dev"

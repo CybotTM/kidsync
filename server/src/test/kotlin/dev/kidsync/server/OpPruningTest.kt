@@ -2,50 +2,27 @@ package dev.kidsync.server
 
 import dev.kidsync.server.TestHelper.createJsonClient
 import dev.kidsync.server.TestHelper.uploadOpsBatch
-import dev.kidsync.server.models.*
-import io.ktor.client.call.*
-import io.ktor.client.request.*
-import io.ktor.client.statement.*
-import io.ktor.http.*
-import io.ktor.server.testing.*
+import dev.kidsync.server.models.AcknowledgeCheckpointRequest
+import dev.kidsync.server.models.PullOpsResponse
+import io.ktor.client.call.body
+import io.ktor.client.request.delete
+import io.ktor.client.request.get
+import io.ktor.client.request.header
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.HttpResponse
+import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
+import io.ktor.server.testing.testApplication
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 /**
  * Integration tests for SEC5-S-14: Op table pruning after checkpoints.
  */
 class OpPruningTest {
-
-    /**
-     * Helper: upload enough ops to create checkpoints, return checkpoint IDs.
-     */
-    private suspend fun uploadOpsAndGetCheckpoints(
-        client: io.ktor.client.HttpClient,
-        device: TestDevice,
-        opsCount: Int,
-    ): List<CheckpointData> {
-        val bucketId = device.bucketId!!
-
-        // Upload ops in batches of up to 100
-        var prevHash = "0".repeat(64)
-        var remaining = opsCount
-        var batchNum = 0
-        while (remaining > 0) {
-            val batchSize = minOf(remaining, 100)
-            batchNum++
-            prevHash = uploadOpsBatch(client, device, batchSize, startPrevHash = prevHash, localIdPrefix = "batch$batchNum")
-            remaining -= batchSize
-        }
-
-        // Get checkpoint info
-        val cpResp = client.get("/buckets/$bucketId/checkpoint") {
-            header(HttpHeaders.Authorization, "Bearer ${device.sessionToken}")
-        }
-        if (cpResp.status == HttpStatusCode.NotFound) return emptyList()
-        val cpBody = cpResp.body<CheckpointResponse>()
-        return listOf(cpBody.checkpoint)
-    }
 
     private suspend fun acknowledgeCheckpoint(
         client: io.ktor.client.HttpClient,

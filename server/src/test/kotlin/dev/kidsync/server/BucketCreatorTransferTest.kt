@@ -1,13 +1,18 @@
 package dev.kidsync.server
 
 import dev.kidsync.server.TestHelper.createJsonClient
-import dev.kidsync.server.models.*
-import dev.kidsync.server.util.HashUtil
-import io.ktor.client.call.*
-import io.ktor.client.request.*
-import io.ktor.client.statement.*
-import io.ktor.http.*
-import io.ktor.server.testing.*
+import dev.kidsync.server.models.ErrorResponse
+import dev.kidsync.server.models.TransferCreatorRequest
+import io.ktor.client.call.body
+import io.ktor.client.request.delete
+import io.ktor.client.request.header
+import io.ktor.client.request.patch
+import io.ktor.client.request.setBody
+import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
+import io.ktor.server.testing.testApplication
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 

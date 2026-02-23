@@ -38,6 +38,11 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
+/** WebSocket close codes for application-level errors (RFC 6455 §7.4.2: 4000-4999). */
+private const val WS_CLOSE_INVALID_PARAMS = 4000
+private const val WS_CLOSE_AUTH_FAILED = 4001
+private const val WS_CLOSE_RATE_LIMITED = 4003
+
 /**
  * SEC4-S-10: IP-based rate limiter for WebSocket upgrade attempts.
  * Limits each IP to MAX_WS_CONNECTIONS_PER_IP_PER_MINUTE WebSocket connections per minute.
@@ -360,21 +365,21 @@ fun Route.syncRoutes(
                         Snapshots.selectAll()
                             .where { Snapshots.id eq snapshotId }
                             .firstOrNull()
-                    } ?: throw ApiException(404, "NOT_FOUND", "Snapshot not found")
+                    } ?: throw ApiException(HttpStatusCode.NotFound.value, "NOT_FOUND", "Snapshot not found")
 
                     if (snapshot[Snapshots.bucketId] != bucketId) {
-                        throw ApiException(403, "BUCKET_ACCESS_DENIED", "Snapshot does not belong to this bucket")
+                        throw ApiException(HttpStatusCode.Forbidden.value, "BUCKET_ACCESS_DENIED", "Snapshot does not belong to this bucket")
                     }
 
                     // Resolve file path with path traversal protection
                     val snapshotDir = File(config.snapshotStoragePath).canonicalFile
                     val snapshotFile = File(config.snapshotStoragePath, snapshot[Snapshots.filePath])
                     if (!snapshotFile.canonicalFile.startsWith(snapshotDir)) {
-                        throw ApiException(403, "BUCKET_ACCESS_DENIED", "Invalid file path")
+                        throw ApiException(HttpStatusCode.Forbidden.value, "BUCKET_ACCESS_DENIED", "Invalid file path")
                     }
 
                     if (!snapshotFile.exists()) {
-                        throw ApiException(404, "NOT_FOUND", "Snapshot file not found on disk")
+                        throw ApiException(HttpStatusCode.NotFound.value, "NOT_FOUND", "Snapshot file not found on disk")
                     }
 
                     // Compute SHA-256 and add header
@@ -438,14 +443,14 @@ fun Route.syncRoutes(
         // SEC4-S-10: IP-based rate limiting for WebSocket upgrade attempts
         val clientIp = call.request.local.remoteAddress
         if (!WebSocketConnectionRateLimiter.checkAndIncrement(clientIp)) {
-            close(CloseReason(4003, "Rate limit exceeded"))
+            close(CloseReason(WS_CLOSE_RATE_LIMITED, "Rate limit exceeded"))
             return@webSocket
         }
 
         val json = Json { ignoreUnknownKeys = true }
         val bucketId = call.parameters["id"]
         if (bucketId == null || !ValidationUtil.isValidUUID(bucketId)) {
-            close(CloseReason(4000, "Missing or invalid bucket id"))
+            close(CloseReason(WS_CLOSE_INVALID_PARAMS, "Missing or invalid bucket id"))
             return@webSocket
         }
 
@@ -462,7 +467,7 @@ fun Route.syncRoutes(
                 // Query param auth: validate token from URL
                 session = sessionUtil.validateSession(queryToken)
                 if (session == null) {
-                    close(CloseReason(4001, "Invalid token"))
+                    close(CloseReason(WS_CLOSE_AUTH_FAILED, "Invalid token"))
                     return@webSocket
                 }
                 sessionTokenHash = dev.kidsync.server.util.HashUtil.sha256HexString(queryToken)
@@ -470,11 +475,11 @@ fun Route.syncRoutes(
                 // In-band auth: wait for auth message (backward compatible)
                 val authFrame = withTimeoutOrNull(5000) { incoming.receive() }
                 if (authFrame == null) {
-                    close(CloseReason(4001, "Auth timeout"))
+                    close(CloseReason(WS_CLOSE_AUTH_FAILED, "Auth timeout"))
                     return@webSocket
                 }
                 if (authFrame !is Frame.Text) {
-                    close(CloseReason(4001, "Expected text frame for auth"))
+                    close(CloseReason(WS_CLOSE_AUTH_FAILED, "Expected text frame for auth"))
                     return@webSocket
                 }
 
@@ -483,13 +488,13 @@ fun Route.syncRoutes(
                 val authType = authJsonObj["type"]?.jsonPrimitive?.content
 
                 if (authType != "auth") {
-                    close(CloseReason(4001, "Expected auth message"))
+                    close(CloseReason(WS_CLOSE_AUTH_FAILED, "Expected auth message"))
                     return@webSocket
                 }
 
                 val token = authJsonObj["token"]?.jsonPrimitive?.content
                 if (token == null) {
-                    close(CloseReason(4001, "Missing auth token"))
+                    close(CloseReason(WS_CLOSE_AUTH_FAILED, "Missing auth token"))
                     return@webSocket
                 }
 
@@ -503,7 +508,7 @@ fun Route.syncRoutes(
                             )
                         )
                     )
-                    close(CloseReason(4001, "Auth failed"))
+                    close(CloseReason(WS_CLOSE_AUTH_FAILED, "Auth failed"))
                     return@webSocket
                 }
 
@@ -528,7 +533,7 @@ fun Route.syncRoutes(
                         )
                     )
                 )
-                close(CloseReason(4001, "No access"))
+                close(CloseReason(WS_CLOSE_AUTH_FAILED, "No access"))
                 return@webSocket
             }
 
@@ -537,7 +542,7 @@ fun Route.syncRoutes(
 
             // SEC-S-06: Enforce connection limits
             if (!wsManager.addConnection(bucketId, connection!!)) {
-                close(CloseReason(4003, "Connection limit exceeded"))
+                close(CloseReason(WS_CLOSE_RATE_LIMITED, "Connection limit exceeded"))
                 return@webSocket
             }
 
@@ -562,7 +567,7 @@ fun Route.syncRoutes(
                     // SEC6-S-07: Re-validate using the stored hash instead of raw token
                     val revalidatedSession = sessionUtil.validateSessionByHash(sessionTokenHash!!)
                     if (revalidatedSession == null) {
-                        close(CloseReason(4001, "Session expired"))
+                        close(CloseReason(WS_CLOSE_AUTH_FAILED, "Session expired"))
                         return@launch
                     }
                     val stillHasAccess = try {

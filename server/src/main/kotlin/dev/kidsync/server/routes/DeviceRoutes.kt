@@ -82,7 +82,7 @@ fun Route.deviceRoutes(sessionUtil: SessionUtil) {
             // SEC-S-10: IP-based rate limiting for device registration
             val clientIp = call.request.local.remoteAddress
             if (!DeviceRegistrationRateLimiter.checkAndIncrement(clientIp)) {
-                throw ApiException(429, "RATE_LIMITED", "Too many registration attempts. Try again later.")
+                throw ApiException(HttpStatusCode.TooManyRequests.value, "RATE_LIMITED", "Too many registration attempts. Try again later.")
             }
 
             val request = call.receive<RegisterRequest>()
