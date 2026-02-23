@@ -1,7 +1,10 @@
 package dev.kidsync.server
 
+import dev.kidsync.server.db.Checkpoints
 import dev.kidsync.server.db.DatabaseFactory
 import dev.kidsync.server.db.DatabaseFactory.dbQuery
+import dev.kidsync.server.services.SyncService
+import org.jetbrains.exposed.sql.selectAll
 import dev.kidsync.server.models.HealthResponse
 import dev.kidsync.server.plugins.*
 import dev.kidsync.server.routes.*
@@ -48,6 +51,9 @@ fun main() {
 fun Application.module(config: AppConfig = AppConfig()) {
     // SEC3-S-16: Validate storage paths on startup (fail fast if invalid)
     AppConfig.validateStoragePaths(config)
+
+    // Reset IP-based rate limiters on startup (important for test isolation)
+    dev.kidsync.server.routes.DeviceRegistrationRateLimiter.reset()
 
     // Initialize database
     DatabaseFactory.init(config)
@@ -223,10 +229,10 @@ private fun cleanupOrphanTempFiles(storagePath: String) {
 /**
  * SEC5-S-14: Prune acknowledged ops for all buckets that have checkpoints.
  */
-private suspend fun pruneAllBuckets(syncService: dev.kidsync.server.services.SyncService) {
-    val bucketIds = dev.kidsync.server.db.DatabaseFactory.dbQuery {
-        dev.kidsync.server.db.Checkpoints.selectAll()
-            .map { it[dev.kidsync.server.db.Checkpoints.bucketId] }
+private suspend fun pruneAllBuckets(syncService: SyncService) {
+    val bucketIds = dbQuery {
+        Checkpoints.selectAll()
+            .map { row -> row[Checkpoints.bucketId] }
             .distinct()
     }
     for (bucketId in bucketIds) {

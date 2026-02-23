@@ -82,7 +82,7 @@ class SnapshotDownloadTest {
         }
         assertEquals(HttpStatusCode.OK, downloadResp.status)
 
-        val downloadedBytes = downloadResp.readBytes()
+        val downloadedBytes = downloadResp.readRawBytes()
         assertTrue(snapshotData.first.contentEquals(downloadedBytes),
             "Downloaded content should match uploaded content")
 

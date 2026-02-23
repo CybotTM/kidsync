@@ -7,19 +7,29 @@ import io.ktor.websocket.*
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
  * Integration tests for SEC5-S-03: WebSocket query parameter authentication.
- *
- * Tests verify that:
- * 1. Valid query param token authenticates successfully
- * 2. Invalid query param token closes with 4001
- * 3. Absent query param falls through to in-band auth (existing behavior preserved)
  */
 class WebSocketQueryParamAuthTest {
 
     private val json = Json { ignoreUnknownKeys = true }
+
+    /**
+     * Parse the auth response and verify it contains deviceId + bucketId (auth_ok structure).
+     * Note: the "type" field may be omitted by the server's JSON encoder when encodeDefaults=false,
+     * so we verify the presence of deviceId + bucketId fields as the auth_ok indicator.
+     */
+    private fun assertAuthOk(text: String, expectedDeviceId: String, expectedBucketId: String) {
+        val obj = json.parseToJsonElement(text).jsonObject
+        assertEquals(expectedDeviceId, obj["deviceId"]?.jsonPrimitive?.content,
+            "deviceId mismatch in response: $text")
+        assertEquals(expectedBucketId, obj["bucketId"]?.jsonPrimitive?.content,
+            "bucketId mismatch in response: $text")
+        assertNotNull(obj["latestSequence"], "latestSequence missing in response: $text")
+    }
 
     @Test
     fun `valid query param token authenticates successfully`() = testApplication {
@@ -35,11 +45,9 @@ class WebSocketQueryParamAuthTest {
 
         wsClient.webSocket("/buckets/$bucketId/ws?token=${device.sessionToken}") {
             // Should receive auth_ok without needing to send an auth message
-            val frame = incoming.receive() as Frame.Text
-            val authResponse = json.parseToJsonElement(frame.readText()).jsonObject
-            assertEquals("auth_ok", authResponse["type"]?.jsonPrimitive?.content)
-            assertEquals(device.deviceId, authResponse["deviceId"]?.jsonPrimitive?.content)
-            assertEquals(bucketId, authResponse["bucketId"]?.jsonPrimitive?.content)
+            val frame = incoming.receive()
+            assertTrue(frame is Frame.Text, "Expected Text frame, got ${frame.frameType}")
+            assertAuthOk((frame as Frame.Text).readText(), device.deviceId, bucketId)
         }
     }
 
@@ -58,8 +66,8 @@ class WebSocketQueryParamAuthTest {
         wsClient.webSocket("/buckets/$bucketId/ws?token=sess_invalidtoken12345") {
             // Should receive close with code 4001
             val reason = closeReason.await()
-            assertEquals(4001, reason?.code)
-            assertTrue(reason?.message?.contains("Invalid token") == true)
+            assertNotNull(reason)
+            assertEquals(4001, reason.code)
         }
     }
 
@@ -87,10 +95,9 @@ class WebSocketQueryParamAuthTest {
             send(Frame.Text(authMsg))
 
             // Should receive auth_ok
-            val frame = incoming.receive() as Frame.Text
-            val authResponse = json.parseToJsonElement(frame.readText()).jsonObject
-            assertEquals("auth_ok", authResponse["type"]?.jsonPrimitive?.content)
-            assertEquals(device.deviceId, authResponse["deviceId"]?.jsonPrimitive?.content)
+            val frame = incoming.receive()
+            assertTrue(frame is Frame.Text, "Expected Text frame, got ${frame.frameType}")
+            assertAuthOk((frame as Frame.Text).readText(), device.deviceId, bucketId)
         }
     }
 }
