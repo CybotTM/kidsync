@@ -128,9 +128,10 @@ fun Application.module(config: AppConfig = AppConfig()) {
     // this server MUST be deployed behind a trusted reverse proxy (nginx, Caddy, etc.) that
     // strips/overwrites X-Forwarded-* headers from untrusted clients. Without this, an
     // attacker can spoof their IP address to bypass rate limiting.
-    // TODO: When Ktor adds support for configuring trusted proxy addresses, restrict this
-    // to only trust the known reverse proxy IPs. Alternatively, set KIDSYNC_TRUST_PROXY=false
-    // to disable forwarded headers entirely if not behind a proxy.
+    // DEFERRED: Ktor framework limitation — XForwardedHeaders trusts all sources and does not
+    // support configuring trusted proxy addresses. When Ktor adds this support, restrict to
+    // known reverse proxy IPs. Workaround: deploy behind a reverse proxy that strips/overwrites
+    // X-Forwarded-* headers from untrusted clients.
     install(XForwardedHeaders)
 
     // SEC-S-18: Configure CallLogging with a custom format to avoid logging sensitive headers

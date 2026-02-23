@@ -125,6 +125,11 @@ class SnapshotUseCase @Inject constructor(
      *
      * Covers all materialized entity types: CustodySchedule, ScheduleOverride,
      * Expense, CalendarEvent, and InfoBankEntry (non-deleted only).
+     *
+     * Design: Hashes identity + core value fields per entity (not all columns).
+     * Metadata fields (createdBy, timestamps, description, location, notes) are
+     * excluded so the hash detects structural divergence without false positives
+     * from metadata-only changes that don't affect the materialized schedule.
      */
     private suspend fun computeStateHash(): String {
         val digest = MessageDigest.getInstance("SHA-256")

@@ -66,8 +66,10 @@ object DatabaseModule {
             @Suppress("DEPRECATION")
             builder.fallbackToDestructiveMigration()
         }
-        // TODO: Add migration objects here for each version bump in release builds:
-        // builder.addMigrations(MIGRATION_4_5, MIGRATION_5_6, ...)
+        // DEFERRED: Room migration objects. Add migrations here for each schema version
+        // bump in release builds: builder.addMigrations(MIGRATION_X_Y, ...).
+        // Currently no pending migrations — destructive fallback handles debug builds
+        // above, and release builds will crash visibly if a migration is missing.
 
         return builder.build()
     }

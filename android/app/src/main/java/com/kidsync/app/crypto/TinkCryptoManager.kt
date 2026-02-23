@@ -250,15 +250,11 @@ class TinkCryptoManager(
         }
     }
 
-    // TODO(SEC4-A-07): Add cross-signature validation for wrapped DEKs. Currently, any device
-    // in the bucket can wrap a DEK for any other device without proof of authorization. A future
-    // protocol enhancement should include a signature from the wrapping device over the wrapped
-    // payload, allowing the recipient to verify that the DEK was wrapped by an authorized
-    // (attested) device. This requires:
-    // 1. The wrapper signs (wrappedDekBlob || recipientDeviceId || keyEpoch) with its Ed25519 key
-    // 2. The signature is transmitted alongside the wrapped DEK
-    // 3. The recipient verifies the signature against the wrapper's attested signing key
-    // 4. Key attestation chain must be validated before trusting the signature
+    // DEFERRED(SEC4-A-07): Cross-signature validation for wrapped DEKs. Any bucket device
+    // can currently wrap a DEK without proof of authorization. Requires protocol design:
+    // wrapper signs (wrappedDekBlob || recipientDeviceId || keyEpoch) with Ed25519 key,
+    // signature is transmitted alongside wrapped DEK, recipient verifies against attested
+    // signing key. Blocked on attestation signature format specification.
     override fun unwrapDek(
         wrappedDek: String,
         devicePrivateKey: PrivateKey,
@@ -449,9 +445,10 @@ class TinkCryptoManager(
         }
     }
 
-    // TODO(SEC6-A-05): The DEK epoch should come from the server's wrapped key response, not
-    // from the locally stored currentEpoch. Using local epoch means a replayed wrapped DEK
-    // could overwrite a newer epoch's key. Accept keyEpoch as a parameter instead.
+    // DEFERRED(SEC6-A-05): DEK epoch from server. The epoch should come from the server's
+    // wrapped key response, not local currentEpoch. Using local epoch means a replayed
+    // wrapped DEK could overwrite a newer epoch's key. Requires server API change to
+    // include keyEpoch in the wrapped key response.
     override suspend fun unwrapAndStoreDek(
         bucketId: String,
         wrappedDek: String,
