@@ -31,6 +31,8 @@ class SnapshotUseCase @Inject constructor(
     private val custodyScheduleDao: CustodyScheduleDao,
     private val overrideDao: OverrideDao,
     private val expenseDao: ExpenseDao,
+    private val calendarEventDao: CalendarEventDao,
+    private val infoBankDao: InfoBankDao,
     private val opLogDao: OpLogDao,
     private val syncStateDao: SyncStateDao,
     private val cryptoManager: CryptoManager,
@@ -121,10 +123,13 @@ class SnapshotUseCase @Inject constructor(
     /**
      * Compute SHA-256 hash of the current materialized state.
      *
-     * TODO(SEC6-A-16): Incomplete entity coverage - this hash only covers CustodySchedule,
-     * ScheduleOverride, and Expense entities. CalendarEvent and InfoBankEntry entities are
-     * missing, meaning state divergence in those entity types would not be detected by
-     * snapshot comparison. Add them to the hash computation for full coverage.
+     * Covers all materialized entity types: CustodySchedule, ScheduleOverride,
+     * Expense, CalendarEvent, and InfoBankEntry (non-deleted only).
+     *
+     * Design: Hashes identity + core value fields per entity (not all columns).
+     * Metadata fields (createdBy, timestamps, description, location, notes) are
+     * excluded so the hash detects structural divergence without false positives
+     * from metadata-only changes that don't affect the materialized schedule.
      */
     private suspend fun computeStateHash(): String {
         val digest = MessageDigest.getInstance("SHA-256")
@@ -148,6 +153,25 @@ class SnapshotUseCase @Inject constructor(
         for (expense in expenses.sortedBy { it.expenseId.toString() }) {
             digest.update(expense.expenseId.toString().toByteArray())
             digest.update(expense.amountCents.toString().toByteArray())
+        }
+
+        // Hash all calendar events (SEC6-A-16)
+        val calendarEvents = calendarEventDao.getAllEvents()
+        for (event in calendarEvents.sortedBy { it.eventId }) {
+            digest.update(event.eventId.toByteArray())
+            digest.update(event.title.toByteArray())
+            digest.update(event.startTime.toByteArray())
+            digest.update(event.endTime.toByteArray())
+        }
+
+        // Hash all non-deleted info bank entries (SEC6-A-16)
+        val infoBankEntries = infoBankDao.getAllEntries()
+        for (entry in infoBankEntries.sortedBy { it.entryId.toString() }) {
+            digest.update(entry.entryId.toString().toByteArray())
+            digest.update(entry.childId.toString().toByteArray())
+            digest.update(entry.category.toByteArray())
+            entry.title?.let { digest.update(it.toByteArray()) }
+            entry.content?.let { digest.update(it.toByteArray()) }
         }
 
         return digest.digest().joinToString("") { "%02x".format(it) }

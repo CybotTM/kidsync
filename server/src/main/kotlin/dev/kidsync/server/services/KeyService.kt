@@ -19,9 +19,10 @@ class KeyService {
     private val isoFormatter = DateTimeFormatter.ISO_INSTANT
 
     // ---- Wrapped Keys ----
-    // SEC3-S-17: TODO - No key rotation mechanism exists. When a device is revoked from a
-    // bucket, the remaining devices should rotate to a new key epoch and re-wrap the DEK
-    // for each remaining device. This is a planned feature for a future version.
+    // SEC3-S-17: DEFERRED - Key rotation mechanism. When a device is revoked, remaining
+    // devices should rotate to a new epoch and re-wrap the DEK. Requires protocol design:
+    // epoch semantics, backward compatibility for offline devices, and rotation triggers.
+    // Tracked as future protocol-level work.
 
     /**
      * Upload a wrapped DEK for a target device.

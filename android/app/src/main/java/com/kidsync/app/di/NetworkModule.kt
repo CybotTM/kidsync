@@ -3,6 +3,7 @@ package com.kidsync.app.di
 import android.content.SharedPreferences
 import com.kidsync.app.data.remote.api.ApiService
 import com.kidsync.app.data.remote.interceptor.AuthInterceptor
+import com.kidsync.app.data.remote.interceptor.TokenAuthenticator
 import com.kidsync.app.BuildConfig
 import dagger.Module
 import dagger.Provides
@@ -47,9 +48,10 @@ object NetworkModule {
     @Singleton
     fun provideOkHttpClientManager(
         authInterceptor: AuthInterceptor,
-        loggingInterceptor: HttpLoggingInterceptor
+        loggingInterceptor: HttpLoggingInterceptor,
+        tokenAuthenticator: TokenAuthenticator
     ): OkHttpClientManager {
-        return OkHttpClientManager(authInterceptor, loggingInterceptor)
+        return OkHttpClientManager(authInterceptor, loggingInterceptor, tokenAuthenticator)
     }
 
     /**

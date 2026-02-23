@@ -23,20 +23,17 @@ import javax.inject.Inject
  * QR code payload for pairing.
  * Contains connection info and initiator's key fingerprint but never the DEK.
  *
- * TODO(SEC4-A-10): The invite token [t] is transmitted in plaintext within the QR code.
- * This is by design: the QR code is displayed briefly for the co-parent to scan in person,
- * and the token is single-use (the server invalidates it after redemption). Additionally,
- * PairingScreen sets FLAG_SECURE to prevent screenshots. However, for defense in depth,
- * a future enhancement could encrypt the token field using the recipient's public key
- * (requires the scanner's public key to be known before pairing, e.g., via a two-phase
- * handshake or pre-shared key exchange).
+ * DEFERRED(SEC4-A-10): Invite token is plaintext in QR code. Acceptable because: QR is
+ * displayed briefly, PairingScreen sets FLAG_SECURE, and the token is single-use (server
+ * invalidates after redemption). Encrypting the token would require the scanner's public
+ * key before pairing — needs a two-phase handshake or pre-shared key exchange protocol.
  */
 @Serializable
 data class QrPairingPayload(
     val v: Int = 1,
     val s: String,  // serverUrl
     val b: String,  // bucketId
-    val t: String,  // inviteToken (plaintext -- see SEC4-A-10 TODO above)
+    val t: String,  // inviteToken (plaintext -- see DEFERRED SEC4-A-10 above)
     val f: String   // signingKeyFingerprint of initiator
 )
 
@@ -163,13 +160,9 @@ class BucketViewModel @Inject constructor(
                 )
                 inviteResult.getOrThrow()
 
-                // Build QR payload
-                // TODO(SC-03): The spec says the QR code should contain the signing key fingerprint,
-                // but we currently use the encryption key fingerprint. Both sides (QR generation and
-                // verification) consistently use the encryption key, so this works. If the spec is
-                // updated or the server changes to use signing key fingerprints, update both sides.
+                // Build QR payload with signing key fingerprint per spec (SC-03)
                 val serverUrl = authRepository.getServerUrl()
-                val fingerprint = keyManager.getEncryptionKeyFingerprint()
+                val fingerprint = keyManager.getSigningKeyFingerprint()
 
                 val payload = QrPairingPayload(
                     v = 1,
@@ -390,7 +383,7 @@ class BucketViewModel @Inject constructor(
         val peerDevicesResult = bucketRepository.getBucketDevices(payload.b)
         val peerDevices = peerDevicesResult.getOrThrow()
         val peerVerified = peerDevices.any { device ->
-            cryptoManager.computeKeyFingerprint(device.encryptionKey) == payload.f
+            cryptoManager.computeKeyFingerprint(device.signingKey) == payload.f
         }
 
         if (!peerVerified) {
@@ -426,7 +419,7 @@ class BucketViewModel @Inject constructor(
 
         // Cross-sign the peer's key
         val peerDevice = peerDevices.first { device ->
-            cryptoManager.computeKeyFingerprint(device.encryptionKey) == payload.f
+            cryptoManager.computeKeyFingerprint(device.signingKey) == payload.f
         }
         val attestation = keyManager.createKeyAttestation(
             attestedDeviceId = peerDevice.deviceId,

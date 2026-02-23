@@ -1,7 +1,10 @@
 package dev.kidsync.server
 
+import dev.kidsync.server.db.Checkpoints
 import dev.kidsync.server.db.DatabaseFactory
 import dev.kidsync.server.db.DatabaseFactory.dbQuery
+import dev.kidsync.server.services.SyncService
+import org.jetbrains.exposed.sql.selectAll
 import dev.kidsync.server.models.HealthResponse
 import dev.kidsync.server.plugins.*
 import dev.kidsync.server.routes.*
@@ -19,6 +22,7 @@ import io.ktor.server.routing.*
 import kotlinx.coroutines.*
 import org.slf4j.LoggerFactory
 import org.slf4j.event.Level
+import java.io.File
 
 fun main() {
     val config = AppConfig()
@@ -47,6 +51,9 @@ fun main() {
 fun Application.module(config: AppConfig = AppConfig()) {
     // SEC3-S-16: Validate storage paths on startup (fail fast if invalid)
     AppConfig.validateStoragePaths(config)
+
+    // Reset IP-based rate limiters on startup (important for test isolation)
+    dev.kidsync.server.routes.DeviceRegistrationRateLimiter.reset()
 
     // Initialize database
     DatabaseFactory.init(config)
@@ -84,6 +91,20 @@ fun Application.module(config: AppConfig = AppConfig()) {
             } catch (e: Exception) {
                 LoggerFactory.getLogger("Application").warn("Invite token cleanup failed: {}", e.message)
             }
+            // SEC4-S-11: Clean up orphan .tmp files in snapshot and blob storage
+            // that are older than 1 hour (leftover from crashed uploads)
+            try {
+                cleanupOrphanTempFiles(config.snapshotStoragePath)
+                cleanupOrphanTempFiles(config.blobStoragePath)
+            } catch (e: Exception) {
+                LoggerFactory.getLogger("Application").warn("Temp file cleanup failed: {}", e.message)
+            }
+            // SEC5-S-14: Prune ops covered by fully-acknowledged checkpoints
+            try {
+                pruneAllBuckets(syncService)
+            } catch (e: Exception) {
+                LoggerFactory.getLogger("Application").warn("Op pruning failed: {}", e.message)
+            }
         }
     }
 
@@ -107,9 +128,10 @@ fun Application.module(config: AppConfig = AppConfig()) {
     // this server MUST be deployed behind a trusted reverse proxy (nginx, Caddy, etc.) that
     // strips/overwrites X-Forwarded-* headers from untrusted clients. Without this, an
     // attacker can spoof their IP address to bypass rate limiting.
-    // TODO: When Ktor adds support for configuring trusted proxy addresses, restrict this
-    // to only trust the known reverse proxy IPs. Alternatively, set KIDSYNC_TRUST_PROXY=false
-    // to disable forwarded headers entirely if not behind a proxy.
+    // DEFERRED: Ktor framework limitation — XForwardedHeaders trusts all sources and does not
+    // support configuring trusted proxy addresses. When Ktor adds this support, restrict to
+    // known reverse proxy IPs. Workaround: deploy behind a reverse proxy that strips/overwrites
+    // X-Forwarded-* headers from untrusted clients.
     install(XForwardedHeaders)
 
     // SEC-S-18: Configure CallLogging with a custom format to avoid logging sensitive headers
@@ -183,5 +205,38 @@ fun Application.module(config: AppConfig = AppConfig()) {
         blobRoutes(blobService, config.allowedBlobContentTypes)
         pushRoutes(pushService)
         keyRoutes(keyService)
+    }
+}
+
+/**
+ * SEC4-S-11: Clean up orphan .tmp files in a storage directory that are older than 1 hour.
+ * These are leftover from uploads that crashed between writing the temp file and committing
+ * the DB row (or renaming to the final filename).
+ */
+private fun cleanupOrphanTempFiles(storagePath: String) {
+    val dir = File(storagePath)
+    if (!dir.exists() || !dir.isDirectory) return
+
+    val oneHourAgo = System.currentTimeMillis() - 3_600_000L
+    val logger = LoggerFactory.getLogger("Application")
+
+    dir.listFiles()?.filter { it.name.endsWith(".tmp") && it.lastModified() < oneHourAgo }?.forEach { file ->
+        if (file.delete()) {
+            logger.info("Cleaned up orphan temp file: {}", file.name)
+        }
+    }
+}
+
+/**
+ * SEC5-S-14: Prune acknowledged ops for all buckets that have checkpoints.
+ */
+private suspend fun pruneAllBuckets(syncService: SyncService) {
+    val bucketIds = dbQuery {
+        Checkpoints.selectAll()
+            .map { row -> row[Checkpoints.bucketId] }
+            .distinct()
+    }
+    for (bucketId in bucketIds) {
+        syncService.pruneAcknowledgedOps(bucketId)
     }
 }

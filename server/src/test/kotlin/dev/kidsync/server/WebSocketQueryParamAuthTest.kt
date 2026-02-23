@@ -1,0 +1,110 @@
+package dev.kidsync.server
+
+import dev.kidsync.server.TestHelper.createJsonClient
+import io.ktor.client.plugins.websocket.WebSockets
+import io.ktor.client.plugins.websocket.webSocket
+import io.ktor.server.testing.testApplication
+import io.ktor.websocket.Frame
+import io.ktor.websocket.readText
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+import org.junit.jupiter.api.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
+
+/**
+ * Integration tests for SEC5-S-03: WebSocket query parameter authentication.
+ */
+class WebSocketQueryParamAuthTest {
+
+    private val json = Json { ignoreUnknownKeys = true }
+
+    /**
+     * Parse the auth response and verify it contains deviceId + bucketId (auth_ok structure).
+     * Note: the "type" field may be omitted by the server's JSON encoder when encodeDefaults=false,
+     * so we verify the presence of deviceId + bucketId fields as the auth_ok indicator.
+     */
+    private fun assertAuthOk(text: String, expectedDeviceId: String, expectedBucketId: String) {
+        val obj = json.parseToJsonElement(text).jsonObject
+        assertEquals(expectedDeviceId, obj["deviceId"]?.jsonPrimitive?.content,
+            "deviceId mismatch in response: $text")
+        assertEquals(expectedBucketId, obj["bucketId"]?.jsonPrimitive?.content,
+            "bucketId mismatch in response: $text")
+        assertNotNull(obj["latestSequence"], "latestSequence missing in response: $text")
+    }
+
+    @Test
+    fun `valid query param token authenticates successfully`() = testApplication {
+        application { module(testConfig()) }
+        val httpClient = createJsonClient()
+
+        val device = TestHelper.setupDeviceWithBucket(httpClient)
+        val bucketId = device.bucketId!!
+
+        val wsClient = createClient {
+            install(WebSockets)
+        }
+
+        wsClient.webSocket("/buckets/$bucketId/ws?token=${device.sessionToken}") {
+            // Should receive auth_ok without needing to send an auth message
+            val frame = incoming.receive()
+            assertTrue(frame is Frame.Text, "Expected Text frame, got ${frame.frameType}")
+            assertAuthOk((frame as Frame.Text).readText(), device.deviceId, bucketId)
+        }
+    }
+
+    @Test
+    fun `invalid query param token closes with 4001`() = testApplication {
+        application { module(testConfig()) }
+        val httpClient = createJsonClient()
+
+        val device = TestHelper.setupDeviceWithBucket(httpClient)
+        val bucketId = device.bucketId!!
+
+        val wsClient = createClient {
+            install(WebSockets)
+        }
+
+        wsClient.webSocket("/buckets/$bucketId/ws?token=sess_invalidtoken12345") {
+            // Should receive close with code 4001
+            val reason = closeReason.await()
+            assertNotNull(reason)
+            assertEquals(4001, reason.code)
+        }
+    }
+
+    @Test
+    fun `absent query param falls through to in-band auth`() = testApplication {
+        application { module(testConfig()) }
+        val httpClient = createJsonClient()
+
+        val device = TestHelper.setupDeviceWithBucket(httpClient)
+        val bucketId = device.bucketId!!
+
+        val wsClient = createClient {
+            install(WebSockets)
+        }
+
+        wsClient.webSocket("/buckets/$bucketId/ws") {
+            // Send in-band auth message (existing behavior)
+            val authMsg = json.encodeToString(
+                JsonObject.serializer(),
+                buildJsonObject {
+                    put("type", "auth")
+                    put("token", device.sessionToken)
+                }
+            )
+            send(Frame.Text(authMsg))
+
+            // Should receive auth_ok
+            val frame = incoming.receive()
+            assertTrue(frame is Frame.Text, "Expected Text frame, got ${frame.frameType}")
+            assertAuthOk((frame as Frame.Text).readText(), device.deviceId, bucketId)
+        }
+    }
+}

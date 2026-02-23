@@ -21,6 +21,51 @@ import org.jetbrains.exposed.sql.selectAll
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.util.*
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
+
+/**
+ * SEC-S-10: IP-based rate limiter for device registration.
+ * Limits each IP to 5 registrations per hour to prevent mass device creation attacks.
+ */
+object DeviceRegistrationRateLimiter {
+    private const val MAX_REGISTRATIONS_PER_IP_PER_HOUR = 5
+    private const val WINDOW_MS = 3_600_000L
+
+    private data class IpWindow(val count: AtomicInteger = AtomicInteger(0), val windowStart: AtomicLong = AtomicLong(0))
+    private val windows = ConcurrentHashMap<String, IpWindow>()
+
+    fun checkAndIncrement(ip: String): Boolean {
+        cleanup()
+        val now = System.currentTimeMillis()
+        val window = windows.computeIfAbsent(ip) { IpWindow() }
+
+        synchronized(window) {
+            val start = window.windowStart.get()
+            if (now - start > WINDOW_MS) {
+                window.windowStart.set(now)
+                window.count.set(1)
+                return true
+            }
+            val current = window.count.incrementAndGet()
+            return current <= MAX_REGISTRATIONS_PER_IP_PER_HOUR
+        }
+    }
+
+    private fun cleanup() {
+        val now = System.currentTimeMillis()
+        val threshold = now - (2 * WINDOW_MS)
+        windows.entries.removeIf { (_, window) ->
+            window.windowStart.get() < threshold
+        }
+    }
+
+    /** Visible for testing: reset all rate limit state. */
+    fun reset() {
+        windows.clear()
+    }
+}
 
 fun Route.deviceRoutes(sessionUtil: SessionUtil) {
     rateLimit(RateLimitName("auth")) {
@@ -34,6 +79,12 @@ fun Route.deviceRoutes(sessionUtil: SessionUtil) {
          * provides basic protection for now.
          */
         post("/register") {
+            // SEC-S-10: IP-based rate limiting for device registration
+            val clientIp = call.request.local.remoteAddress
+            if (!DeviceRegistrationRateLimiter.checkAndIncrement(clientIp)) {
+                throw ApiException(HttpStatusCode.TooManyRequests.value, "RATE_LIMITED", "Too many registration attempts. Try again later.")
+            }
+
             val request = call.receive<RegisterRequest>()
 
             if (request.signingKey.isBlank()) {

@@ -2,6 +2,7 @@ package dev.kidsync.server.util
 
 import dev.kidsync.server.AppConfig
 import dev.kidsync.server.db.Challenges
+import dev.kidsync.server.db.Devices
 import dev.kidsync.server.db.Sessions
 import dev.kidsync.server.db.DatabaseFactory.dbQuery
 import org.jetbrains.exposed.sql.*
@@ -169,7 +170,9 @@ class SessionUtil(private val config: AppConfig) {
             Sessions.insert {
                 it[Sessions.tokenHash] = hashedToken
                 it[Sessions.deviceId] = deviceId
-                it[Sessions.signingKey] = signingKey
+                // SEC4-S-16: signingKey is now read from Devices table via join;
+                // column retained for schema compatibility but no longer used.
+                it[Sessions.signingKey] = ""
                 it[createdAt] = now.epochSecond
                 it[expiresAt] = session.expiresAt.epochSecond
             }
@@ -181,13 +184,16 @@ class SessionUtil(private val config: AppConfig) {
     /**
      * Validate a session token. Returns the session if valid, null otherwise.
      * SEC3-S-01: Hashes the input token with SHA-256 and queries against the stored hash.
+     * SEC4-S-16: Reads signingKey from Devices table (via join) instead of the redundant
+     * Sessions.signingKey column, ensuring the current device key is always returned.
      */
     suspend fun validateSession(token: String): Session? {
         // SEC6-S-05: Reject tokens without the session prefix (prevents challenge token cross-use)
         if (!token.startsWith(SESSION_TOKEN_PREFIX)) return null
         val hashedToken = HashUtil.sha256HexString(token)
         return dbQuery {
-            val row = Sessions.selectAll()
+            val row = Sessions.join(Devices, JoinType.INNER, Sessions.deviceId, Devices.id)
+                .selectAll()
                 .where { Sessions.tokenHash eq hashedToken }
                 .firstOrNull() ?: return@dbQuery null
 
@@ -199,7 +205,7 @@ class SessionUtil(private val config: AppConfig) {
 
             Session(
                 deviceId = row[Sessions.deviceId],
-                signingKey = row[Sessions.signingKey],
+                signingKey = row[Devices.signingKey],
                 createdAt = Instant.ofEpochSecond(row[Sessions.createdAt]),
                 expiresAt = expiresAt,
             )
@@ -209,10 +215,13 @@ class SessionUtil(private val config: AppConfig) {
     /**
      * SEC6-S-07: Validate a session by its pre-computed SHA-256 hash.
      * Used by WebSocket connections that store only the hash to avoid holding raw tokens in memory.
+     * SEC4-S-16: Reads signingKey from Devices table (via join) instead of the redundant
+     * Sessions.signingKey column.
      */
     suspend fun validateSessionByHash(tokenHash: String): Session? {
         return dbQuery {
-            val row = Sessions.selectAll()
+            val row = Sessions.join(Devices, JoinType.INNER, Sessions.deviceId, Devices.id)
+                .selectAll()
                 .where { Sessions.tokenHash eq tokenHash }
                 .firstOrNull() ?: return@dbQuery null
 
@@ -224,7 +233,7 @@ class SessionUtil(private val config: AppConfig) {
 
             Session(
                 deviceId = row[Sessions.deviceId],
-                signingKey = row[Sessions.signingKey],
+                signingKey = row[Devices.signingKey],
                 createdAt = Instant.ofEpochSecond(row[Sessions.createdAt]),
                 expiresAt = expiresAt,
             )

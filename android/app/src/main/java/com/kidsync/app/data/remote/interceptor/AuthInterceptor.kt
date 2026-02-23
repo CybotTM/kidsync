@@ -18,13 +18,10 @@ import okhttp3.Response
  * Session tokens are stored in EncryptedSharedPreferences to prevent extraction
  * from device backups or root access.
  *
- * TODO(SEC3-A-21): Implement an OkHttp Authenticator (TokenAuthenticator) to handle
- * 401 responses with automatic re-authentication via challenge-response. This would
- * transparently retry failed requests after obtaining a new session token, avoiding
- * the need for callers to handle 401s explicitly. Implementation requires injecting
- * AuthRepository or KeyManager + ApiService (careful to avoid circular dependencies
- * with Hilt). Consider using OkHttp's `Authenticator` interface which is specifically
- * designed for this purpose.
+ * SEC3-A-21: 401 responses are now handled by [TokenAuthenticator], which automatically
+ * re-authenticates via challenge-response and retries the failed request. The circular
+ * Hilt dependency (NetworkModule -> OkHttpClient -> TokenAuthenticator -> AuthRepository
+ * -> ApiService -> OkHttpClient) is broken using [dagger.Lazy].
  */
 class AuthInterceptor(
     private val prefs: SharedPreferences

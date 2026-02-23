@@ -13,7 +13,14 @@ import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import io.kotest.matchers.string.shouldContain
-import io.mockk.*
+import io.mockk.Runs
+import io.mockk.clearAllMocks
+import io.mockk.coEvery
+import io.mockk.coVerify
+import io.mockk.every
+import io.mockk.just
+import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -154,8 +161,8 @@ class BucketViewModelTest : FunSpec({
 
             coEvery { cryptoManager.generateInviteToken() } returns "tok-abc-123"
             coEvery { bucketRepository.createInvite("bucket-inv", "tok-abc-123") } returns Result.success(Unit)
-            coEvery { authRepository.getServerUrl() } returns "https://api.kidsync.dev"
-            coEvery { keyManager.getEncryptionKeyFingerprint() } returns "fp:enc:001"
+            coEvery { authRepository.getServerUrl() } returns "https://api.kidsync.app"
+            coEvery { keyManager.getSigningKeyFingerprint() } returns "fp:sign:001"
 
             val vm = createViewModel()
             advanceUntilIdle()
@@ -306,6 +313,95 @@ class BucketViewModelTest : FunSpec({
 
             vm.clearError()
             vm.uiState.value.error shouldBe null
+        }
+    }
+
+    // ── SC-03: QR signing key fingerprint ─────────────────────────────────
+
+    test("generateInvite uses signing key fingerprint, not encryption key") {
+        runTest(testDispatcher) {
+            val bucket = Bucket("bucket-sc03", "device-001", Instant.now())
+            coEvery { bucketRepository.createBucket() } returns Result.success(bucket)
+            coEvery { bucketRepository.storeLocalBucketName(any(), any()) } just Runs
+            coEvery { cryptoManager.generateAndStoreDek(any()) } just Runs
+
+            coEvery { cryptoManager.generateInviteToken() } returns "tok-sc03"
+            coEvery { bucketRepository.createInvite("bucket-sc03", "tok-sc03") } returns Result.success(Unit)
+            coEvery { authRepository.getServerUrl() } returns "https://api.kidsync.app"
+            coEvery { keyManager.getSigningKeyFingerprint() } returns "fp:signing:abc123"
+
+            val vm = createViewModel()
+            advanceUntilIdle()
+
+            vm.createBucket()
+            advanceUntilIdle()
+            vm.generateInvite()
+            advanceUntilIdle()
+
+            // Verify signing key fingerprint was used
+            coVerify { keyManager.getSigningKeyFingerprint() }
+            coVerify(exactly = 0) { keyManager.getEncryptionKeyFingerprint() }
+
+            // Verify fingerprint appears in QR payload
+            val state = vm.uiState.value
+            state.qrPayload shouldNotBe null
+            state.qrPayload!! shouldContain "fp:signing:abc123"
+        }
+    }
+
+    test("continueJoinBucket compares fingerprint against signing key, not encryption key") {
+        runTest(testDispatcher) {
+            val signingFingerprint = "fp:signing:peer001"
+            val peerDevice = Device(
+                deviceId = "peer-device-1",
+                signingKey = "cGVlci1zaWduaW5nLWtleQ==",  // base64 for test
+                encryptionKey = "cGVlci1lbmMta2V5",
+                createdAt = Instant.now()
+            )
+
+            coEvery { keyManager.hasExistingKeys() } returns true
+            coEvery { authRepository.authenticate() } returns Result.success(
+                com.kidsync.app.domain.model.DeviceSession("device-join", "token-123", 3600)
+            )
+            coEvery { bucketRepository.joinBucket("bucket-join", "tok-join") } returns Result.success(Unit)
+            coEvery { bucketRepository.getBucketDevices("bucket-join") } returns Result.success(listOf(peerDevice))
+            // Return matching fingerprint for signing key, different for encryption key
+            every { cryptoManager.computeKeyFingerprint(peerDevice.signingKey) } returns signingFingerprint
+            every { cryptoManager.computeKeyFingerprint(peerDevice.encryptionKey) } returns "fp:enc:different"
+
+            val encKeyPair = KeyPairGenerator.getInstance("X25519").generateKeyPair()
+            coEvery { keyManager.getEncryptionKeyPair() } returns encKeyPair
+
+            coEvery { bucketRepository.waitForWrappedDek("bucket-join") } returns WrappedKeyResponse(
+                wrappedDek = "wrapped-dek-base64", wrappedBy = "sender-pub-key", keyEpoch = 1
+            )
+            coEvery { cryptoManager.unwrapAndStoreDek(any(), any(), any(), any()) } just Runs
+            coEvery { keyManager.createKeyAttestation(any(), any()) } returns KeyAttestation(
+                signerDeviceId = "device-join",
+                attestedDeviceId = "peer-device-1",
+                attestedEncryptionKey = "key",
+                signature = "sig",
+                createdAt = Instant.now().toString()
+            )
+            coEvery { bucketRepository.uploadKeyAttestation(any()) } returns Result.success(Unit)
+            coEvery { bucketRepository.storeLocalBucketName(any(), any()) } just Runs
+            coEvery { bucketRepository.getLocalBucketName(any()) } returns "Shared Bucket"
+            coEvery { authRepository.getServerUrl() } returns "https://api.kidsync.app"
+
+            val vm = createViewModel()
+            advanceUntilIdle()
+
+            // Build QR payload with signing key fingerprint
+            val qrData = """{"v":1,"s":"https://api.kidsync.app","b":"bucket-join","t":"tok-join","f":"$signingFingerprint"}"""
+            vm.joinBucket(qrData)
+            advanceUntilIdle()
+
+            // Should have verified against signing key, not encryption key
+            verify { cryptoManager.computeKeyFingerprint(peerDevice.signingKey) }
+
+            val state = vm.uiState.value
+            state.isJoined shouldBe true
+            state.error shouldBe null
         }
     }
 })

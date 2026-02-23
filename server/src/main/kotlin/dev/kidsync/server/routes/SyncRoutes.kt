@@ -38,6 +38,11 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
+/** WebSocket close codes for application-level errors (RFC 6455 §7.4.2: 4000-4999). */
+private const val WS_CLOSE_INVALID_PARAMS: Short = 4000
+private const val WS_CLOSE_AUTH_FAILED: Short = 4001
+private const val WS_CLOSE_RATE_LIMITED: Short = 4003
+
 /**
  * SEC4-S-10: IP-based rate limiter for WebSocket upgrade attempts.
  * Limits each IP to MAX_WS_CONNECTIONS_PER_IP_PER_MINUTE WebSocket connections per minute.
@@ -144,6 +149,18 @@ fun Route.syncRoutes(
                         throw ApiException(404, "NO_CHECKPOINT", "No checkpoint available")
                     }
                     call.respond(HttpStatusCode.OK, checkpoint)
+                }
+            }
+
+            // SEC5-S-14: Checkpoint acknowledgment for op pruning
+            rateLimit(RateLimitName("general")) {
+                post("/checkpoints/acknowledge") {
+                    val principal = call.devicePrincipal()
+                    val bucketId = ValidationUtil.requireUuidPathParam(call, "id", "bucket id")
+                    val request = call.receive<dev.kidsync.server.models.AcknowledgeCheckpointRequest>()
+
+                    syncService.acknowledgeCheckpoint(bucketId, principal.deviceId, request.checkpointId)
+                    call.respond(HttpStatusCode.OK, mapOf("status" to "acknowledged"))
                 }
             }
 
@@ -281,19 +298,18 @@ fun Route.syncRoutes(
                     val sizeBytes = blob.size.toLong()
                     val now = LocalDateTime.now(ZoneOffset.UTC)
 
-                    // SEC4-S-11: TODO - If the server crashes between writing the file to disk
-                    // and committing the DB row, an orphaned file remains. A background cleanup
-                    // job should periodically scan the snapshot directory for files not referenced
-                    // in the Snapshots table and delete them after a grace period (e.g., 1 hour).
+                    // SEC4-S-11: Write to temp file first, rename after DB commit to
+                    // prevent orphaned final files on crash between write and commit.
                     val snapshotId = UUID.randomUUID().toString()
                     val snapshotDir = File(config.snapshotStoragePath)
                     snapshotDir.mkdirs()
-                    val snapshotFile = File(snapshotDir, snapshotId)
-                    snapshotFile.writeBytes(blob)
+                    val tempFile = File(snapshotDir, "$snapshotId.tmp")
+                    val finalFile = File(snapshotDir, snapshotId)
+                    tempFile.writeBytes(blob)
 
                     // SEC6-S-15: Set file permissions to 600 (owner read/write only)
                     try {
-                        Files.setPosixFilePermissions(snapshotFile.toPath(), PosixFilePermissions.fromString("rw-------"))
+                        Files.setPosixFilePermissions(tempFile.toPath(), PosixFilePermissions.fromString("rw-------"))
                     } catch (_: UnsupportedOperationException) {
                         // Windows doesn't support POSIX file permissions
                     }
@@ -314,9 +330,11 @@ fun Route.syncRoutes(
                                 it[createdAt] = now
                             }
                         }
+                        // DB commit succeeded -- rename temp to final
+                        tempFile.renameTo(finalFile)
                     } catch (e: Exception) {
-                        // Clean up orphaned file on DB insert failure
-                        snapshotFile.delete()
+                        // Clean up temp file on DB insert failure
+                        tempFile.delete()
                         throw e
                     }
 
@@ -332,9 +350,50 @@ fun Route.syncRoutes(
                 }
             }
 
-            // SEC3-S-06: TODO - A snapshot download endpoint (GET /buckets/{id}/snapshots/{snapshotId}/download)
-            // is needed to allow clients to download the actual snapshot binary data, not just metadata.
-            // This should serve the file from snapshotStoragePath with path traversal protection.
+            // SEC3-S-06: Snapshot download endpoint
+            rateLimit(RateLimitName("general")) {
+                get("/snapshots/{snapshotId}/download") {
+                    val principal = call.devicePrincipal()
+                    val bucketId = ValidationUtil.requireUuidPathParam(call, "id", "bucket id")
+                    val snapshotId = ValidationUtil.requireUuidPathParam(call, "snapshotId", "snapshot id")
+
+                    // Verify bucket access
+                    dbQuery { BucketService.requireBucketAccess(bucketId, principal.deviceId) }
+
+                    // Look up snapshot and verify it belongs to this bucket
+                    val snapshot = dbQuery {
+                        Snapshots.selectAll()
+                            .where { Snapshots.id eq snapshotId }
+                            .firstOrNull()
+                    } ?: throw ApiException(HttpStatusCode.NotFound.value, "NOT_FOUND", "Snapshot not found")
+
+                    if (snapshot[Snapshots.bucketId] != bucketId) {
+                        throw ApiException(HttpStatusCode.Forbidden.value, "BUCKET_ACCESS_DENIED", "Snapshot does not belong to this bucket")
+                    }
+
+                    // Resolve file path with path traversal protection
+                    val snapshotDir = File(config.snapshotStoragePath).canonicalFile
+                    val snapshotFile = File(config.snapshotStoragePath, snapshot[Snapshots.filePath])
+                    if (!snapshotFile.canonicalFile.startsWith(snapshotDir)) {
+                        throw ApiException(HttpStatusCode.Forbidden.value, "BUCKET_ACCESS_DENIED", "Invalid file path")
+                    }
+
+                    if (!snapshotFile.exists()) {
+                        // Recover from crash between DB commit and rename (SEC4-S-11)
+                        val tempFile = File(config.snapshotStoragePath, "${snapshot[Snapshots.filePath]}.tmp")
+                        if (tempFile.exists()) {
+                            tempFile.renameTo(snapshotFile)
+                        }
+                        if (!snapshotFile.exists()) {
+                            throw ApiException(HttpStatusCode.NotFound.value, "NOT_FOUND", "Snapshot file not found on disk")
+                        }
+                    }
+
+                    // Return the verified SHA-256 stored at upload time (avoids loading entire file into memory)
+                    call.response.header("X-Snapshot-SHA256", snapshot[Snapshots.sha256Hash])
+                    call.respondFile(snapshotFile)
+                }
+            }
 
             // GET /buckets/{id}/snapshots/latest
             rateLimit(RateLimitName("general")) {
@@ -379,24 +438,23 @@ fun Route.syncRoutes(
     // SEC6-S-07: The session token is hashed with SHA-256 before being stored in the WebSocket
     // connection's in-memory state. This limits exposure if the server process memory is dumped.
 
-    // SEC5-S-03: TODO - Accept WebSocket auth token as a query parameter (?token=...) in addition
-    // to the current in-band auth message. This would allow the server to reject unauthenticated
-    // connections at upgrade time (before allocating WebSocket resources), reducing the attack
-    // surface for resource exhaustion. The token should still be validated via SessionUtil.
+    // SEC5-S-03: WebSocket auth supports both query param (?token=...) and in-band auth message.
+    // Query param auth allows the server to reject unauthenticated connections at upgrade time,
+    // reducing the attack surface for resource exhaustion.
 
     // WebSocket /buckets/{id}/ws
     webSocket("/buckets/{id}/ws") {
         // SEC4-S-10: IP-based rate limiting for WebSocket upgrade attempts
         val clientIp = call.request.local.remoteAddress
         if (!WebSocketConnectionRateLimiter.checkAndIncrement(clientIp)) {
-            close(CloseReason(4003, "Rate limit exceeded"))
+            close(CloseReason(WS_CLOSE_RATE_LIMITED, "Rate limit exceeded"))
             return@webSocket
         }
 
         val json = Json { ignoreUnknownKeys = true }
         val bucketId = call.parameters["id"]
         if (bucketId == null || !ValidationUtil.isValidUUID(bucketId)) {
-            close(CloseReason(4000, "Missing or invalid bucket id"))
+            close(CloseReason(WS_CLOSE_INVALID_PARAMS, "Missing or invalid bucket id"))
             return@webSocket
         }
 
@@ -405,50 +463,64 @@ fun Route.syncRoutes(
         var sessionTokenHash: String? = null
 
         try {
-            // Wait for auth message with timeout
-            val authFrame = withTimeoutOrNull(5000) { incoming.receive() }
-            if (authFrame == null) {
-                close(CloseReason(4001, "Auth timeout"))
-                return@webSocket
-            }
-            if (authFrame !is Frame.Text) {
-                close(CloseReason(4001, "Expected text frame for auth"))
-                return@webSocket
-            }
+            // SEC5-S-03: Check for query param auth first, fall back to in-band auth
+            val queryToken = call.request.queryParameters["token"]
+            val session: dev.kidsync.server.util.Session?
 
-            val authText = authFrame.readText()
-            val authJsonObj = json.parseToJsonElement(authText).jsonObject
-            val authType = authJsonObj["type"]?.jsonPrimitive?.content
+            if (queryToken != null) {
+                // Query param auth: validate token from URL
+                session = sessionUtil.validateSession(queryToken)
+                if (session == null) {
+                    close(CloseReason(WS_CLOSE_AUTH_FAILED, "Invalid token"))
+                    return@webSocket
+                }
+                sessionTokenHash = dev.kidsync.server.util.HashUtil.sha256HexString(queryToken)
+            } else {
+                // In-band auth: wait for auth message (backward compatible)
+                val authFrame = withTimeoutOrNull(5000) { incoming.receive() }
+                if (authFrame == null) {
+                    close(CloseReason(WS_CLOSE_AUTH_FAILED, "Auth timeout"))
+                    return@webSocket
+                }
+                if (authFrame !is Frame.Text) {
+                    close(CloseReason(WS_CLOSE_AUTH_FAILED, "Expected text frame for auth"))
+                    return@webSocket
+                }
 
-            if (authType != "auth") {
-                close(CloseReason(4001, "Expected auth message"))
-                return@webSocket
-            }
+                val authText = authFrame.readText()
+                val authJsonObj = json.parseToJsonElement(authText).jsonObject
+                val authType = authJsonObj["type"]?.jsonPrimitive?.content
 
-            val token = authJsonObj["token"]?.jsonPrimitive?.content
-            if (token == null) {
-                close(CloseReason(4001, "Missing auth token"))
-                return@webSocket
-            }
+                if (authType != "auth") {
+                    close(CloseReason(WS_CLOSE_AUTH_FAILED, "Expected auth message"))
+                    return@webSocket
+                }
 
-            val session = sessionUtil.validateSession(token)
-            if (session == null) {
-                send(
-                    Frame.Text(
-                        json.encodeToString(
-                            WsAuthFailed.serializer(),
-                            WsAuthFailed(error = "TOKEN_INVALID", message = "Session token invalid or expired")
+                val token = authJsonObj["token"]?.jsonPrimitive?.content
+                if (token == null) {
+                    close(CloseReason(WS_CLOSE_AUTH_FAILED, "Missing auth token"))
+                    return@webSocket
+                }
+
+                session = sessionUtil.validateSession(token)
+                if (session == null) {
+                    send(
+                        Frame.Text(
+                            json.encodeToString(
+                                WsAuthFailed.serializer(),
+                                WsAuthFailed(error = "TOKEN_INVALID", message = "Session token invalid or expired")
+                            )
                         )
                     )
-                )
-                close(CloseReason(4001, "Auth failed"))
-                return@webSocket
+                    close(CloseReason(WS_CLOSE_AUTH_FAILED, "Auth failed"))
+                    return@webSocket
+                }
+
+                // SEC6-S-07: Hash the token immediately; discard the raw value
+                sessionTokenHash = dev.kidsync.server.util.HashUtil.sha256HexString(token)
             }
 
-            // SEC6-S-07: Hash the token immediately; discard the raw value
-            sessionTokenHash = dev.kidsync.server.util.HashUtil.sha256HexString(token)
-
-            // Verify bucket access
+            // Verify bucket access (shared for both auth paths)
             val hasAccess = try {
                 dbQuery { BucketService.requireBucketAccess(bucketId, session.deviceId) }
                 true
@@ -465,7 +537,7 @@ fun Route.syncRoutes(
                         )
                     )
                 )
-                close(CloseReason(4001, "No access"))
+                close(CloseReason(WS_CLOSE_AUTH_FAILED, "No access"))
                 return@webSocket
             }
 
@@ -474,7 +546,7 @@ fun Route.syncRoutes(
 
             // SEC-S-06: Enforce connection limits
             if (!wsManager.addConnection(bucketId, connection!!)) {
-                close(CloseReason(4003, "Connection limit exceeded"))
+                close(CloseReason(WS_CLOSE_RATE_LIMITED, "Connection limit exceeded"))
                 return@webSocket
             }
 
@@ -499,7 +571,7 @@ fun Route.syncRoutes(
                     // SEC6-S-07: Re-validate using the stored hash instead of raw token
                     val revalidatedSession = sessionUtil.validateSessionByHash(sessionTokenHash!!)
                     if (revalidatedSession == null) {
-                        close(CloseReason(4001, "Session expired"))
+                        close(CloseReason(WS_CLOSE_AUTH_FAILED, "Session expired"))
                         return@launch
                     }
                     val stillHasAccess = try {
