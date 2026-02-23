@@ -2,6 +2,7 @@ package com.kidsync.app.di
 
 import com.kidsync.app.BuildConfig
 import com.kidsync.app.data.remote.interceptor.AuthInterceptor
+import com.kidsync.app.data.remote.interceptor.TokenAuthenticator
 import okhttp3.CertificatePinner
 import okhttp3.ConnectionSpec
 import okhttp3.OkHttpClient
@@ -35,7 +36,8 @@ import kotlin.concurrent.write
 @Singleton
 class OkHttpClientManager @Inject constructor(
     private val authInterceptor: AuthInterceptor,
-    private val loggingInterceptor: HttpLoggingInterceptor
+    private val loggingInterceptor: HttpLoggingInterceptor,
+    private val tokenAuthenticator: TokenAuthenticator
 ) {
     private val lock = ReentrantReadWriteLock()
 
@@ -80,6 +82,7 @@ class OkHttpClientManager @Inject constructor(
             .connectionSpecs(listOf(tlsSpec))
             .addInterceptor(authInterceptor)
             .addInterceptor(loggingInterceptor)
+            .authenticator(tokenAuthenticator)
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
