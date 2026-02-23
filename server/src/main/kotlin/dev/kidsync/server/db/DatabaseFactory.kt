@@ -77,6 +77,7 @@ object DatabaseFactory {
                 KeyAttestations,
                 Sessions,
                 Challenges,
+                CheckpointAcknowledgments,
             )
         }
     }

@@ -7,6 +7,9 @@ import dev.kidsync.server.models.*
 import dev.kidsync.server.util.HashUtil
 import dev.kidsync.server.util.ValidationUtil
 import org.jetbrains.exposed.sql.*
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.lessEq
+import org.slf4j.LoggerFactory
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
@@ -33,12 +36,14 @@ data class CheckpointCreated(val startSequence: Long, val endSequence: Long)
  * devices. This is by design: checkpoints provide an integrity anchor for the global
  * op stream, not per-device streams.
  */
-// SEC5-S-14: TODO - Add op table pruning after checkpoints. Once a checkpoint covers a range
-// of ops, the individual ops in that range could be pruned to save storage. This requires
-// ensuring all devices have acknowledged the checkpoint before pruning, which needs a
-// per-device checkpoint acknowledgment tracking mechanism.
+// SEC5-S-14: Op table pruning is implemented via CheckpointAcknowledgments table and
+// pruneAcknowledgedOps(). Ops covered by fully-acknowledged checkpoints (all active
+// devices have acknowledged) are pruned, preserving the latest checkpoint's ops as
+// a safety margin.
 
 class SyncService(private val config: AppConfig) {
+
+    private val logger = LoggerFactory.getLogger(SyncService::class.java)
 
     private val isoFormatter = DateTimeFormatter.ISO_INSTANT
 
@@ -310,5 +315,98 @@ class SyncService(private val config: AppConfig) {
             }
         }
         return null
+    }
+
+    /**
+     * SEC5-S-14: Record a device's acknowledgment of a checkpoint.
+     * Upserts to handle idempotent re-acknowledgment.
+     */
+    suspend fun acknowledgeCheckpoint(bucketId: String, deviceId: String, checkpointId: Int) {
+        dbQuery {
+            BucketService.requireBucketAccess(bucketId, deviceId)
+
+            // Verify checkpoint exists and belongs to this bucket
+            val checkpoint = Checkpoints.selectAll()
+                .where { (Checkpoints.id eq checkpointId) and (Checkpoints.bucketId eq bucketId) }
+                .firstOrNull()
+                ?: throw ApiException(404, "NOT_FOUND", "Checkpoint not found in this bucket")
+
+            // Upsert: insert or ignore if already acknowledged
+            val existing = CheckpointAcknowledgments.selectAll()
+                .where {
+                    (CheckpointAcknowledgments.checkpointId eq checkpointId) and
+                        (CheckpointAcknowledgments.deviceId eq deviceId)
+                }
+                .firstOrNull()
+
+            if (existing == null) {
+                CheckpointAcknowledgments.insert {
+                    it[CheckpointAcknowledgments.checkpointId] = checkpointId
+                    it[CheckpointAcknowledgments.deviceId] = deviceId
+                    it[acknowledgedAt] = java.time.Instant.now().epochSecond
+                }
+            }
+        }
+    }
+
+    /**
+     * SEC5-S-14: Prune ops covered by fully-acknowledged checkpoints.
+     *
+     * A checkpoint is "fully acknowledged" when ALL active (non-revoked) devices
+     * in the bucket have acknowledged it. For safety, the latest fully-acknowledged
+     * checkpoint's ops are preserved -- only ops covered by older checkpoints are pruned.
+     *
+     * Returns the number of ops pruned.
+     */
+    suspend fun pruneAcknowledgedOps(bucketId: String): Long {
+        return dbQuery {
+            // Get all active (non-revoked) devices for this bucket
+            val activeDeviceIds = BucketAccess.selectAll()
+                .where {
+                    (BucketAccess.bucketId eq bucketId) and BucketAccess.revokedAt.isNull()
+                }
+                .map { it[BucketAccess.deviceId] }
+                .toSet()
+
+            if (activeDeviceIds.isEmpty()) return@dbQuery 0L
+
+            // Get all checkpoints for this bucket ordered by endSequence
+            val checkpoints = Checkpoints.selectAll()
+                .where { Checkpoints.bucketId eq bucketId }
+                .orderBy(Checkpoints.endSequence, SortOrder.ASC)
+                .toList()
+
+            if (checkpoints.isEmpty()) return@dbQuery 0L
+
+            // Find checkpoints where ALL active devices have acknowledged
+            val fullyAcknowledged = checkpoints.filter { cp ->
+                val cpId = cp[Checkpoints.id]
+                val acknowledgedDevices = CheckpointAcknowledgments.selectAll()
+                    .where { CheckpointAcknowledgments.checkpointId eq cpId }
+                    .map { it[CheckpointAcknowledgments.deviceId] }
+                    .toSet()
+                activeDeviceIds.all { it in acknowledgedDevices }
+            }
+
+            if (fullyAcknowledged.isEmpty()) return@dbQuery 0L
+
+            // Keep the latest fully-acknowledged checkpoint's ops as safety margin.
+            // Only prune ops covered by older fully-acknowledged checkpoints.
+            val prunableCps = fullyAcknowledged.dropLast(1)
+            if (prunableCps.isEmpty()) return@dbQuery 0L
+
+            val maxPrunableSeq = prunableCps.last()[Checkpoints.endSequence]
+
+            // Delete ops up to and including maxPrunableSeq
+            val deleted = Ops.deleteWhere {
+                (Ops.bucketId eq bucketId) and (Ops.sequence lessEq maxPrunableSeq)
+            }.toLong()
+
+            if (deleted > 0) {
+                logger.info("Pruned {} ops from bucket {} (up to seq {})", deleted, bucketId, maxPrunableSeq)
+            }
+
+            deleted
+        }
     }
 }

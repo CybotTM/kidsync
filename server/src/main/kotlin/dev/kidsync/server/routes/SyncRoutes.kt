@@ -147,6 +147,18 @@ fun Route.syncRoutes(
                 }
             }
 
+            // SEC5-S-14: Checkpoint acknowledgment for op pruning
+            rateLimit(RateLimitName("general")) {
+                post("/checkpoints/acknowledge") {
+                    val principal = call.devicePrincipal()
+                    val bucketId = ValidationUtil.requireUuidPathParam(call, "id", "bucket id")
+                    val request = call.receive<dev.kidsync.server.models.AcknowledgeCheckpointRequest>()
+
+                    syncService.acknowledgeCheckpoint(bucketId, principal.deviceId, request.checkpointId)
+                    call.respond(HttpStatusCode.OK, mapOf("status" to "acknowledged"))
+                }
+            }
+
             // SEC6-S-06: Per-bucket snapshot quota enforced below.
 
             // POST /buckets/{id}/snapshots

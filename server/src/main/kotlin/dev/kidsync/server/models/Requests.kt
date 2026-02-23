@@ -92,6 +92,13 @@ data class PushTokenRequest(
     val platform: String,
 )
 
+// ---- Checkpoint Acknowledgment ----
+
+@Serializable
+data class AcknowledgeCheckpointRequest(
+    val checkpointId: Int,
+)
+
 // ---- Bucket Creator Transfer ----
 
 @Serializable

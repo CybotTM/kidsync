@@ -196,6 +196,23 @@ object Challenges : Table("challenges") {
     init { index(false, signingKey) }
 }
 
+// ---- Checkpoint Acknowledgments ----
+// SEC5-S-14: Track per-device acknowledgment of checkpoints to enable
+// safe op pruning once all active devices have acknowledged.
+
+object CheckpointAcknowledgments : Table("checkpoint_acknowledgments") {
+    val id = integer("id").autoIncrement()
+    val checkpointId = integer("checkpoint_id").references(Checkpoints.id)
+    val deviceId = varchar("device_id", 255)
+    val acknowledgedAt = long("acknowledged_at")
+
+    override val primaryKey = PrimaryKey(id)
+
+    init {
+        uniqueIndex(checkpointId, deviceId)
+    }
+}
+
 // ---- Key Attestations ----
 
 object KeyAttestations : Table("key_attestations") {

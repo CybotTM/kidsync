@@ -93,6 +93,12 @@ fun Application.module(config: AppConfig = AppConfig()) {
             } catch (e: Exception) {
                 LoggerFactory.getLogger("Application").warn("Temp file cleanup failed: {}", e.message)
             }
+            // SEC5-S-14: Prune ops covered by fully-acknowledged checkpoints
+            try {
+                pruneAllBuckets(syncService)
+            } catch (e: Exception) {
+                LoggerFactory.getLogger("Application").warn("Op pruning failed: {}", e.message)
+            }
         }
     }
 
@@ -211,5 +217,19 @@ private fun cleanupOrphanTempFiles(storagePath: String) {
         if (file.delete()) {
             logger.info("Cleaned up orphan temp file: {}", file.name)
         }
+    }
+}
+
+/**
+ * SEC5-S-14: Prune acknowledged ops for all buckets that have checkpoints.
+ */
+private suspend fun pruneAllBuckets(syncService: dev.kidsync.server.services.SyncService) {
+    val bucketIds = dev.kidsync.server.db.DatabaseFactory.dbQuery {
+        dev.kidsync.server.db.Checkpoints.selectAll()
+            .map { it[dev.kidsync.server.db.Checkpoints.bucketId] }
+            .distinct()
+    }
+    for (bucketId in bucketIds) {
+        syncService.pruneAcknowledgedOps(bucketId)
     }
 }
