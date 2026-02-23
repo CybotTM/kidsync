@@ -92,6 +92,13 @@ data class PushTokenRequest(
     val platform: String,
 )
 
+// ---- Bucket Creator Transfer ----
+
+@Serializable
+data class TransferCreatorRequest(
+    val targetDeviceId: String,
+)
+
 // ---- Snapshot metadata (multipart JSON part) ----
 
 @Serializable

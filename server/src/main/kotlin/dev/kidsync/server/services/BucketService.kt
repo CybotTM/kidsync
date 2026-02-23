@@ -57,9 +57,7 @@ class BucketService(
     /**
      * Create a new anonymous bucket. The creator device automatically gets access.
      *
-     * SEC3-S-08: TODO - The bucket creator role cannot be transferred to another device.
-     * If the creator device is lost, the bucket cannot be deleted by any other device.
-     * Consider adding a creator transfer mechanism or multi-admin support in a future version.
+     * SEC3-S-08: The bucket creator role can be transferred via PATCH /buckets/{id}/creator.
      */
     suspend fun createBucket(deviceId: String): BucketResponse {
         val bucketId = UUID.randomUUID().toString()
@@ -425,6 +423,39 @@ class BucketService(
                 logger.info("Cleaned up {} expired invite tokens", deleted)
             }
             deleted
+        }
+    }
+
+    /**
+     * SEC3-S-08: Transfer the bucket creator role to another device.
+     * Only the current creator can transfer ownership. The target must have
+     * active (non-revoked) access to the bucket.
+     */
+    suspend fun transferCreator(bucketId: String, callerDeviceId: String, targetDeviceId: String) {
+        if (callerDeviceId == targetDeviceId) {
+            throw ApiException(400, "INVALID_REQUEST", "Cannot transfer creator role to yourself")
+        }
+
+        dbQuery {
+            val bucket = Buckets.selectAll().where { Buckets.id eq bucketId }.firstOrNull()
+                ?: throw ApiException(404, "NOT_FOUND", "Bucket not found")
+
+            if (bucket[Buckets.createdBy] != callerDeviceId) {
+                throw ApiException(403, "NOT_BUCKET_CREATOR", "Only the bucket creator can transfer ownership")
+            }
+
+            // Verify target has active (non-revoked) bucket access
+            val targetAccess = BucketAccess.selectAll().where {
+                (BucketAccess.bucketId eq bucketId) and
+                    (BucketAccess.deviceId eq targetDeviceId) and
+                    BucketAccess.revokedAt.isNull()
+            }.firstOrNull()
+                ?: throw ApiException(404, "NOT_FOUND", "Target device does not have active access to this bucket")
+
+            // Transfer ownership
+            Buckets.update({ Buckets.id eq bucketId }) {
+                it[createdBy] = targetDeviceId
+            }
         }
     }
 

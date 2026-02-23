@@ -119,6 +119,24 @@ fun Route.bucketRoutes(bucketService: BucketService, wsManager: WebSocketManager
                     }
 
                     /**
+                     * PATCH /buckets/{id}/creator
+                     * SEC3-S-08: Transfer bucket creator role to another device.
+                     * Only the current creator can transfer ownership.
+                     */
+                    patch("/creator") {
+                        val principal = call.devicePrincipal()
+                        val bucketId = ValidationUtil.requireUuidPathParam(call, "id", "bucket id")
+                        val request = call.receive<TransferCreatorRequest>()
+
+                        if (request.targetDeviceId.isBlank()) {
+                            throw ApiException(400, "INVALID_REQUEST", "targetDeviceId is required")
+                        }
+
+                        bucketService.transferCreator(bucketId, principal.deviceId, request.targetDeviceId)
+                        call.respond(HttpStatusCode.OK, mapOf("status" to "transferred"))
+                    }
+
+                    /**
                      * DELETE /buckets/{id}/devices/me
                      * Self-revoke: remove own access from this bucket.
                      */
