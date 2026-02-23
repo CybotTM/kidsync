@@ -417,10 +417,9 @@ fun Route.syncRoutes(
     // SEC6-S-07: The session token is hashed with SHA-256 before being stored in the WebSocket
     // connection's in-memory state. This limits exposure if the server process memory is dumped.
 
-    // SEC5-S-03: TODO - Accept WebSocket auth token as a query parameter (?token=...) in addition
-    // to the current in-band auth message. This would allow the server to reject unauthenticated
-    // connections at upgrade time (before allocating WebSocket resources), reducing the attack
-    // surface for resource exhaustion. The token should still be validated via SessionUtil.
+    // SEC5-S-03: WebSocket auth supports both query param (?token=...) and in-band auth message.
+    // Query param auth allows the server to reject unauthenticated connections at upgrade time,
+    // reducing the attack surface for resource exhaustion.
 
     // WebSocket /buckets/{id}/ws
     webSocket("/buckets/{id}/ws") {
@@ -443,50 +442,64 @@ fun Route.syncRoutes(
         var sessionTokenHash: String? = null
 
         try {
-            // Wait for auth message with timeout
-            val authFrame = withTimeoutOrNull(5000) { incoming.receive() }
-            if (authFrame == null) {
-                close(CloseReason(4001, "Auth timeout"))
-                return@webSocket
-            }
-            if (authFrame !is Frame.Text) {
-                close(CloseReason(4001, "Expected text frame for auth"))
-                return@webSocket
-            }
+            // SEC5-S-03: Check for query param auth first, fall back to in-band auth
+            val queryToken = call.request.queryParameters["token"]
+            val session: dev.kidsync.server.util.Session?
 
-            val authText = authFrame.readText()
-            val authJsonObj = json.parseToJsonElement(authText).jsonObject
-            val authType = authJsonObj["type"]?.jsonPrimitive?.content
+            if (queryToken != null) {
+                // Query param auth: validate token from URL
+                session = sessionUtil.validateSession(queryToken)
+                if (session == null) {
+                    close(CloseReason(4001, "Invalid token"))
+                    return@webSocket
+                }
+                sessionTokenHash = dev.kidsync.server.util.HashUtil.sha256HexString(queryToken)
+            } else {
+                // In-band auth: wait for auth message (backward compatible)
+                val authFrame = withTimeoutOrNull(5000) { incoming.receive() }
+                if (authFrame == null) {
+                    close(CloseReason(4001, "Auth timeout"))
+                    return@webSocket
+                }
+                if (authFrame !is Frame.Text) {
+                    close(CloseReason(4001, "Expected text frame for auth"))
+                    return@webSocket
+                }
 
-            if (authType != "auth") {
-                close(CloseReason(4001, "Expected auth message"))
-                return@webSocket
-            }
+                val authText = authFrame.readText()
+                val authJsonObj = json.parseToJsonElement(authText).jsonObject
+                val authType = authJsonObj["type"]?.jsonPrimitive?.content
 
-            val token = authJsonObj["token"]?.jsonPrimitive?.content
-            if (token == null) {
-                close(CloseReason(4001, "Missing auth token"))
-                return@webSocket
-            }
+                if (authType != "auth") {
+                    close(CloseReason(4001, "Expected auth message"))
+                    return@webSocket
+                }
 
-            val session = sessionUtil.validateSession(token)
-            if (session == null) {
-                send(
-                    Frame.Text(
-                        json.encodeToString(
-                            WsAuthFailed.serializer(),
-                            WsAuthFailed(error = "TOKEN_INVALID", message = "Session token invalid or expired")
+                val token = authJsonObj["token"]?.jsonPrimitive?.content
+                if (token == null) {
+                    close(CloseReason(4001, "Missing auth token"))
+                    return@webSocket
+                }
+
+                session = sessionUtil.validateSession(token)
+                if (session == null) {
+                    send(
+                        Frame.Text(
+                            json.encodeToString(
+                                WsAuthFailed.serializer(),
+                                WsAuthFailed(error = "TOKEN_INVALID", message = "Session token invalid or expired")
+                            )
                         )
                     )
-                )
-                close(CloseReason(4001, "Auth failed"))
-                return@webSocket
+                    close(CloseReason(4001, "Auth failed"))
+                    return@webSocket
+                }
+
+                // SEC6-S-07: Hash the token immediately; discard the raw value
+                sessionTokenHash = dev.kidsync.server.util.HashUtil.sha256HexString(token)
             }
 
-            // SEC6-S-07: Hash the token immediately; discard the raw value
-            sessionTokenHash = dev.kidsync.server.util.HashUtil.sha256HexString(token)
-
-            // Verify bucket access
+            // Verify bucket access (shared for both auth paths)
             val hasAccess = try {
                 dbQuery { BucketService.requireBucketAccess(bucketId, session.deviceId) }
                 true
