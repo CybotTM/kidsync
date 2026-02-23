@@ -8,7 +8,11 @@ import com.kidsync.app.domain.repository.AuthRepository
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
-import io.mockk.*
+import io.mockk.clearAllMocks
+import io.mockk.coEvery
+import io.mockk.coVerify
+import io.mockk.every
+import io.mockk.mockk
 import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response

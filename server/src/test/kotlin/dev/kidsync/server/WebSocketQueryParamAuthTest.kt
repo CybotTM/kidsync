@@ -1,10 +1,17 @@
 package dev.kidsync.server
 
 import dev.kidsync.server.TestHelper.createJsonClient
-import io.ktor.client.plugins.websocket.*
-import io.ktor.server.testing.*
-import io.ktor.websocket.*
-import kotlinx.serialization.json.*
+import io.ktor.client.plugins.websocket.WebSockets
+import io.ktor.client.plugins.websocket.webSocket
+import io.ktor.server.testing.testApplication
+import io.ktor.websocket.Frame
+import io.ktor.websocket.readText
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
