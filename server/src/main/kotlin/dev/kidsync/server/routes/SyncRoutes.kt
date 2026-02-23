@@ -332,9 +332,46 @@ fun Route.syncRoutes(
                 }
             }
 
-            // SEC3-S-06: TODO - A snapshot download endpoint (GET /buckets/{id}/snapshots/{snapshotId}/download)
-            // is needed to allow clients to download the actual snapshot binary data, not just metadata.
-            // This should serve the file from snapshotStoragePath with path traversal protection.
+            // SEC3-S-06: Snapshot download endpoint
+            rateLimit(RateLimitName("general")) {
+                get("/snapshots/{snapshotId}/download") {
+                    val principal = call.devicePrincipal()
+                    val bucketId = ValidationUtil.requireUuidPathParam(call, "id", "bucket id")
+                    val snapshotId = ValidationUtil.requireUuidPathParam(call, "snapshotId", "snapshot id")
+
+                    // Verify bucket access
+                    dbQuery { BucketService.requireBucketAccess(bucketId, principal.deviceId) }
+
+                    // Look up snapshot and verify it belongs to this bucket
+                    val snapshot = dbQuery {
+                        Snapshots.selectAll()
+                            .where { Snapshots.id eq snapshotId }
+                            .firstOrNull()
+                    } ?: throw ApiException(404, "NOT_FOUND", "Snapshot not found")
+
+                    if (snapshot[Snapshots.bucketId] != bucketId) {
+                        throw ApiException(403, "BUCKET_ACCESS_DENIED", "Snapshot does not belong to this bucket")
+                    }
+
+                    // Resolve file path with path traversal protection
+                    val snapshotDir = File(config.snapshotStoragePath).canonicalFile
+                    val snapshotFile = File(config.snapshotStoragePath, snapshot[Snapshots.filePath])
+                    if (!snapshotFile.canonicalFile.startsWith(snapshotDir)) {
+                        throw ApiException(403, "BUCKET_ACCESS_DENIED", "Invalid file path")
+                    }
+
+                    if (!snapshotFile.exists()) {
+                        throw ApiException(404, "NOT_FOUND", "Snapshot file not found on disk")
+                    }
+
+                    // Compute SHA-256 and add header
+                    val sha256 = MessageDigest.getInstance("SHA-256")
+                        .digest(snapshotFile.readBytes())
+                        .joinToString("") { "%02x".format(it) }
+                    call.response.header("X-Snapshot-SHA256", sha256)
+                    call.respondFile(snapshotFile)
+                }
+            }
 
             // GET /buckets/{id}/snapshots/latest
             rateLimit(RateLimitName("general")) {
