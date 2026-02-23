@@ -154,7 +154,7 @@ class BucketViewModelTest : FunSpec({
 
             coEvery { cryptoManager.generateInviteToken() } returns "tok-abc-123"
             coEvery { bucketRepository.createInvite("bucket-inv", "tok-abc-123") } returns Result.success(Unit)
-            coEvery { authRepository.getServerUrl() } returns "https://api.kidsync.dev"
+            coEvery { authRepository.getServerUrl() } returns "https://api.kidsync.app"
             coEvery { keyManager.getSigningKeyFingerprint() } returns "fp:sign:001"
 
             val vm = createViewModel()
@@ -320,7 +320,7 @@ class BucketViewModelTest : FunSpec({
 
             coEvery { cryptoManager.generateInviteToken() } returns "tok-sc03"
             coEvery { bucketRepository.createInvite("bucket-sc03", "tok-sc03") } returns Result.success(Unit)
-            coEvery { authRepository.getServerUrl() } returns "https://api.kidsync.dev"
+            coEvery { authRepository.getServerUrl() } returns "https://api.kidsync.app"
             coEvery { keyManager.getSigningKeyFingerprint() } returns "fp:signing:abc123"
 
             val vm = createViewModel()
@@ -379,13 +379,13 @@ class BucketViewModelTest : FunSpec({
             coEvery { bucketRepository.uploadKeyAttestation(any()) } returns Result.success(Unit)
             coEvery { bucketRepository.storeLocalBucketName(any(), any()) } just Runs
             coEvery { bucketRepository.getLocalBucketName(any()) } returns "Shared Bucket"
-            coEvery { authRepository.getServerUrl() } returns "https://api.kidsync.dev"
+            coEvery { authRepository.getServerUrl() } returns "https://api.kidsync.app"
 
             val vm = createViewModel()
             advanceUntilIdle()
 
             // Build QR payload with signing key fingerprint
-            val qrData = """{"v":1,"s":"https://api.kidsync.dev","b":"bucket-join","t":"tok-join","f":"$signingFingerprint"}"""
+            val qrData = """{"v":1,"s":"https://api.kidsync.app","b":"bucket-join","t":"tok-join","f":"$signingFingerprint"}"""
             vm.joinBucket(qrData)
             advanceUntilIdle()
 

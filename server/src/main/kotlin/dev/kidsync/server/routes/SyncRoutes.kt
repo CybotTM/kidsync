@@ -39,9 +39,9 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 /** WebSocket close codes for application-level errors (RFC 6455 §7.4.2: 4000-4999). */
-private const val WS_CLOSE_INVALID_PARAMS = 4000
-private const val WS_CLOSE_AUTH_FAILED = 4001
-private const val WS_CLOSE_RATE_LIMITED = 4003
+private const val WS_CLOSE_INVALID_PARAMS: Short = 4000
+private const val WS_CLOSE_AUTH_FAILED: Short = 4001
+private const val WS_CLOSE_RATE_LIMITED: Short = 4003
 
 /**
  * SEC4-S-10: IP-based rate limiter for WebSocket upgrade attempts.
