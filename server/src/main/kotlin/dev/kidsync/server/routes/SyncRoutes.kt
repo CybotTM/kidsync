@@ -281,19 +281,18 @@ fun Route.syncRoutes(
                     val sizeBytes = blob.size.toLong()
                     val now = LocalDateTime.now(ZoneOffset.UTC)
 
-                    // SEC4-S-11: TODO - If the server crashes between writing the file to disk
-                    // and committing the DB row, an orphaned file remains. A background cleanup
-                    // job should periodically scan the snapshot directory for files not referenced
-                    // in the Snapshots table and delete them after a grace period (e.g., 1 hour).
+                    // SEC4-S-11: Write to temp file first, rename after DB commit to
+                    // prevent orphaned final files on crash between write and commit.
                     val snapshotId = UUID.randomUUID().toString()
                     val snapshotDir = File(config.snapshotStoragePath)
                     snapshotDir.mkdirs()
-                    val snapshotFile = File(snapshotDir, snapshotId)
-                    snapshotFile.writeBytes(blob)
+                    val tempFile = File(snapshotDir, "$snapshotId.tmp")
+                    val finalFile = File(snapshotDir, snapshotId)
+                    tempFile.writeBytes(blob)
 
                     // SEC6-S-15: Set file permissions to 600 (owner read/write only)
                     try {
-                        Files.setPosixFilePermissions(snapshotFile.toPath(), PosixFilePermissions.fromString("rw-------"))
+                        Files.setPosixFilePermissions(tempFile.toPath(), PosixFilePermissions.fromString("rw-------"))
                     } catch (_: UnsupportedOperationException) {
                         // Windows doesn't support POSIX file permissions
                     }
@@ -314,9 +313,11 @@ fun Route.syncRoutes(
                                 it[createdAt] = now
                             }
                         }
+                        // DB commit succeeded -- rename temp to final
+                        tempFile.renameTo(finalFile)
                     } catch (e: Exception) {
-                        // Clean up orphaned file on DB insert failure
-                        snapshotFile.delete()
+                        // Clean up temp file on DB insert failure
+                        tempFile.delete()
                         throw e
                     }
 

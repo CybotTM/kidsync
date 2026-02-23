@@ -19,6 +19,7 @@ import io.ktor.server.routing.*
 import kotlinx.coroutines.*
 import org.slf4j.LoggerFactory
 import org.slf4j.event.Level
+import java.io.File
 
 fun main() {
     val config = AppConfig()
@@ -83,6 +84,14 @@ fun Application.module(config: AppConfig = AppConfig()) {
                 bucketService.cleanupExpiredInvites()
             } catch (e: Exception) {
                 LoggerFactory.getLogger("Application").warn("Invite token cleanup failed: {}", e.message)
+            }
+            // SEC4-S-11: Clean up orphan .tmp files in snapshot and blob storage
+            // that are older than 1 hour (leftover from crashed uploads)
+            try {
+                cleanupOrphanTempFiles(config.snapshotStoragePath)
+                cleanupOrphanTempFiles(config.blobStoragePath)
+            } catch (e: Exception) {
+                LoggerFactory.getLogger("Application").warn("Temp file cleanup failed: {}", e.message)
             }
         }
     }
@@ -183,5 +192,24 @@ fun Application.module(config: AppConfig = AppConfig()) {
         blobRoutes(blobService, config.allowedBlobContentTypes)
         pushRoutes(pushService)
         keyRoutes(keyService)
+    }
+}
+
+/**
+ * SEC4-S-11: Clean up orphan .tmp files in a storage directory that are older than 1 hour.
+ * These are leftover from uploads that crashed between writing the temp file and committing
+ * the DB row (or renaming to the final filename).
+ */
+private fun cleanupOrphanTempFiles(storagePath: String) {
+    val dir = File(storagePath)
+    if (!dir.exists() || !dir.isDirectory) return
+
+    val oneHourAgo = System.currentTimeMillis() - 3_600_000L
+    val logger = LoggerFactory.getLogger("Application")
+
+    dir.listFiles()?.filter { it.name.endsWith(".tmp") && it.lastModified() < oneHourAgo }?.forEach { file ->
+        if (file.delete()) {
+            logger.info("Cleaned up orphan temp file: {}", file.name)
+        }
     }
 }
