@@ -379,14 +379,18 @@ fun Route.syncRoutes(
                     }
 
                     if (!snapshotFile.exists()) {
-                        throw ApiException(HttpStatusCode.NotFound.value, "NOT_FOUND", "Snapshot file not found on disk")
+                        // Recover from crash between DB commit and rename (SEC4-S-11)
+                        val tempFile = File(config.snapshotStoragePath, "${snapshot[Snapshots.filePath]}.tmp")
+                        if (tempFile.exists()) {
+                            tempFile.renameTo(snapshotFile)
+                        }
+                        if (!snapshotFile.exists()) {
+                            throw ApiException(HttpStatusCode.NotFound.value, "NOT_FOUND", "Snapshot file not found on disk")
+                        }
                     }
 
-                    // Compute SHA-256 and add header
-                    val sha256 = MessageDigest.getInstance("SHA-256")
-                        .digest(snapshotFile.readBytes())
-                        .joinToString("") { "%02x".format(it) }
-                    call.response.header("X-Snapshot-SHA256", sha256)
+                    // Return the verified SHA-256 stored at upload time (avoids loading entire file into memory)
+                    call.response.header("X-Snapshot-SHA256", snapshot[Snapshots.sha256Hash])
                     call.respondFile(snapshotFile)
                 }
             }

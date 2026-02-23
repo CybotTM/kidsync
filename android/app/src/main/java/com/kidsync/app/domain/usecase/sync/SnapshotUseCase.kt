@@ -168,7 +168,9 @@ class SnapshotUseCase @Inject constructor(
         val infoBankEntries = infoBankDao.getAllEntries()
         for (entry in infoBankEntries.sortedBy { it.entryId.toString() }) {
             digest.update(entry.entryId.toString().toByteArray())
+            digest.update(entry.childId.toString().toByteArray())
             digest.update(entry.category.toByteArray())
+            entry.title?.let { digest.update(it.toByteArray()) }
             entry.content?.let { digest.update(it.toByteArray()) }
         }
 
