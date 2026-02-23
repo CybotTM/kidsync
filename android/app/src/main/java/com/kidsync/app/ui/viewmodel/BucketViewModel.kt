@@ -163,13 +163,9 @@ class BucketViewModel @Inject constructor(
                 )
                 inviteResult.getOrThrow()
 
-                // Build QR payload
-                // TODO(SC-03): The spec says the QR code should contain the signing key fingerprint,
-                // but we currently use the encryption key fingerprint. Both sides (QR generation and
-                // verification) consistently use the encryption key, so this works. If the spec is
-                // updated or the server changes to use signing key fingerprints, update both sides.
+                // Build QR payload with signing key fingerprint per spec (SC-03)
                 val serverUrl = authRepository.getServerUrl()
-                val fingerprint = keyManager.getEncryptionKeyFingerprint()
+                val fingerprint = keyManager.getSigningKeyFingerprint()
 
                 val payload = QrPairingPayload(
                     v = 1,
@@ -390,7 +386,7 @@ class BucketViewModel @Inject constructor(
         val peerDevicesResult = bucketRepository.getBucketDevices(payload.b)
         val peerDevices = peerDevicesResult.getOrThrow()
         val peerVerified = peerDevices.any { device ->
-            cryptoManager.computeKeyFingerprint(device.encryptionKey) == payload.f
+            cryptoManager.computeKeyFingerprint(device.signingKey) == payload.f
         }
 
         if (!peerVerified) {
@@ -426,7 +422,7 @@ class BucketViewModel @Inject constructor(
 
         // Cross-sign the peer's key
         val peerDevice = peerDevices.first { device ->
-            cryptoManager.computeKeyFingerprint(device.encryptionKey) == payload.f
+            cryptoManager.computeKeyFingerprint(device.signingKey) == payload.f
         }
         val attestation = keyManager.createKeyAttestation(
             attestedDeviceId = peerDevice.deviceId,
