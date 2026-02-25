@@ -10,11 +10,11 @@ KidSync is an open-source, self-hostable co-parenting coordination app. Privacy 
 
 ### Account Data
 
-When you create an account, we store:
+When you register a device, we store:
 
-- **Email address** -- used for authentication and account recovery
-- **Display name** -- shown to your co-parent
-- **Password hash** -- your password is hashed with bcrypt; we never store it in plaintext
+- **Ed25519 signing public key** -- used for challenge-response authentication (no passwords)
+- **X25519 encryption public key** -- used for end-to-end key exchange
+- **Device ID** -- a randomly generated UUID identifying your device
 
 ### Parenting Data (End-to-End Encrypted)
 

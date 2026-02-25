@@ -158,14 +158,12 @@ find /app/data/blobs -type f | wc -l
 # 6. Build or pull the server image
 docker build -t kidsync-server:latest -f server/Dockerfile server/
 
-# 7. Run with the same environment variables
+# 7. Run with the same environment variables (see .env.example for full list)
 docker run -d \
     --name kidsync-server \
     -p 8080:8080 \
     -v /app/data:/app/data \
-    -e KIDSYNC_JWT_SECRET="<same-secret-as-old-host>" \
-    -e KIDSYNC_JWT_ISSUER="kidsync-server" \
-    -e KIDSYNC_JWT_AUDIENCE="kidsync-client" \
+    -e KIDSYNC_SERVER_ORIGIN="https://api.kidsync.app" \
     kidsync-server:latest
 
 # 8. Verify health
@@ -176,13 +174,13 @@ curl -f http://localhost:8080/health
 curl -s http://localhost:8080/health | jq .
 ```
 
-**Critical:** The `KIDSYNC_JWT_SECRET` must be identical on the new host. If it changes, all existing access tokens and refresh tokens become invalid, forcing every user to re-authenticate.
+**Note:** Session tokens are stored in the database and migrate with it. Active sessions remain valid on the new host as long as the database file is intact. If the database is lost, all devices must re-authenticate via Ed25519 challenge-response (no passwords involved).
 
 ### DNS Cutover
 
 1. Verify the new server returns healthy responses
 2. Update DNS or load balancer to point to the new host
-3. Monitor error rates for 15 minutes (access token lifetime)
+3. Monitor error rates for 60 minutes (session token TTL)
 4. Decommission the old host only after confirming zero traffic
 
 ---
