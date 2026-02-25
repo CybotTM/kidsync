@@ -1,5 +1,5 @@
 <!-- FOR AI AGENTS - Scoped to android/ -->
-<!-- Last updated: 2026-02-20 -->
+<!-- Last updated: 2026-02-25 -->
 
 # Android AGENTS.md
 
@@ -7,7 +7,7 @@ Jetpack Compose Android app. Local-first with E2E encrypted sync to Ktor server.
 
 ## Stack
 
-Kotlin, Jetpack Compose, Room + SQLCipher, Tink (crypto), Hilt (DI), WorkManager, Retrofit, min SDK 26, target SDK 35
+Kotlin, Jetpack Compose, Room + SQLCipher, BouncyCastle + JCA (crypto), Hilt (DI), WorkManager, Retrofit, min SDK 26, target SDK 35
 
 ## Package Map
 
@@ -16,11 +16,11 @@ app/src/main/java/com/kidsync/app/
   KidSyncApplication.kt   # @HiltAndroidApp
   crypto/
     CryptoManager.kt       # Interface + buildPayloadAad() helper
-    TinkCryptoManager.kt   # AES-256-GCM encrypt/decrypt, X25519
+    TinkCryptoManager.kt   # AES-256-GCM encrypt/decrypt, X25519 (uses BouncyCastle + JCA)
   data/
     local/                  # Room DB, DAOs, entities, converters
     remote/api/             # ApiService (Retrofit), DTOs
-    remote/interceptor/     # AuthInterceptor (JWT token refresh)
+    remote/interceptor/     # AuthInterceptor (session token auth)
     repository/             # Repository implementations
     sync/                   # SyncWorker (WorkManager periodic sync)
   di/                       # 4 Hilt modules: App, Database, Network, Crypto
@@ -57,7 +57,7 @@ Domain (use cases, models, repository interfaces)
   ↓ suspend functions
 Data (Room DAOs, Retrofit API, repository impls, SyncWorker)
   ↓
-Crypto (Tink: AES-256-GCM, X25519, HKDF, BIP39)
+Crypto (BouncyCastle + JCA: AES-256-GCM, X25519, HKDF, BIP39)
 ```
 
 All ViewModels: `@HiltViewModel`, `viewModelScope`, `MutableStateFlow`/`StateFlow`

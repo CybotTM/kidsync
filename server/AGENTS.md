@@ -1,5 +1,5 @@
 <!-- FOR AI AGENTS - Scoped to server/ -->
-<!-- Last updated: 2026-02-20 -->
+<!-- Last updated: 2026-02-25 -->
 
 # Server AGENTS.md
 
@@ -22,27 +22,32 @@ src/main/kotlin/dev/kidsync/server/
   plugins/               # Auth, CORS, RateLimit, Serialization, StatusPages, WebSockets
   routes/                # Auth, Blob, Device, Family, Key, Push, Sync (7 route files)
   services/              # AuthService, SyncService, BlobService, PushService, WebSocketManager
-  util/                  # HashUtil, JwtUtil, ValidationUtil
+  util/                  # HashUtil, SessionUtil, ValidationUtil
 ```
 
 ## Commands
 
 | Command | Purpose |
 |---------|---------|
-| `docker run --rm -v "$(pwd):/app" -w /app gradle:8.12-jdk21 gradle test --no-daemon` | Run all 44 tests |
+| `docker run --rm -v "$(pwd):/app" -w /app gradle:8.12-jdk21 gradle test --no-daemon` | Run all 456 tests |
 | `docker run --rm -v "$(pwd):/app" -w /app gradle:8.12-jdk21 gradle buildFatJar --no-daemon` | Build fat JAR |
 | `docker build -t kidsync-server .` | Build Docker image |
 
-## Tests (44 total)
+## Tests (456 across 40 test classes)
 
-| Suite | Tests | Coverage |
-|-------|-------|----------|
-| AuthTest | 8 | Register, login, TOTP, refresh tokens, validation |
-| SyncTest | 7 | Upload, pull, hash chain, handshake, pagination |
-| HashChainTest | 8 | SHA-256, hex, chain verification |
-| IntegrationTest | 8 | Family flow, invites, devices, keys, blobs |
-| E2ETest | 8 | Full lifecycle, multi-device, revocation, checkpoints |
-| OverrideStateMachineTest | 5 | State transitions, proposer rules |
+| Area | Key Suites | Focus |
+|------|-----------|-------|
+| Auth | AuthTest, AuthIntegrationTest, SessionEdgeCaseTest, SessionTokenPrefixTest | Challenge-response, sessions, token prefixes |
+| Sync | SyncTest, SyncIntegrationTest, SyncServiceExtendedTest, OpPruningTest | Upload, pull, hash chain, pagination, pruning |
+| Hash | HashChainTest, HashUtilUnitTest | SHA-256, hex, chain verification |
+| Buckets | BucketTest, BucketIntegrationTest, BucketCreatorTransferTest, BucketServiceCascadeTest | CRUD, invites, creator transfer, cascade delete |
+| Devices | DeviceDeregistrationTest, DeviceRevocationTest, DeviceRegistrationRateLimitTest | Registration, revocation, rate limits |
+| Keys | KeyTest, KeyServiceExtendedTest | Wrapped DEKs, attestations |
+| Blobs/Snapshots | BlobIntegrationTest, BlobServiceTest, SnapshotQuotaTest, SnapshotDownloadTest | Upload, download, quota |
+| Security | SecurityHeaderTest, InputValidationEdgeCaseTest, MalformedInputTest, ValidationUtilTest | Headers, input validation, UUID checks |
+| E2E | E2ETest, TwoDevicePairingE2ETest | Full lifecycle, multi-device pairing |
+| WebSocket | WebSocketManagerTest, WebSocketQueryParamAuthTest | Connection limits, query param auth |
+| Infrastructure | ConfigTest, HealthEndpointTest, ConcurrencyTest, RateLimiterTest | Config, health, concurrency, rate limits |
 
 ## Critical Patterns
 
@@ -59,9 +64,13 @@ src/main/kotlin/dev/kidsync/server/
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `KIDSYNC_DB_PATH` | `data/kidsync.db` | SQLite database path |
-| `KIDSYNC_JWT_SECRET` | dev placeholder | JWT signing secret (MUST change in prod) |
+| `KIDSYNC_BLOB_PATH` | `data/blobs` | Blob storage directory |
+| `KIDSYNC_SNAPSHOT_PATH` | `data/snapshots` | Snapshot storage directory |
 | `KIDSYNC_CORS_ORIGINS` | (unset = anyHost) | Comma-separated allowed origins |
 | `KIDSYNC_PORT` | `8080` | Server port |
+| `KIDSYNC_SESSION_TTL_SECONDS` | `3600` | Session token lifetime |
+| `KIDSYNC_CHALLENGE_TTL_SECONDS` | `60` | Challenge nonce lifetime |
+| `KIDSYNC_SERVER_ORIGIN` | `https://api.kidsync.app` | Server origin for challenge-response auth (MUST set in prod) |
 
 See `.env.example` at project root for full list.
 

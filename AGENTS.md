@@ -1,6 +1,6 @@
 <!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-02-20 | Last verified: 2026-02-20 -->
+<!-- Last updated: 2026-02-25 | Last verified: 2026-02-25 -->
 
 # AGENTS.md
 
@@ -14,7 +14,7 @@ Local-first, append-only OpLog. Server is a dumb encrypted relay (cannot decrypt
 | Component | Stack | Entry Point |
 |-----------|-------|-------------|
 | Server | Kotlin 2.1.0, Ktor 3.0.3, Exposed ORM, SQLite WAL, JDK 21 | `server/.../Application.kt` |
-| Android | Kotlin, Jetpack Compose, Room + SQLCipher, Tink, Hilt | `android/.../ui/MainActivity.kt` |
+| Android | Kotlin, Jetpack Compose, Room + SQLCipher, BouncyCastle, Hilt | `android/.../ui/MainActivity.kt` |
 | Specs | Markdown + YAML + JSON test vectors | `docs/`, `tests/conformance/` |
 
 ## Global Rules
@@ -44,11 +44,11 @@ Local-first, append-only OpLog. Server is a dumb encrypted relay (cannot decrypt
 ## Security
 
 - E2E encrypted: X25519 key agreement + AES-256-GCM
-- Passwords: bcrypt. Tokens: JWT (15 min access, 30 day refresh)
+- Auth: Ed25519 challenge-response. Sessions: opaque tokens (1h TTL)
 - CORS restricted via `KIDSYNC_CORS_ORIGINS` env var
 - Rate limiting per endpoint. `FLAG_SECURE` on sensitive screens.
 
-## Testing (44 server tests)
+## Testing (456 server tests, 881+ Android tests)
 
 ```bash
 docker run --rm -v "$(pwd)/server:/app" -w /app gradle:8.12-jdk21 gradle test --no-daemon

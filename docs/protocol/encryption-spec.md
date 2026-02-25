@@ -100,7 +100,7 @@ No algorithm negotiation. Protocol version changes are required to change any al
 
 | Platform | Library | Notes |
 |----------|---------|-------|
-| **Android** | Google Tink + libsodium | Ed25519 via libsodium; X25519 derived via `crypto_sign_ed25519_sk_to_curve25519`; AES-256-GCM via Tink `Aead` or `javax.crypto` |
+| **Android** | BouncyCastle + JCA | Ed25519 via BouncyCastle; X25519 derived via BouncyCastle; AES-256-GCM via `javax.crypto` |
 | **iOS** | Apple CryptoKit | Ed25519 via `Curve25519.Signing`; X25519 via `Curve25519.KeyAgreement`; AES-GCM via `AES.GCM` |
 | **Server** | None (no crypto on payloads) | Server verifies Ed25519 signatures for challenge-response auth only |
 
