@@ -24,6 +24,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.*
 import org.jetbrains.exposed.sql.*
+import dev.kidsync.server.util.SlidingWindowRateLimiter
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.nio.file.Files
@@ -34,9 +35,6 @@ import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.*
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicLong
 
 /** WebSocket close codes for application-level errors (RFC 6455 §7.4.2: 4000-4999). */
 private const val WS_CLOSE_INVALID_PARAMS: Short = 4000
@@ -45,40 +43,9 @@ private const val WS_CLOSE_RATE_LIMITED: Short = 4003
 
 /**
  * SEC4-S-10: IP-based rate limiter for WebSocket upgrade attempts.
- * Limits each IP to MAX_WS_CONNECTIONS_PER_IP_PER_MINUTE WebSocket connections per minute.
+ * Limits each IP to 10 WebSocket connections per minute.
  */
-private object WebSocketConnectionRateLimiter {
-    private const val MAX_WS_CONNECTIONS_PER_IP_PER_MINUTE = 10
-    private const val WINDOW_MS = 60_000L
-
-    private data class IpWindow(val count: AtomicInteger = AtomicInteger(0), val windowStart: AtomicLong = AtomicLong(0))
-    private val windows = ConcurrentHashMap<String, IpWindow>()
-
-    fun checkAndIncrement(ip: String): Boolean {
-        cleanup()
-        val now = System.currentTimeMillis()
-        val window = windows.computeIfAbsent(ip) { IpWindow() }
-
-        synchronized(window) {
-            val start = window.windowStart.get()
-            if (now - start > WINDOW_MS) {
-                window.windowStart.set(now)
-                window.count.set(1)
-                return true
-            }
-            val current = window.count.incrementAndGet()
-            return current <= MAX_WS_CONNECTIONS_PER_IP_PER_MINUTE
-        }
-    }
-
-    private fun cleanup() {
-        val now = System.currentTimeMillis()
-        val threshold = now - (2 * WINDOW_MS)
-        windows.entries.removeIf { (_, window) ->
-            window.windowStart.get() < threshold
-        }
-    }
-}
+private val wsConnectionRateLimiter = SlidingWindowRateLimiter(maxRequests = 10, windowMs = 60_000L)
 
 fun Route.syncRoutes(
     config: AppConfig,
@@ -365,17 +332,17 @@ fun Route.syncRoutes(
                         Snapshots.selectAll()
                             .where { Snapshots.id eq snapshotId }
                             .firstOrNull()
-                    } ?: throw ApiException(HttpStatusCode.NotFound.value, "NOT_FOUND", "Snapshot not found")
+                    } ?: throw ApiException(404, "NOT_FOUND", "Snapshot not found")
 
                     if (snapshot[Snapshots.bucketId] != bucketId) {
-                        throw ApiException(HttpStatusCode.Forbidden.value, "BUCKET_ACCESS_DENIED", "Snapshot does not belong to this bucket")
+                        throw ApiException(403, "BUCKET_ACCESS_DENIED", "Snapshot does not belong to this bucket")
                     }
 
                     // Resolve file path with path traversal protection
                     val snapshotDir = File(config.snapshotStoragePath).canonicalFile
                     val snapshotFile = File(config.snapshotStoragePath, snapshot[Snapshots.filePath])
                     if (!snapshotFile.canonicalFile.startsWith(snapshotDir)) {
-                        throw ApiException(HttpStatusCode.Forbidden.value, "BUCKET_ACCESS_DENIED", "Invalid file path")
+                        throw ApiException(403, "BUCKET_ACCESS_DENIED", "Invalid file path")
                     }
 
                     if (!snapshotFile.exists()) {
@@ -385,7 +352,7 @@ fun Route.syncRoutes(
                             tempFile.renameTo(snapshotFile)
                         }
                         if (!snapshotFile.exists()) {
-                            throw ApiException(HttpStatusCode.NotFound.value, "NOT_FOUND", "Snapshot file not found on disk")
+                            throw ApiException(404, "NOT_FOUND", "Snapshot file not found on disk")
                         }
                     }
 
@@ -446,7 +413,7 @@ fun Route.syncRoutes(
     webSocket("/buckets/{id}/ws") {
         // SEC4-S-10: IP-based rate limiting for WebSocket upgrade attempts
         val clientIp = call.request.local.remoteAddress
-        if (!WebSocketConnectionRateLimiter.checkAndIncrement(clientIp)) {
+        if (!wsConnectionRateLimiter.checkAndIncrement(clientIp)) {
             close(CloseReason(WS_CLOSE_RATE_LIMITED, "Rate limit exceeded"))
             return@webSocket
         }

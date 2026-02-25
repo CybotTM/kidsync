@@ -5,7 +5,6 @@ import dev.kidsync.server.db.DatabaseFactory.dbQuery
 import dev.kidsync.server.models.*
 import dev.kidsync.server.util.HashUtil
 import dev.kidsync.server.util.SessionUtil
-import io.ktor.http.*
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.lessEq
@@ -435,15 +434,15 @@ class BucketService(
     @Suppress("ThrowsCount") // Validation throws are intentional guard clauses
     suspend fun transferCreator(bucketId: String, callerDeviceId: String, targetDeviceId: String) {
         if (callerDeviceId == targetDeviceId) {
-            throw ApiException(HttpStatusCode.BadRequest.value, "INVALID_REQUEST", "Cannot transfer creator role to yourself")
+            throw ApiException(400, "INVALID_REQUEST", "Cannot transfer creator role to yourself")
         }
 
         dbQuery {
             val bucket = Buckets.selectAll().where { Buckets.id eq bucketId }.firstOrNull()
-                ?: throw ApiException(HttpStatusCode.NotFound.value, "NOT_FOUND", "Bucket not found")
+                ?: throw ApiException(404, "NOT_FOUND", "Bucket not found")
 
             if (bucket[Buckets.createdBy] != callerDeviceId) {
-                throw ApiException(HttpStatusCode.Forbidden.value, "NOT_BUCKET_CREATOR", "Only the bucket creator can transfer ownership")
+                throw ApiException(403, "NOT_BUCKET_CREATOR", "Only the bucket creator can transfer ownership")
             }
 
             // Verify target has active (non-revoked) bucket access
@@ -453,7 +452,7 @@ class BucketService(
                     BucketAccess.revokedAt.isNull()
             }.any()
             if (!hasAccess) {
-                throw ApiException(HttpStatusCode.NotFound.value, "NOT_FOUND", "Target device does not have active access to this bucket")
+                throw ApiException(404, "NOT_FOUND", "Target device does not have active access to this bucket")
             }
 
             // Transfer ownership
