@@ -44,7 +44,7 @@ docker run --rm -v "$(pwd)/server:/app" -w /app gradle:8.12-jdk21 gradle buildFa
 
 ## Testing Requirements
 
-- Server: All 456 tests must pass (`gradle test`)
+- Server: All 464 tests must pass (`gradle test`)
 - Android: Unit tests must pass
 - New features should include appropriate test coverage
 

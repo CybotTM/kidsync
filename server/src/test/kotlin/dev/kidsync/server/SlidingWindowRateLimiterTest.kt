@@ -2,7 +2,6 @@ package dev.kidsync.server
 
 import dev.kidsync.server.util.SlidingWindowRateLimiter
 import org.junit.jupiter.api.Test
-import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -99,7 +98,7 @@ class SlidingWindowRateLimiterTest {
     @Test
     fun `concurrent access does not corrupt state`() {
         val limiter = SlidingWindowRateLimiter(maxRequests = 100, windowMs = 60_000L)
-        val threads = (1..10).map { threadIdx ->
+        val threads = (1..10).map {
             Thread {
                 for (i in 1..10) {
                     limiter.checkAndIncrement("shared-key")

@@ -22,18 +22,18 @@ src/main/kotlin/dev/kidsync/server/
   plugins/               # Auth, CORS, RateLimit, Serialization, StatusPages, WebSockets
   routes/                # Auth, Blob, Device, Family, Key, Push, Sync (7 route files)
   services/              # AuthService, SyncService, BlobService, PushService, WebSocketManager
-  util/                  # HashUtil, SessionUtil, ValidationUtil
+  util/                  # HashUtil, SessionUtil, SlidingWindowRateLimiter, ValidationUtil
 ```
 
 ## Commands
 
 | Command | Purpose |
 |---------|---------|
-| `docker run --rm -v "$(pwd):/app" -w /app gradle:8.12-jdk21 gradle test --no-daemon` | Run all 456 tests |
+| `docker run --rm -v "$(pwd):/app" -w /app gradle:8.12-jdk21 gradle test --no-daemon` | Run all 464 tests |
 | `docker run --rm -v "$(pwd):/app" -w /app gradle:8.12-jdk21 gradle buildFatJar --no-daemon` | Build fat JAR |
 | `docker build -t kidsync-server .` | Build Docker image |
 
-## Tests (456 across 40 test classes)
+## Tests (464 across 41 test classes)
 
 | Area | Key Suites | Focus |
 |------|-----------|-------|
@@ -47,7 +47,7 @@ src/main/kotlin/dev/kidsync/server/
 | Security | SecurityHeaderTest, InputValidationEdgeCaseTest, MalformedInputTest, ValidationUtilTest | Headers, input validation, UUID checks |
 | E2E | E2ETest, TwoDevicePairingE2ETest | Full lifecycle, multi-device pairing |
 | WebSocket | WebSocketManagerTest, WebSocketQueryParamAuthTest | Connection limits, query param auth |
-| Infrastructure | ConfigTest, HealthEndpointTest, ConcurrencyTest, RateLimiterTest | Config, health, concurrency, rate limits |
+| Infrastructure | ConfigTest, HealthEndpointTest, ConcurrencyTest, RateLimiterTest, SlidingWindowRateLimiterTest | Config, health, concurrency, rate limits |
 
 ## Critical Patterns
 

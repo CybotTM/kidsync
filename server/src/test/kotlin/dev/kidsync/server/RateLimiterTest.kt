@@ -12,13 +12,13 @@ import kotlin.test.assertEquals
 
 /**
  * Tests for rate limiting behavior.
- * These test the per-signing-key challenge rate limiter (ChallengeKeyRateLimiter)
- * via the HTTP endpoint, since it's a private object.
+ * These test the per-signing-key challenge rate limiter (challengeKeyRateLimiter
+ * SlidingWindowRateLimiter instance in AuthRoutes) via the HTTP endpoint.
  */
 class RateLimiterTest {
 
     // ================================================================
-    // ChallengeKeyRateLimiter -- tested via /auth/challenge endpoint
+    // Challenge key rate limiter -- tested via /auth/challenge endpoint
     // ================================================================
 
     @Test

@@ -48,7 +48,7 @@ Local-first, append-only OpLog. Server is a dumb encrypted relay (cannot decrypt
 - CORS restricted via `KIDSYNC_CORS_ORIGINS` env var
 - Rate limiting per endpoint. `FLAG_SECURE` on sensitive screens.
 
-## Testing (456 server tests, 881+ Android tests)
+## Testing (464 server tests, 881+ Android tests)
 
 ```bash
 docker run --rm -v "$(pwd)/server:/app" -w /app gradle:8.12-jdk21 gradle test --no-daemon
