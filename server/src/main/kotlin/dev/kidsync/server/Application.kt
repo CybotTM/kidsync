@@ -129,7 +129,7 @@ fun Application.module(config: AppConfig = AppConfig()) {
     // this server MUST be deployed behind a trusted reverse proxy (nginx, Caddy, etc.) that
     // strips/overwrites X-Forwarded-* headers from untrusted clients. Without this, an
     // attacker can spoof their IP address to bypass rate limiting.
-    // DEFERRED: Ktor framework limitation — XForwardedHeaders trusts all sources and does not
+    // DEFERRED(INFRA-01): Ktor framework limitation — XForwardedHeaders trusts all sources and does not
     // support configuring trusted proxy addresses. When Ktor adds this support, restrict to
     // known reverse proxy IPs. Workaround: deploy behind a reverse proxy that strips/overwrites
     // X-Forwarded-* headers from untrusted clients.
