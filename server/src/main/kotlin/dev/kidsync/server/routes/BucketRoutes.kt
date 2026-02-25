@@ -129,7 +129,7 @@ fun Route.bucketRoutes(bucketService: BucketService, wsManager: WebSocketManager
                         val request = call.receive<TransferCreatorRequest>()
 
                         if (request.targetDeviceId.isBlank()) {
-                            throw ApiException(HttpStatusCode.BadRequest.value, "INVALID_REQUEST", "targetDeviceId is required")
+                            throw ApiException(400, "INVALID_REQUEST", "targetDeviceId is required")
                         }
 
                         bucketService.transferCreator(bucketId, principal.deviceId, request.targetDeviceId)

@@ -24,6 +24,15 @@ import org.slf4j.LoggerFactory
 import org.slf4j.event.Level
 import java.io.File
 
+/** Interval between periodic cleanup runs (sessions, invites, temp files, ops). */
+private const val CLEANUP_INTERVAL_MS = 5 * 60 * 1000L // 5 minutes
+
+/** Maximum Content-Length for any single request body (JSON, blobs are separately limited). */
+private const val MAX_REQUEST_BODY_BYTES = 10L * 1024 * 1024 // 10 MB
+
+/** HSTS max-age in seconds (2 years, per best-practice recommendation). */
+private const val HSTS_MAX_AGE_SECONDS = 63_072_000L
+
 fun main() {
     val config = AppConfig()
     val logger = LoggerFactory.getLogger("Application")
@@ -81,7 +90,7 @@ fun Application.module(config: AppConfig = AppConfig()) {
     val cleanupScope = CoroutineScope(Dispatchers.Default)
     val cleanupJob = cleanupScope.launch {
         while (isActive) {
-            delay(5 * 60 * 1000L)
+            delay(CLEANUP_INTERVAL_MS)
             try {
                 sessionUtil.cleanup()
             } catch (e: Exception) {
@@ -149,7 +158,7 @@ fun Application.module(config: AppConfig = AppConfig()) {
     // transfer encoding from bypassing the Content-Length size check.
     intercept(ApplicationCallPipeline.Plugins) {
         val contentLength = call.request.header(HttpHeaders.ContentLength)?.toLongOrNull()
-        if (contentLength != null && contentLength > 10 * 1024 * 1024) {
+        if (contentLength != null && contentLength > MAX_REQUEST_BODY_BYTES) {
             call.respond(HttpStatusCode.PayloadTooLarge)
             finish()
             return@intercept
@@ -174,7 +183,7 @@ fun Application.module(config: AppConfig = AppConfig()) {
         call.response.header("X-Frame-Options", "DENY")
         call.response.header("Cache-Control", "no-store")
         // SEC2-S-12: HSTS header to enforce HTTPS connections
-        call.response.header("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
+        call.response.header("Strict-Transport-Security", "max-age=$HSTS_MAX_AGE_SECONDS; includeSubDomains; preload")
         // SEC5-S-21: Additional security headers
         call.response.header("Referrer-Policy", "no-referrer")
         call.response.header("Content-Security-Policy", "default-src 'none'")

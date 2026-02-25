@@ -13,60 +13,18 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters
 import org.bouncycastle.crypto.signers.Ed25519Signer
-import org.jetbrains.exposed.sql.selectAll
 import dev.kidsync.server.util.CHALLENGE_TOKEN_PREFIX
+import dev.kidsync.server.util.SlidingWindowRateLimiter
+import org.jetbrains.exposed.sql.selectAll
 import java.time.Instant
 import java.util.Base64
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicLong
 
 /**
  * SEC2-S-11: Per-signing-key rate limiter for challenge requests.
- * Limits each signing key to MAX_CHALLENGES_PER_KEY_PER_MINUTE requests per minute.
+ * Limits each signing key to 5 requests per minute.
  * SEC3-S-02: Only tracks registered signing keys (called after device existence check).
- * Includes periodic eviction of stale entries to prevent unbounded memory growth.
  */
-private object ChallengeKeyRateLimiter {
-    private const val MAX_CHALLENGES_PER_KEY_PER_MINUTE = 5
-    private const val WINDOW_MS = 60_000L
-
-    private data class KeyWindow(val count: AtomicInteger = AtomicInteger(0), val windowStart: AtomicLong = AtomicLong(0))
-    private val windows = ConcurrentHashMap<String, KeyWindow>()
-
-    fun checkAndIncrement(signingKey: String): Boolean {
-        // SEC3-S-02: Evict stale entries older than 2x the window period
-        cleanup()
-
-        val now = System.currentTimeMillis()
-        val window = windows.computeIfAbsent(signingKey) { KeyWindow() }
-
-        // SEC3-S-03: Synchronized block to prevent TOCTOU race on window reset-or-increment
-        synchronized(window) {
-            val start = window.windowStart.get()
-            if (now - start > WINDOW_MS) {
-                window.windowStart.set(now)
-                window.count.set(1)
-                return true
-            }
-
-            val current = window.count.incrementAndGet()
-            return current <= MAX_CHALLENGES_PER_KEY_PER_MINUTE
-        }
-    }
-
-    /**
-     * SEC3-S-02: Remove entries where windowStart is older than 2x the window period
-     * to prevent unbounded memory growth from accumulated signing keys.
-     */
-    fun cleanup() {
-        val now = System.currentTimeMillis()
-        val threshold = now - (2 * WINDOW_MS)
-        windows.entries.removeIf { (_, window) ->
-            window.windowStart.get() < threshold
-        }
-    }
-}
+private val challengeKeyRateLimiter = SlidingWindowRateLimiter(maxRequests = 5, windowMs = 60_000L)
 
 fun Route.authRoutes(config: AppConfig, sessionUtil: SessionUtil) {
     route("/auth") {
@@ -102,7 +60,7 @@ fun Route.authRoutes(config: AppConfig, sessionUtil: SessionUtil) {
                 }
 
                 // SEC2-S-11: Per-signing-key rate limit to prevent challenge DoS
-                if (!ChallengeKeyRateLimiter.checkAndIncrement(request.signingKey)) {
+                if (!challengeKeyRateLimiter.checkAndIncrement(request.signingKey)) {
                     throw ApiException(429, "RATE_LIMITED", "Too many challenge requests for this key")
                 }
 
