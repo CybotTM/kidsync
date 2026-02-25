@@ -70,7 +70,7 @@ src/main/kotlin/dev/kidsync/server/
 | `KIDSYNC_PORT` | `8080` | Server port |
 | `KIDSYNC_SESSION_TTL_SECONDS` | `3600` | Session token lifetime |
 | `KIDSYNC_CHALLENGE_TTL_SECONDS` | `60` | Challenge nonce lifetime |
-| `KIDSYNC_SERVER_ORIGIN` | (unset) | Server origin for challenge-response auth |
+| `KIDSYNC_SERVER_ORIGIN` | `https://api.kidsync.app` | Server origin for challenge-response auth (MUST set in prod) |
 
 See `.env.example` at project root for full list.
 
