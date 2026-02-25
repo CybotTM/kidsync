@@ -204,12 +204,13 @@ KidSync uses client-side encryption with a per-family Data Encryption Key (DEK) 
 **Precondition:** The user has their 24-word recovery mnemonic.
 
 1. User installs KidSync on a new device
-2. User logs in with email + password (+ TOTP if enabled)
-3. User navigates to recovery restore and enters the 24 words
-4. The app calls `GET /keys/recovery` to download the wrapped DEK blob
-5. The app derives the recovery key from the mnemonic + userId via HKDF
-6. The app unwraps the DEK using AES-256-GCM with the recovery key
-7. The app stores the DEK locally and resumes sync
+2. The app generates new Ed25519/X25519 keypairs and registers with the server
+3. User authenticates via Ed25519 challenge-response
+4. User navigates to recovery restore and enters the 24 words (+ optional passphrase)
+5. The app calls `GET /recovery` to download the encrypted recovery blob
+6. The app derives the recovery key from the mnemonic via HKDF
+7. The app decrypts the recovery blob, extracts seed, bucket IDs, and DEKs
+8. The app re-wraps DEKs for the new device's keys and resumes sync
 
 **If the user does NOT have the recovery mnemonic:**
 
@@ -228,7 +229,7 @@ If a device is suspected compromised:
 1. Revoke the device via `DELETE /devices/{deviceId}` (sets `revoked_at`)
 2. Trigger key rotation from another active device in the family
 3. The new epoch's DEK is wrapped for all remaining active devices, excluding the revoked one
-4. The revoked device can no longer authenticate (JWT validation checks device status)
+4. The revoked device can no longer authenticate (session validation checks device revocation status)
 
 ---
 
@@ -328,66 +329,36 @@ done
 
 ## 5. Certificate and Secret Rotation
 
-### JWT Secret Rotation
+### Session Invalidation
 
-The server uses HMAC256 with `KIDSYNC_JWT_SECRET` to sign all JWTs. Rotating this secret invalidates every outstanding token.
+The server uses opaque session tokens (`sess_` prefix) with a configurable TTL (default: 1 hour via `KIDSYNC_SESSION_TTL_SECONDS`). Sessions are stored in the database and validated on each request.
 
-**Impact of rotation:**
-
-| Token Type | Default Lifetime | Effect |
-|---|---|---|
-| Access token | 15 minutes (`KIDSYNC_JWT_ACCESS_EXP_MIN`) | Fails validation immediately |
-| Refresh token | 30 days (`KIDSYNC_JWT_REFRESH_EXP_DAYS`) | Stored as SHA-256 hash in DB; the hash is secret-independent, BUT the refresh flow issues a new access token signed with the old secret. After rotation the new access token from refresh will use the new secret. |
-
-**Rotation procedure (immediate, with forced re-auth):**
+**To force all devices to re-authenticate** (e.g., after suspected compromise):
 
 ```bash
-# 1. Generate a new secret (minimum 32 characters)
-NEW_SECRET=$(openssl rand -base64 48)
-
-# 2. Update the environment variable
-# For Docker, update docker-compose.yml or the run command:
-docker stop kidsync-server
-
-docker run -d \
-    --name kidsync-server \
-    -p 8080:8080 \
-    -v /app/data:/app/data \
-    -e KIDSYNC_JWT_SECRET="$NEW_SECRET" \
-    kidsync-server:latest
-
-# 3. Verify
-curl -f http://localhost:8080/health
+# Delete all active sessions
+sqlite3 /app/data/kidsync.db "DELETE FROM Sessions;"
 ```
 
-**What users experience:** Active sessions fail with 401. The Android client's `AuthInterceptor` detects 401 responses and attempts a token refresh. Since the refresh token hash in the database is still valid, the refresh endpoint will issue new tokens signed with the new secret. Users are transparently re-authenticated unless their refresh token has expired.
+All devices will receive 401 responses and must re-authenticate via Ed25519 challenge-response. No passwords or secrets are involved -- devices authenticate using their Ed25519 signing keypair.
 
-**To force all sessions to fully re-authenticate** (e.g., after a secret compromise):
-
-```bash
-# Revoke all refresh tokens in the database
-sqlite3 /app/data/kidsync.db "
-    UPDATE refresh_tokens
-    SET revoked_at = datetime('now')
-    WHERE revoked_at IS NULL;
-"
-```
-
-This forces every user to log in again with email + password (+ TOTP).
-
-### TOTP Secret Compromise
-
-If the TOTP infrastructure is compromised, per-user TOTP secrets are stored in the `users.totp_secret` column. Disable TOTP for affected users and require re-enrollment:
+**To invalidate sessions for a specific device:**
 
 ```bash
 sqlite3 /app/data/kidsync.db "
-    UPDATE users
-    SET totp_enabled = 0, totp_secret = NULL
-    WHERE id = '<user-id>';
+    DELETE FROM Sessions
+    WHERE device_id = '<device-uuid>';
 "
 ```
 
-The user will need to set up TOTP again via `POST /auth/totp/setup` and `POST /auth/totp/verify`.
+### Signing Key Compromise
+
+If a device's Ed25519 signing key is suspected compromised:
+
+1. Revoke the device via `DELETE /devices/{deviceId}`
+2. Delete any active sessions for that device
+3. Trigger DEK rotation from another active device in the bucket
+4. The compromised key can no longer be used to authenticate or sign attestations
 
 ---
 

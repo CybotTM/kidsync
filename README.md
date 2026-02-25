@@ -23,7 +23,7 @@ KidSync uses a local-first, append-only OpLog architecture:
 
 | Component | Technology |
 |-----------|-----------|
-| Android | Kotlin, Jetpack Compose, Room + SQLCipher, Tink, Hilt, WorkManager |
+| Android | Kotlin, Jetpack Compose, Room + SQLCipher, BouncyCastle, Hilt, WorkManager |
 | Server | Kotlin, Ktor, Exposed ORM, SQLite WAL |
 | Crypto | X25519, AES-256-GCM, HKDF, Ed25519 signatures, BIP39 recovery |
 
@@ -35,7 +35,7 @@ Build and run with Docker:
 
 ```bash
 cp .env.example .env
-# Edit .env -- set KIDSYNC_JWT_SECRET to a strong random value
+# Edit .env -- adjust settings for your environment
 docker compose up -d
 ```
 
