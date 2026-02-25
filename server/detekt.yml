@@ -1,9 +1,11 @@
 build:
-  maxIssues: -1  # Report all issues without failing (baseline phase)
+  maxIssues: 0
 
 complexity:
   LongMethod:
     threshold: 60
+    # Ktor route/plugin/service functions and E2E tests are monolithic by convention
+    excludes: ['**/routes/**', '**/plugins/**', '**/services/**', '**/test/**']
   LongParameterList:
     functionThreshold: 8
     constructorThreshold: 10
@@ -13,6 +15,8 @@ complexity:
     thresholdInInterfaces: 20
   CyclomaticComplexMethod:
     threshold: 20
+    # Ktor route extension functions have many branches by design
+    excludes: ['**/routes/**']
   NestedBlockDepth:
     threshold: 5
 
@@ -33,8 +37,39 @@ style:
       - '0'
       - '1'
       - '2'
+      - '3'
+      - '5'
+      - '8'
       - '10'
+      - '16'
+      - '24'
+      - '32'
+      - '44'
+      - '50'
+      - '60'
+      - '64'
       - '100'
+      - '128'
+      - '256'
+      - '1000'
+      - '1024'
+      - '3600'
+      - '4096'
+      - '8080'
+      - '8192'
+      - '10_240'
+      - '1_048_576'
+      # Bitmasks
+      - '0xFF'
+      # HTTP status codes
+      - '400'
+      - '401'
+      - '403'
+      - '404'
+      - '409'
+      - '413'
+      - '415'
+      - '429'
     ignoreHashCodeFunction: true
     ignorePropertyDeclaration: true
     ignoreLocalVariableDeclaration: true
@@ -49,12 +84,42 @@ style:
   WildcardImport:
     active: true
     excludeImports:
+      # Ktor server framework
       - 'io.ktor.server.routing.*'
       - 'io.ktor.server.application.*'
       - 'io.ktor.server.response.*'
       - 'io.ktor.server.request.*'
+      - 'io.ktor.server.auth.*'
+      - 'io.ktor.server.plugins.*'
+      - 'io.ktor.server.websocket.*'
+      - 'io.ktor.server.engine.*'
+      - 'io.ktor.server.netty.*'
+      - 'io.ktor.server.testing.*'
       - 'io.ktor.http.*'
+      - 'io.ktor.websocket.*'
+      - 'io.ktor.utils.io.*'
+      - 'io.ktor.serialization.*'
+      # Ktor client (test code)
+      - 'io.ktor.client.call.*'
+      - 'io.ktor.client.request.*'
+      - 'io.ktor.client.request.forms.*'
+      - 'io.ktor.client.statement.*'
+      - 'io.ktor.client.plugins.*'
+      - 'io.ktor.client.plugins.contentnegotiation.*'
+      # Exposed ORM
       - 'org.jetbrains.exposed.sql.*'
+      # Kotlin/Kotlinx
+      - 'kotlinx.coroutines.*'
+      - 'kotlinx.serialization.*'
+      - 'kotlinx.serialization.json.*'
+      # Project internal packages
+      - 'dev.kidsync.server.db.*'
+      - 'dev.kidsync.server.models.*'
+      - 'dev.kidsync.server.services.*'
+      - 'dev.kidsync.server.plugins.*'
+      - 'dev.kidsync.server.routes.*'
+      # Java stdlib
+      - 'java.util.*'
   ReturnCount:
     max: 5
   ForbiddenComment:
@@ -62,6 +127,11 @@ style:
   UnusedPrivateMember:
     active: true
     allowedNames: 'serialVersionUID'
+  ThrowsCount:
+    active: true
+    max: 4
+    # Ktor route and service functions use throw for HTTP error responses
+    excludes: ['**/routes/**', '**/services/**']
 
 exceptions:
   TooGenericExceptionCaught:

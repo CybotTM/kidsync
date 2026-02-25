@@ -154,7 +154,13 @@ class MalformedInputTest {
         val response = client.post("/buckets/$bucketId/ops") {
             contentType(ContentType.Application.Json)
             header(HttpHeaders.Authorization, "Bearer ${device.sessionToken}")
-            setBody("""{"ops": [{"deviceId": "test", "keyEpoch": "not-a-number", "encryptedPayload": "dGVzdA==", "prevHash": "${"0".repeat(64)}", "currentHash": "${"a".repeat(64)}"}]}""")
+            val prevHash = "0".repeat(64)
+            val currentHash = "a".repeat(64)
+            setBody(
+                """{"ops": [{"deviceId": "test", "keyEpoch": "not-a-number", """ +
+                    """"encryptedPayload": "dGVzdA==", "prevHash": "$prevHash", """ +
+                    """"currentHash": "$currentHash"}]}"""
+            )
         }
 
         assertEquals(HttpStatusCode.BadRequest, response.status)
@@ -187,7 +193,12 @@ class MalformedInputTest {
 
         val response = client.post("/register") {
             contentType(ContentType.Application.Json)
-            setBody("""{"signingKey": "${TestHelper.encodePublicKey(signingKP.public)}", "encryptionKey": "${TestHelper.encodePublicKey(encryptionKP.public)}", "extraField": "should-be-ignored"}""")
+            val signingKey = TestHelper.encodePublicKey(signingKP.public)
+            val encryptionKey = TestHelper.encodePublicKey(encryptionKP.public)
+            setBody(
+                """{"signingKey": "$signingKey", "encryptionKey": "$encryptionKey", """ +
+                    """"extraField": "should-be-ignored"}"""
+            )
         }
 
         assertEquals(HttpStatusCode.Created, response.status)

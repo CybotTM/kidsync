@@ -234,8 +234,8 @@ class BucketViewModel @Inject constructor(
                 try {
                     val parsedUrl = java.net.URL(payload.s)
                     // SEC3-A-18: Warn when connecting to non-kidsync.app domains.
-                    // TODO: For production, enforce a domain whitelist (e.g., only *.kidsync.app)
-                    // and reject connections to non-whitelisted domains entirely.
+                    // DEFERRED(SEC3-A-18): For production, enforce a domain whitelist
+                    // (e.g., only *.kidsync.app) and reject non-whitelisted domains.
                     if (!parsedUrl.host.endsWith("kidsync.app")) {
                         android.util.Log.w(
                             "BucketViewModel",

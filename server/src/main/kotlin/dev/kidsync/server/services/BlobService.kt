@@ -5,7 +5,6 @@ import dev.kidsync.server.db.Blobs
 import dev.kidsync.server.db.DatabaseFactory.dbQuery
 import dev.kidsync.server.models.BlobResponse
 import org.jetbrains.exposed.sql.*
-import org.slf4j.LoggerFactory
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.attribute.PosixFilePermissions
@@ -17,7 +16,6 @@ import java.util.*
 
 class BlobService(private val config: AppConfig) {
 
-    private val logger = LoggerFactory.getLogger(BlobService::class.java)
     private val isoFormatter = DateTimeFormatter.ISO_INSTANT
 
     companion object {

@@ -149,7 +149,7 @@ class PushService(private val encryptionKeyBase64: String? = null) {
                 val platform = tokenRow[PushTokens.platform]
                 // SEC6-S-13: Decrypt token for use
                 // SEC7-S-05: Skip devices whose token cannot be decrypted
-                val pushToken = decryptToken(tokenRow[PushTokens.token]) ?: continue
+                decryptToken(tokenRow[PushTokens.token]) ?: continue
 
                 // In production, this would call the actual push API
                 // Payload is opaque: { "type": "sync", "bucket": bucketId }

@@ -48,6 +48,7 @@ fun main() {
     }.start(wait = true)
 }
 
+@Suppress("LongMethod")
 fun Application.module(config: AppConfig = AppConfig()) {
     // SEC3-S-16: Validate storage paths on startup (fail fast if invalid)
     AppConfig.validateStoragePaths(config)

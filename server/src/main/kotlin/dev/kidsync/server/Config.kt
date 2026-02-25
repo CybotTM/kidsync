@@ -51,19 +51,15 @@ data class AppConfig(
             )
 
             for ((name, path) in pathsToValidate) {
-                if (path.isBlank()) {
-                    throw IllegalStateException("SEC3-S-16: $name is empty. Configure a valid storage path.")
-                }
+                check(path.isNotBlank()) { "SEC3-S-16: $name is empty. Configure a valid storage path." }
 
                 val dir = File(path)
 
                 // Create directory if it doesn't exist
                 if (!dir.exists()) {
                     logger.info("Creating storage directory for {}: {}", name, dir.absolutePath)
-                    if (!dir.mkdirs()) {
-                        throw IllegalStateException(
-                            "SEC3-S-16: Failed to create directory for $name: ${dir.absolutePath}"
-                        )
+                    check(dir.mkdirs()) {
+                        "SEC3-S-16: Failed to create directory for $name: ${dir.absolutePath}"
                     }
 
                     // Set directory permissions to 700 (owner rwx only)
@@ -78,17 +74,13 @@ data class AppConfig(
                 }
 
                 // Verify it's a directory
-                if (!dir.isDirectory) {
-                    throw IllegalStateException(
-                        "SEC3-S-16: $name path is not a directory: ${dir.absolutePath}"
-                    )
+                check(dir.isDirectory) {
+                    "SEC3-S-16: $name path is not a directory: ${dir.absolutePath}"
                 }
 
                 // Verify it's writable
-                if (!dir.canWrite()) {
-                    throw IllegalStateException(
-                        "SEC3-S-16: $name path is not writable: ${dir.absolutePath}"
-                    )
+                check(dir.canWrite()) {
+                    "SEC3-S-16: $name path is not writable: ${dir.absolutePath}"
                 }
 
                 logger.info("Validated storage path {}: {}", name, dir.canonicalPath)
@@ -99,10 +91,8 @@ data class AppConfig(
                 val dbDir = File(config.dbPath).parentFile
                 if (dbDir != null && !dbDir.exists()) {
                     logger.info("Creating database directory: {}", dbDir.absolutePath)
-                    if (!dbDir.mkdirs()) {
-                        throw IllegalStateException(
-                            "SEC3-S-16: Failed to create database directory: ${dbDir.absolutePath}"
-                        )
+                    check(dbDir.mkdirs()) {
+                        "SEC3-S-16: Failed to create database directory: ${dbDir.absolutePath}"
                     }
                 }
             }

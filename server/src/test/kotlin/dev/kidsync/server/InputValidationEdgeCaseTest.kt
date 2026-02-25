@@ -484,7 +484,7 @@ class InputValidationEdgeCaseTest {
         val client = createJsonClient()
 
         val device = TestHelper.registerDevice(client)
-        val authedDevice = TestHelper.authenticateDevice(client, device)
+        TestHelper.authenticateDevice(client, device)
 
         // Get a fresh challenge
         val challengeResp = client.post("/auth/challenge") {

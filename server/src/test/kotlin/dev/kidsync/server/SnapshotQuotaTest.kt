@@ -120,7 +120,6 @@ class SnapshotQuotaTest {
 
         // Create device with bucket 1
         val device = TestHelper.setupDeviceWithBucket(client)
-        val bucket1Id = device.bucketId!!
         uploadOpsChain(client, device, 1)
         val resp1 = uploadSnapshot(client, device, 1)
         assertEquals(HttpStatusCode.Created, resp1.status)

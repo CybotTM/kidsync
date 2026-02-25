@@ -30,9 +30,9 @@ class WebSocketManagerTest {
         override var masking: Boolean = false
         override var maxFrameSize: Long = Long.MAX_VALUE
         override val outgoing: SendChannel<Frame> = Channel(Channel.UNLIMITED)
-        override suspend fun flush() {}
+        override suspend fun flush() { /* no-op stub */ }
         @Deprecated("Use cancel instead", ReplaceWith("cancel()"))
-        override fun terminate() {}
+        override fun terminate() { /* no-op stub */ }
     }
 
     private fun newManager() = WebSocketManager()
