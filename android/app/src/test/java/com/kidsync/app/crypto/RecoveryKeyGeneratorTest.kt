@@ -109,10 +109,13 @@ class RecoveryKeyGeneratorTest : FunSpec({
 
     test("mnemonicToEntropy throws for bad checksum") {
         val (words, _) = generator.generateMnemonic()
-        // Replace last word to break the checksum
-        val lastWord = words.last()
-        val differentWord = Bip39WordList.WORDS.first { it != lastWord }
-        val modifiedWords = words.dropLast(1) + listOf(differentWord)
+        // Flip the least significant bit of the last word's index. For a 24-word
+        // mnemonic, the last 8 bits of the 264-bit sequence are checksum bits, so
+        // flipping bit 0 of the last word deterministically breaks the checksum
+        // (the entropy stays the same but the stored checksum differs by 1 bit).
+        val lastWordIndex = Bip39WordList.WORDS.indexOf(words.last())
+        val badIndex = lastWordIndex xor 1
+        val modifiedWords = words.dropLast(1) + listOf(Bip39WordList.WORDS[badIndex])
 
         val result = runCatching {
             generator.mnemonicToEntropy(modifiedWords)

@@ -148,7 +148,9 @@ class SecurityHeaderTest {
 
         val response = client.post("/register") {
             contentType(ContentType.Application.Json)
-            setBody("""{"signingKey": "${TestHelper.encodePublicKey(signingKP.public)}", "encryptionKey": "${TestHelper.encodePublicKey(encryptionKP.public)}"}""")
+            val signingKey = TestHelper.encodePublicKey(signingKP.public)
+            val encryptionKey = TestHelper.encodePublicKey(encryptionKP.public)
+            setBody("""{"signingKey": "$signingKey", "encryptionKey": "$encryptionKey"}""")
         }
         assertEquals(HttpStatusCode.Created, response.status)
         assertEquals("nosniff", response.headers["X-Content-Type-Options"])
